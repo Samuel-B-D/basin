@@ -37,7 +37,6 @@ internal struct GridTone
 
     public readonly float HaloWidth => _effects.GlowRadius * MathF.Sqrt(MathF.PI);
 
-
     public readonly GridEffects Effects => _effects;
 
     public readonly float DensityOf(double spacing) => _effects.DensityOf(spacing);

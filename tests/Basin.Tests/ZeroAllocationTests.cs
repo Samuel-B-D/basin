@@ -664,7 +664,6 @@ public sealed class ZeroAllocationTests
             }, size);
         }
 
-
         void Frame(int i)
         {
             var progress = toggle ? Math.Abs(((i % 60) / 30.0) - 1.0) : 1.0;

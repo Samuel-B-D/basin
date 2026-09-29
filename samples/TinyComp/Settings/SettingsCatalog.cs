@@ -38,6 +38,8 @@ internal static class SettingsCatalog
 
     public static IReadOnlyList<string> Sides { get; } = ["left", "right", "top", "bottom"];
 
+    public static IReadOnlyList<string> GridAnimations { get; } = ["none", "fade", "ripple", "draw", "sweep"];
+
     public static IReadOnlyList<string> Transforms { get; } =
         ["normal", "90", "180", "270", "flipped", "flipped-90", "flipped-180", "flipped-270"];
 
@@ -216,6 +218,10 @@ internal static class SettingsCatalog
             new(Canvas, "canvas", "grid", "Grid", SettingKind.Choice) { Default = "\"always\"", Choices = ["always", "drag", "never"] },
             new(Canvas, "canvas", "grid_cell", "Grid cell", SettingKind.Integer) { Default = "64", Min = 8, Max = 512 },
             new(Canvas, "canvas", "grid_color", "Grid color", SettingKind.Color) { Default = "\"#2a35c0\"" },
+            new(Canvas, "canvas", "grid_animation", "Grid reveal", SettingKind.Choice) { Default = "\"fade\"", Choices = GridAnimations },
+            new(Canvas, "canvas", "grid_animation_ms", "Grid reveal (ms)", SettingKind.Integer) { Default = "200", Min = 0, Max = 5000 },
+            new(Canvas, "canvas", "grid_easing", "Grid reveal easing", SettingKind.Choice) { Default = "\"out-cubic\"", Choices = GridEasings.Names },
+            new(Canvas, "canvas", "grid_linger_ms", "Grid linger (ms)", SettingKind.Integer) { Default = "150", Min = 0, Max = 5000 },
             new(Canvas, "canvas", "desktop_grid", "Grid on the desktop", SettingKind.Flag) { Default = "false" },
             new(Canvas, "canvas", "wallpaper", "Wallpaper", SettingKind.Choice) { Default = "\"desktop\"", Choices = ["desktop", "output"] },
             new(Canvas, "canvas", "animation_ms", "Animation (ms)", SettingKind.Integer) { Default = "250", Min = 0, Max = 5000 },
@@ -304,6 +310,10 @@ internal static class SettingsCatalog
             new(Overview, "overview", "grid", "Grid", SettingKind.Choice) { Default = "\"always\"", Choices = ["always", "drag", "never"] },
             new(Overview, "overview", "grid_cell", "Grid cell", SettingKind.Integer) { Default = "64", Min = 8, Max = 512 },
             new(Overview, "overview", "grid_color", "Grid color", SettingKind.Color) { Default = "\"#2a35c0\"" },
+            new(Overview, "overview", "grid_animation", "Grid reveal", SettingKind.Choice) { Default = "\"fade\"", Choices = GridAnimations },
+            new(Overview, "overview", "grid_animation_ms", "Grid reveal (ms)", SettingKind.Integer) { Default = "200", Min = 0, Max = 5000 },
+            new(Overview, "overview", "grid_easing", "Grid reveal easing", SettingKind.Choice) { Default = "\"out-cubic\"", Choices = GridEasings.Names },
+            new(Overview, "overview", "grid_linger_ms", "Grid linger (ms)", SettingKind.Integer) { Default = "150", Min = 0, Max = 5000 },
             new(Overview, "overview", "desktop_grid", "Grid on the desktop", SettingKind.Flag) { Default = "false" },
             new(Overview, "overview", "animation_ms", "Animation (ms)", SettingKind.Integer) { Default = "250", Min = 0, Max = 5000 },
 

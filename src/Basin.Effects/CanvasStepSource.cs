@@ -14,6 +14,9 @@ public sealed class CanvasStepSource : IMeshSource
     private int _cellSize = 64;
     private float _alpha = 1f;
     private double _minSpacing;
+    private GridReveal _reveal = GridReveal.Full;
+    private GridRevealMask _mask;
+    private int _lineVertices = 6;
 
     public CanvasStepMap? Map { get; set; }
 
@@ -39,6 +42,12 @@ public sealed class CanvasStepSource : IMeshSource
         set => _alpha = Math.Clamp(value, 0f, 1f);
     }
 
+    public GridReveal Reveal
+    {
+        get => _reveal;
+        set => _reveal = value;
+    }
+
     public bool Lines { get; set; } = true;
 
     public bool ShelfLines { get; set; } = true;
@@ -59,10 +68,13 @@ public sealed class CanvasStepSource : IMeshSource
         }
 
         var count = 0;
+        _mask = write ? GridRevealMask.Of(_reveal, bounds) : default;
+        _lineVertices = GridRevealMask.ClipsFor(_reveal) ? GridRevealMask.LineVertices : 6;
         var lines = Lines && _alpha > 0f;
         if (lines)
         {
-            var color = new RenderColor(Color.R * _alpha, Color.G * _alpha, Color.B * _alpha, Color.A * _alpha);
+            var alpha = _alpha * (write ? _mask.Scale : 1f);
+            var color = new RenderColor(Color.R * alpha, Color.G * alpha, Color.B * alpha, Color.A * alpha);
             if (ShelfLines)
             {
                 ShelfGrid(map, bounds, into, ref count, write, color);
@@ -125,10 +137,10 @@ public sealed class CanvasStepSource : IMeshSource
             {
                 var from = Lerp(inner0, outer0, quarter);
                 var to = Lerp(inner1, outer1, quarter);
-                Segment(into.Slice(count, 6), from, to, color);
+                Line(into, count, from, to, color);
             }
 
-            count += 6;
+            count += _lineVertices;
         }
 
         var horizontal = side is CanvasStepSides.Top or CanvasStepSides.Bottom;
@@ -153,10 +165,10 @@ public sealed class CanvasStepSource : IMeshSource
                 var t = (screen - start) / (end - start);
                 var from = horizontal ? (screen, inner0.Y) : (inner0.X, screen);
                 var to = Lerp(outer0, outer1, t);
-                Segment(into.Slice(count, 6), from, to, color);
+                Line(into, count, from, to, color);
             }
 
-            count += 6;
+            count += _lineVertices;
         }
     }
 
@@ -211,10 +223,10 @@ public sealed class CanvasStepSource : IMeshSource
 
             if (write)
             {
-                Quad(into.Slice(count, 6), x, area.Y, x + 1, area.Bottom, color);
+                Column(into, count, x, area.Y, area.Bottom, color);
             }
 
-            count += 6;
+            count += _lineVertices;
         }
 
         var firstY = Ceiling((long)Math.Ceiling(map.CenterY + ((area.Y - map.CenterY) / scale)), step);
@@ -229,10 +241,10 @@ public sealed class CanvasStepSource : IMeshSource
 
             if (write)
             {
-                Quad(into.Slice(count, 6), area.X, y, area.Right, y + 1, color);
+                Row(into, count, area.X, area.Right, y, color);
             }
 
-            count += 6;
+            count += _lineVertices;
         }
     }
 
@@ -261,6 +273,42 @@ public sealed class CanvasStepSource : IMeshSource
 
     private static (double X, double Y) Lerp((double X, double Y) from, (double X, double Y) to, double t) =>
         (from.X + ((to.X - from.X) * t), from.Y + ((to.Y - from.Y) * t));
+
+    private void Column(Span<MeshVertex> into, int at, double x, double top, double bottom, in RenderColor color)
+    {
+        if (!_mask.Clips)
+        {
+            Quad(into.Slice(at, 6), x, top, x + 1, bottom, color);
+            return;
+        }
+
+        _mask.WriteLine(into.Slice(at, _lineVertices), ((float)x, (float)top), ((float)x, (float)bottom), 1, 0, vertical: true, color);
+    }
+
+    private void Row(Span<MeshVertex> into, int at, double left, double right, double y, in RenderColor color)
+    {
+        if (!_mask.Clips)
+        {
+            Quad(into.Slice(at, 6), left, y, right, y + 1, color);
+            return;
+        }
+
+        _mask.WriteLine(into.Slice(at, _lineVertices), ((float)left, (float)y), ((float)right, (float)y), 0, 1, vertical: false, color);
+    }
+
+    private void Line(Span<MeshVertex> into, int at, (double X, double Y) from, (double X, double Y) to, in RenderColor color)
+    {
+        if (!_mask.Clips)
+        {
+            Segment(into.Slice(at, 6), from, to, color);
+            return;
+        }
+
+        var horizontal = Math.Abs(to.X - from.X) >= Math.Abs(to.Y - from.Y);
+        _mask.WriteLine(
+            into.Slice(at, _lineVertices), ((float)from.X, (float)from.Y), ((float)to.X, (float)to.Y),
+            horizontal ? 0 : 1, horizontal ? 1 : 0, vertical: !horizontal, color);
+    }
 
     private static void Segment(Span<MeshVertex> into, (double X, double Y) from, (double X, double Y) to, in RenderColor color)
     {

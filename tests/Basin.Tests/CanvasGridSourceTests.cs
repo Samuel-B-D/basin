@@ -431,6 +431,43 @@ public sealed class CanvasGridSourceTests
         return count;
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void Seam_lines_close_the_cleared_desktop_on_the_left_and_right(bool ends, bool separable)
+    {
+        var source = TerraceGrid(ends, 0.1);
+        source.Separable = separable;
+        source.DesktopLines = false;
+        var bounds = new Box(0, 0, 1200, 600);
+        var open = Write(source, bounds);
+        source.SeamLines = true;
+        var closed = Write(source, bounds);
+        Assert.Equal(open.Length + (2 * 6), closed.Length);
+        if (!ends)
+        {
+            AssertClear(closed, 180, double.MinValue, 1020, double.MaxValue);
+        }
+
+        var top = ends ? 100f : 0f;
+        var bottom = ends ? 500f : 600f;
+        var quads = Quads(closed);
+        Assert.Contains((179f, top, 180f, bottom), quads);
+        Assert.Contains((1020f, top, 1021f, bottom), quads);
+    }
+
+    [Fact]
+    public void Seam_lines_do_nothing_while_the_desktop_grid_is_drawn()
+    {
+        var source = TerraceGrid(ends: true, 0.1);
+        var bounds = new Box(0, 0, 1200, 600);
+        var plain = Write(source, bounds);
+        source.SeamLines = true;
+        Assert.Equal(plain, Write(source, bounds));
+    }
+
     [Fact]
     public void Without_desktop_lines_a_left_and_right_terrace_clears_the_plateau()
     {
@@ -540,6 +577,195 @@ public sealed class CanvasGridSourceTests
                 source.DesktopLines = false;
                 Write(source, new Box(0, 0, 600, 400));
             }
+        }
+    }
+
+    public static TheoryData<int> RevealKinds() => new() { 0, 1, 2, 3, 4, 5 };
+
+    private static readonly GridRevealStyle[] RevealStyles =
+        [GridRevealStyle.None, GridRevealStyle.Fade, GridRevealStyle.Ripple, GridRevealStyle.Draw, GridRevealStyle.Sweep];
+
+    private static (CanvasGridSource Source, Box Bounds) RevealSource(int kind)
+    {
+        switch (kind)
+        {
+            case 0:
+                return (new CanvasGridSource { CellSize = 64 }, new Box(0, 0, 1200, 600));
+            case 1:
+                return (FourSides(15), new Box(0, 0, 600, 400));
+            case 2:
+                return (TerraceGrid(ends: true, 0.1), new Box(0, 0, 1200, 600));
+            case 3:
+                var separable = TerraceGrid(ends: true, 0.1);
+                separable.Separable = true;
+                return (separable, new Box(0, 0, 1200, 600));
+            case 5:
+                var closedSeams = TerraceGrid(ends: true, 0.1);
+                closedSeams.DesktopLines = false;
+                closedSeams.SeamLines = true;
+                return (closedSeams, new Box(0, 0, 1200, 600));
+            default:
+                var zoomed = FourSides(15);
+                zoomed.ViewScale = 0.8;
+                zoomed.ViewCenterX = 300;
+                zoomed.ViewCenterY = 200;
+                return (zoomed, new Box(0, 0, 600, 400));
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(RevealKinds))]
+    public void Full_progress_is_the_unmasked_grid_for_every_style(int kind)
+    {
+        var (source, bounds) = RevealSource(kind);
+        var plain = Write(source, bounds);
+        foreach (var style in RevealStyles)
+        {
+            source.Reveal = new GridReveal(style, 1f, bounds.Width / 3.0, bounds.Height / 4.0, 24);
+            Assert.Equal(plain, Write(source, bounds));
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(RevealKinds))]
+    public void A_reveal_counts_the_same_for_every_progress_and_origin_and_writes_what_it_counts(int kind)
+    {
+        var (source, bounds) = RevealSource(kind);
+        (double X, double Y)[] origins =
+            [(0, 0), (bounds.Width / 2.0, bounds.Height / 2.0), (bounds.Right - 1, bounds.Bottom - 1), (-50, bounds.Height + 80)];
+        foreach (var style in RevealStyles)
+        {
+            var expected = -1;
+            foreach (var progress in new[] { 0f, 0.1f, 0.5f, 0.99f })
+            {
+                foreach (var (x, y) in origins)
+                {
+                    source.Reveal = new GridReveal(style, progress, x, y, 24);
+                    var count = Write(source, bounds).Length;
+                    if (expected < 0)
+                    {
+                        expected = count;
+                    }
+
+                    Assert.Equal(expected, count);
+                }
+            }
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(RevealKinds))]
+    public void Zero_progress_draws_nothing_for_every_style(int kind)
+    {
+        var (source, bounds) = RevealSource(kind);
+        foreach (var style in RevealStyles)
+        {
+            source.Reveal = new GridReveal(style, 0f, bounds.Width / 2.0, bounds.Height / 2.0, 24);
+            foreach (var vertex in Write(source, bounds))
+            {
+                Assert.Equal(0f, vertex.Color.A);
+            }
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(RevealKinds))]
+    public void A_ripple_draws_nothing_past_its_radius(int kind)
+    {
+        var (source, bounds) = RevealSource(kind);
+        var (ox, oy) = (bounds.Width * 0.3, bounds.Height * 0.6);
+        var far = Math.Sqrt(Math.Pow(Math.Max(ox, bounds.Width - ox), 2) + Math.Pow(Math.Max(oy, bounds.Height - oy), 2));
+        foreach (var progress in new[] { 0.1f, 0.3f, 0.6f, 0.9f })
+        {
+            source.Reveal = new GridReveal(GridRevealStyle.Ripple, progress, ox, oy, 24);
+            var radius = progress * (far + 24);
+            var lit = 0;
+            foreach (var vertex in Write(source, bounds))
+            {
+                if (vertex.Color.A > 0f)
+                {
+                    lit++;
+                    var distance = Math.Sqrt(Math.Pow(vertex.X - ox, 2) + Math.Pow(vertex.Y - oy, 2));
+                    Assert.True(distance < radius, $"p {progress}: ({vertex.X}, {vertex.Y}) at {distance} past {radius}");
+                }
+            }
+
+            Assert.True(lit > 0 || progress < 0.3f, $"p {progress} draws something");
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(RevealKinds))]
+    public void A_sweep_draws_nothing_past_its_front(int kind)
+    {
+        var (source, bounds) = RevealSource(kind);
+        foreach (var progress in new[] { 0.1f, 0.4f, 0.8f })
+        {
+            source.Reveal = new GridReveal(GridRevealStyle.Sweep, progress, bounds.Width - 20, bounds.Height / 2.0, 24);
+            var front = bounds.Right - (progress * (bounds.Width + 24));
+            var lit = 0;
+            foreach (var vertex in Write(source, bounds))
+            {
+                if (vertex.Color.A > 0f)
+                {
+                    lit++;
+                    Assert.True(vertex.X > front, $"p {progress}: x {vertex.X} behind the front at {front}");
+                }
+            }
+
+            Assert.True(lit > 0, $"p {progress} draws something");
+        }
+    }
+
+    [Fact]
+    public void A_drawn_line_farther_from_the_origin_never_reaches_further()
+    {
+        var source = new CanvasGridSource { CellSize = 64 };
+        var bounds = new Box(0, 0, 1200, 600);
+        var (ox, oy) = (500.0, 260.0);
+        var columns = source.VerticalLines(bounds);
+        var rows = source.HorizontalLines(bounds);
+        foreach (var progress in new[] { 0.2f, 0.5f, 0.8f })
+        {
+            source.Reveal = new GridReveal(GridRevealStyle.Draw, progress, ox, oy, 24);
+            var vertices = Write(source, bounds);
+            Assert.Equal((columns + rows) * 18, vertices.Length);
+            AssertReachFalls(vertices.AsSpan(0, columns * 18), columns, vertical: true, ox, oy);
+            AssertReachFalls(vertices.AsSpan(columns * 18), rows, vertical: false, ox, oy);
+        }
+    }
+
+    private static void AssertReachFalls(ReadOnlySpan<MeshVertex> vertices, int lines, bool vertical, double ox, double oy)
+    {
+        var reaches = new List<(double Across, double Reach)>();
+        for (var line = 0; line < lines; line++)
+        {
+            var reach = -1.0;
+            var across = 0.0;
+            foreach (var vertex in vertices.Slice(line * 18, 18))
+            {
+                if (vertex.Color.A <= 0f)
+                {
+                    continue;
+                }
+
+                across = vertical ? Math.Abs(vertex.X - ox) : Math.Abs(vertex.Y - oy);
+                reach = Math.Max(reach, vertical ? Math.Abs(vertex.Y - oy) : Math.Abs(vertex.X - ox));
+            }
+
+            if (reach >= 0)
+            {
+                reaches.Add((across, reach));
+            }
+        }
+
+        Assert.NotEmpty(reaches);
+        reaches.Sort();
+        for (var i = 1; i < reaches.Count; i++)
+        {
+            Assert.True(
+                reaches[i].Reach <= reaches[i - 1].Reach + 1.0,
+                $"a line {reaches[i].Across} away reaches {reaches[i].Reach}, past {reaches[i - 1].Reach} at {reaches[i - 1].Across}");
         }
     }
 }

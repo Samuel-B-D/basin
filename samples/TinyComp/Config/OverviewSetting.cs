@@ -47,6 +47,7 @@ internal sealed class OverviewSetting
     [
         "sides", "shelf", "shelf_scale", "shelf_min_scale", "shelf_step", "slope", "slope_window", "shelf_shape",
         "corner", "corner_radius", "mesh_cell", "drag", "grid", "grid_cell", "grid_color", "desktop_grid", "animation_ms",
+        "grid_animation", "grid_animation_ms", "grid_easing", "grid_linger_ms",
     ];
 
     public bool? Enable { get; init; }

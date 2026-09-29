@@ -930,7 +930,8 @@ internal sealed class Config
             switch (key)
             {
                 case "enable" or "zone" or "extension" or "edge_scale" or "slope" or "mesh_cell"
-                    or "grid" or "grid_cell" or "grid_color" or "desktop_grid" or "wallpaper" or "animation_ms" or "sides" or "corner" or "corner_radius"
+                    or "grid" or "grid_cell" or "grid_color" or "desktop_grid"
+                    or "grid_animation" or "grid_animation_ms" or "grid_easing" or "grid_linger_ms" or "wallpaper" or "animation_ms" or "sides" or "corner" or "corner_radius"
                     or "window" or "min_scale" or "scale_reach" or "shelf" or "shelf_scale" or "shelf_min_scale"
                     or "shelf_step" or "shelf_shape" or "slope_window"
                     or "drag":

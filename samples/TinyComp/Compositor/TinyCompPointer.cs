@@ -447,7 +447,7 @@ internal sealed partial class TinyComp
             _mode = DragMode.None;
             _effects.OnGrabEnd();
             _grabWindow = null;
-            SetCanvasGridDragging(false);
+            SetCanvasGridDragging(false, _cursorX, _cursorY);
             _touchMoveResize?.End();
             _framePress = null;
             if (!pressed)

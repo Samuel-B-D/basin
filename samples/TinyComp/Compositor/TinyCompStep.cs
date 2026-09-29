@@ -345,14 +345,16 @@ internal sealed partial class TinyComp
         var wall = overview.Settings.WallRenderColor;
         var shelf = overview.Settings.ShelfRenderColor;
         var texel = overview.Settings.TextureScaleValue;
-        var alpha = GridAlphaFor(settings) * (float)overview.Value;
+        var alpha = StepGridAlphaOf(view);
+        var reveal = GridRevealOf(settings, overview.StepReveal);
         var lines = settings.GridMode != CanvasGridMode.Never;
         var wallTexture = _wallTexture.Buffer;
         var shelfTexture = _shelfTexture.Buffer;
         var gridLines = overview.Settings.TextureGridValue || (shelfTexture is null && wallTexture is null);
         var desktopLines = gridLines && settings.DesktopGridValue;
         var linesChanged = !ReferenceEquals(source.Map, overview.Step) || source.CellSize != settings.GridCellSize ||
-            source.Color != color || !ReferenceEquals(source.Walls, walls) || source.Alpha != alpha || source.Lines != lines ||
+            source.Color != color || !ReferenceEquals(source.Walls, walls) || source.Alpha != alpha || source.Reveal != reveal ||
+            source.Lines != lines ||
             source.ShelfLines != gridLines || source.WallGridLines != gridLines || source.DesktopLines != desktopLines;
         var wallsChanged = !ReferenceEquals(walls.Map, overview.Step) || walls.WallColor != wall ||
             walls.WallShade != overview.Settings.WallShadeValue || walls.TextureScale != texel ||
@@ -364,6 +366,7 @@ internal sealed partial class TinyComp
         source.Color = color;
         source.Walls = walls;
         source.Alpha = alpha;
+        source.Reveal = reveal;
         source.Lines = lines;
         source.ShelfLines = gridLines;
         source.WallGridLines = gridLines;
@@ -383,11 +386,11 @@ internal sealed partial class TinyComp
         {
             overview.FloorMesh?.Destroy();
             overview.WallMesh?.Destroy();
-            overview.FloorMesh = new SceneMesh(_layers.Background) { Source = floor, Bounds = box };
+            overview.FloorMesh = new SceneMesh(_backdrop) { Source = floor, Bounds = box };
             overview.FloorMesh.SetSpriteBuffer(shelfTexture);
-            overview.WallMesh = new SceneMesh(_layers.Background) { Source = walls, Bounds = box };
+            overview.WallMesh = new SceneMesh(_backdrop) { Source = walls, Bounds = box };
             overview.WallMesh.SetSpriteBuffer(wallTexture);
-            overview.StepMesh = new SceneMesh(_layers.Background) { Source = source, Bounds = box };
+            overview.StepMesh = new SceneMesh(_backdrop) { Source = source, Bounds = box };
             return true;
         }
 

@@ -11,6 +11,8 @@ public sealed class CanvasGridSource : IMeshSource
     private float _alpha = 1f;
     private double _minSpacing;
     private double _viewScale = 1.0;
+    private GridReveal _reveal = GridReveal.Full;
+    private GridRevealMask _mask;
 
     public CanvasWarp? Left
     {
@@ -80,10 +82,18 @@ public sealed class CanvasGridSource : IMeshSource
 
     public bool DesktopLines { get; set; } = true;
 
+    public bool SeamLines { get; set; }
+
     public float Alpha
     {
         get => _alpha;
         set => _alpha = Math.Clamp(value, 0f, 1f);
+    }
+
+    public GridReveal Reveal
+    {
+        get => _reveal;
+        set => _reveal = value;
     }
 
     public double ToScreen(double canvasX) => _map.ToScreen(canvasX);
@@ -222,23 +232,29 @@ public sealed class CanvasGridSource : IMeshSource
             return 0;
         }
 
+        var extra = GridRevealMask.ClipsFor(_reveal) ? GridRevealMask.LineVertices - 6 : 0;
         if (Separable)
         {
-            return StraightSegments(bounds) * 6;
+            return (StraightSegments(bounds) + SeamLineCount) * (6 + extra);
         }
 
-        var count = VerticalLinesWarped(bounds) * ColumnSegmentsWarped(bounds);
+        var verticals = VerticalLinesWarped(bounds);
+        var count = (verticals * ColumnSegmentsWarped(bounds)) + SeamLineCount;
+        var lines = verticals + SeamLineCount;
         if (!DesktopLines)
         {
-            count -= HiddenColumns(bounds);
+            var hidden = HiddenColumns(bounds);
+            count -= hidden;
+            lines -= hidden;
         }
 
         var zoneRowSegments = ZoneRowSegmentsWarped(bounds);
         var leftSegments = ZoneSegments(Left, bounds.X, bounds.Right);
         var rightSegments = ZoneSegments(Right, bounds.X, bounds.Right);
         var rowSegments = 1 + leftSegments + rightSegments;
-        var plateauSegments = rowSegments - 1 + PlateauParts(
+        var plateauParts = PlateauParts(
             bounds, leftSegments > 0 ? Left!.Seam : bounds.X, rightSegments > 0 ? Right!.Seam : bounds.Right, out _, out _);
+        var plateauSegments = rowSegments - 1 + plateauParts;
         var leftShelf = ShelfSegment(Left, bounds);
         var rightShelf = ShelfSegment(Right, bounds);
         var first = FirstHorizontal(bounds);
@@ -254,25 +270,34 @@ public sealed class CanvasGridSource : IMeshSource
             if (EndAt(y) is not null)
             {
                 count += zoneRowSegments;
+                lines++;
                 continue;
             }
 
-            count += HidesRow(y) ? plateauSegments : rowSegments;
+            var hides = HidesRow(y);
+            count += hides ? plateauSegments : rowSegments;
+            lines += hides ? plateauParts : 1;
             if (leftShelf > 0 && DrawsShelfRow(Left!, y))
             {
                 count++;
+                lines++;
             }
 
             if (rightShelf > 0 && DrawsShelfRow(Right!, y))
             {
                 count++;
+                lines++;
             }
         }
 
-        return count * 6;
+        return (count * 6) + (lines * extra);
     }
 
-    public void WriteVertices(in Box bounds, Span<MeshVertex> into) => WriteVerticesWarped(WarpBounds(bounds), into);
+    public void WriteVertices(in Box bounds, Span<MeshVertex> into)
+    {
+        _mask = GridRevealMask.Of(_reveal, bounds);
+        WriteVerticesWarped(WarpBounds(bounds), into);
+    }
 
     private void WriteVerticesWarped(in Box bounds, Span<MeshVertex> into)
     {
@@ -281,7 +306,8 @@ public sealed class CanvasGridSource : IMeshSource
             return;
         }
 
-        var color = new RenderColor(Color.R * _alpha, Color.G * _alpha, Color.B * _alpha, Color.A * _alpha);
+        var alpha = _alpha * _mask.Scale;
+        var color = new RenderColor(Color.R * alpha, Color.G * alpha, Color.B * alpha, Color.A * alpha);
         var write = 0;
         if (Separable)
         {
@@ -309,7 +335,7 @@ public sealed class CanvasGridSource : IMeshSource
             var bottom = bottomActive ? (float)_map.ToScreenPoint(canvasX, Bottom!.Seam).Y : bounds.Bottom;
             if (!HidesColumn(column))
             {
-                WriteColumn(into, ref write, (x, top), (x, bottom), color);
+                WriteColumn(into, ref write, (x, top), (x, bottom), color, line: true);
             }
 
             if (topActive)
@@ -346,7 +372,7 @@ public sealed class CanvasGridSource : IMeshSource
                 var screenY = end.ToScreen(y);
                 var start = leftActive ? _map.ToScreenPoint(Left!.Seam, y) : (bounds.X, screenY);
                 var stop = rightActive ? _map.ToScreenPoint(Right!.Seam, y) : (bounds.Right, screenY);
-                WriteRow(into, ref write, start, stop, color);
+                WriteRow(into, ref write, start, stop, color, line: true);
                 if (leftActive)
                 {
                     WriteRowCorner(into, ref write, Left!, end, y, color);
@@ -362,19 +388,19 @@ public sealed class CanvasGridSource : IMeshSource
 
             if (!HidesRow(y))
             {
-                WriteRow(into, ref write, flatLeft, flatRight, y, color);
+                WriteRow(into, ref write, flatLeft, flatRight, y, color, line: true);
             }
             else
             {
                 var parts = PlateauParts(bounds, flatLeft, flatRight, out var firstPart, out var secondPart);
                 if (parts > 0)
                 {
-                    WriteRow(into, ref write, firstPart.From, firstPart.To, y, color);
+                    WriteRow(into, ref write, firstPart.From, firstPart.To, y, color, line: true);
                 }
 
                 if (parts > 1)
                 {
-                    WriteRow(into, ref write, secondPart.From, secondPart.To, y, color);
+                    WriteRow(into, ref write, secondPart.From, secondPart.To, y, color, line: true);
                 }
             }
 
@@ -382,26 +408,28 @@ public sealed class CanvasGridSource : IMeshSource
             {
                 var x1 = Left!.Seam - (segment * SegmentWidth);
                 var x0 = Math.Max(Left.Terrace ? Math.Max(bounds.X, Left.Foot) : bounds.X, x1 - SegmentWidth);
-                WriteRow(into, ref write, x0, x1, y, color);
+                WriteRow(into, ref write, x0, x1, y, color, line: false);
             }
 
             for (var segment = 0; segment < rightSegments; segment++)
             {
                 var x0 = Right!.Seam + (segment * SegmentWidth);
                 var x1 = Math.Min(Right.Terrace ? Math.Min(bounds.Right, Right.Foot) : bounds.Right, x0 + SegmentWidth);
-                WriteRow(into, ref write, x0, x1, y, color);
+                WriteRow(into, ref write, x0, x1, y, color, line: false);
             }
 
             if (leftShelf && DrawsShelfRow(Left!, y))
             {
-                WriteRow(into, ref write, bounds.X, Left!.Foot, y, color);
+                WriteRow(into, ref write, bounds.X, Left!.Foot, y, color, line: true);
             }
 
             if (rightShelf && DrawsShelfRow(Right!, y))
             {
-                WriteRow(into, ref write, Right!.Foot, bounds.Right, y, color);
+                WriteRow(into, ref write, Right!.Foot, bounds.Right, y, color, line: true);
             }
         }
+
+        WriteSeamLines(bounds, into, ref write, color);
     }
 
     private void WriteStraight(in Box bounds, Span<MeshVertex> into, in RenderColor color)
@@ -420,18 +448,18 @@ public sealed class CanvasGridSource : IMeshSource
             var x = (float)Snap(ToScreen(column), ViewCenterX);
             if (!HidesColumn(column))
             {
-                WriteColumn(into, ref write, (x, bounds.Y), (x, bounds.Bottom), color);
+                WriteColumn(into, ref write, (x, bounds.Y), (x, bounds.Bottom), color, line: true);
                 continue;
             }
 
             if (Top is { IsIdentity: false } top)
             {
-                WriteColumn(into, ref write, (x, bounds.Y), (x, top.Seam), color);
+                WriteColumn(into, ref write, (x, bounds.Y), (x, top.Seam), color, line: true);
             }
 
             if (Bottom is { IsIdentity: false } bottom)
             {
-                WriteColumn(into, ref write, (x, bottom.Seam), (x, bounds.Bottom), color);
+                WriteColumn(into, ref write, (x, bottom.Seam), (x, bounds.Bottom), color, line: true);
             }
         }
 
@@ -448,19 +476,44 @@ public sealed class CanvasGridSource : IMeshSource
             var y = (float)Snap(ToScreenY(row), ViewCenterY);
             if (!HidesRow(row))
             {
-                WriteSegment(into, ref write, bounds.X, y, bounds.Right, y, color);
+                WriteSegment(into, ref write, bounds.X, y, bounds.Right, y, color, line: true);
                 continue;
             }
 
             if (Left is { IsIdentity: false } left)
             {
-                WriteSegment(into, ref write, bounds.X, y, left.Seam, y, color);
+                WriteSegment(into, ref write, bounds.X, y, left.Seam, y, color, line: true);
             }
 
             if (Right is { IsIdentity: false } right)
             {
-                WriteSegment(into, ref write, right.Seam, y, bounds.Right, y, color);
+                WriteSegment(into, ref write, right.Seam, y, bounds.Right, y, color, line: true);
             }
+        }
+
+        WriteSeamLines(bounds, into, ref write, color);
+    }
+
+    private int SeamLineCount =>
+        !SeamLines || DesktopLines ? 0 : (Left is { IsIdentity: false } ? 1 : 0) + (Right is { IsIdentity: false } ? 1 : 0);
+
+    private void WriteSeamLines(in Box bounds, Span<MeshVertex> into, ref int write, in RenderColor color)
+    {
+        if (SeamLineCount == 0)
+        {
+            return;
+        }
+
+        var top = Top is { IsIdentity: false } upper ? upper.Seam : bounds.Y;
+        var bottom = Bottom is { IsIdentity: false } lower ? lower.Seam : bounds.Bottom;
+        if (Left is { IsIdentity: false } left)
+        {
+            WriteColumn(into, ref write, (left.Seam - 1, top), (left.Seam - 1, bottom), color, line: true);
+        }
+
+        if (Right is { IsIdentity: false } right)
+        {
+            WriteColumn(into, ref write, (right.Seam, top), (right.Seam, bottom), color, line: true);
         }
     }
 
@@ -719,7 +772,7 @@ public sealed class CanvasGridSource : IMeshSource
         for (var j = 1; j <= segments; j++)
         {
             var next = ColumnPoint(end, canvasX, shift, j == crease ? CreaseDepth(end, across) : depth * j / segments);
-            WriteColumn(into, ref write, previous, next, color);
+            WriteColumn(into, ref write, previous, next, color, line: false);
             previous = next;
         }
     }
@@ -747,7 +800,7 @@ public sealed class CanvasGridSource : IMeshSource
         for (var j = 1; j <= segments; j++)
         {
             var next = RowPoint(side, canvasY, j == crease ? CreaseDepth(side, across) : depth * j / segments);
-            WriteRow(into, ref write, previous, next, color);
+            WriteRow(into, ref write, previous, next, color, line: false);
             previous = next;
         }
     }
@@ -799,47 +852,74 @@ public sealed class CanvasGridSource : IMeshSource
         return center + ((y - center) * fan);
     }
 
-    private void WriteColumn(Span<MeshVertex> into, ref int write, (float X, float Y) from, (float X, float Y) to, in RenderColor color)
+    private void WriteColumn(
+        Span<MeshVertex> into, ref int write, (float X, float Y) from, (float X, float Y) to, in RenderColor color, bool line)
     {
         from = Zoom(from.X, from.Y);
         to = Zoom(to.X, to.Y);
         if (Terraced && Math.Abs(to.X - from.X) > Math.Abs(to.Y - from.Y))
         {
-            MeshGrid.WriteCell(
-                into.Slice(write, 6), 0, 0, 0, 0,
-                (from.X, from.Y), (to.X, to.Y), (to.X, to.Y + 1), (from.X, from.Y + 1), color);
-            write += 6;
+            WriteQuad(into, ref write, from, to, 0, 1, vertical: true, line, color);
             return;
         }
 
-        MeshGrid.WriteCell(
-            into.Slice(write, 6), 0, 0, 0, 0,
-            (from.X, from.Y), (from.X + 1, from.Y), (to.X + 1, to.Y), (to.X, to.Y), color);
-        write += 6;
+        WriteQuad(into, ref write, from, to, 1, 0, vertical: true, line, color);
     }
 
-    private void WriteRow(Span<MeshVertex> into, ref int write, (double X, double Y) from, (double X, double Y) to, in RenderColor color) =>
-        WriteSegment(into, ref write, (float)from.X, (float)from.Y, (float)to.X, (float)to.Y, color);
+    private void WriteRow(
+        Span<MeshVertex> into, ref int write, (double X, double Y) from, (double X, double Y) to, in RenderColor color, bool line) =>
+        WriteSegment(into, ref write, (float)from.X, (float)from.Y, (float)to.X, (float)to.Y, color, line);
 
-    private void WriteRow(Span<MeshVertex> into, ref int write, int x0, int x1, long y, in RenderColor color) =>
-        WriteSegment(into, ref write, x0, (float)RowY(x0, y), x1, (float)RowY(x1, y), color);
+    private void WriteRow(Span<MeshVertex> into, ref int write, int x0, int x1, long y, in RenderColor color, bool line) =>
+        WriteSegment(into, ref write, x0, (float)RowY(x0, y), x1, (float)RowY(x1, y), color, line);
 
-    private void WriteSegment(Span<MeshVertex> into, ref int write, float x0, float y0, float x1, float y1, in RenderColor color)
+    private void WriteSegment(
+        Span<MeshVertex> into, ref int write, float x0, float y0, float x1, float y1, in RenderColor color, bool line)
     {
         (x0, y0) = Zoom(x0, y0);
         (x1, y1) = Zoom(x1, y1);
         if (Terraced && Math.Abs(y1 - y0) > Math.Abs(x1 - x0))
         {
-            MeshGrid.WriteCell(
-                into.Slice(write, 6), 0, 0, 0, 0,
-                (x0, y0), (x0 + 1, y0), (x1 + 1, y1), (x1, y1), color);
-            write += 6;
+            WriteQuad(into, ref write, (x0, y0), (x1, y1), 1, 0, vertical: false, line, color);
             return;
         }
 
-        MeshGrid.WriteCell(
-            into.Slice(write, 6), 0, 0, 0, 0,
-            (x0, y0), (x1, y1), (x1, y1 + 1), (x0, y0 + 1), color);
+        WriteQuad(into, ref write, (x0, y0), (x1, y1), 0, 1, vertical: false, line, color);
+    }
+
+    private void WriteQuad(
+        Span<MeshVertex> into, ref int write, (float X, float Y) from, (float X, float Y) to, float nx, float ny,
+        bool vertical, bool line, in RenderColor color)
+    {
+        if (_mask.Clips && line)
+        {
+            _mask.WriteLine(into.Slice(write, GridRevealMask.LineVertices), from, to, nx, ny, vertical, color);
+            write += GridRevealMask.LineVertices;
+            return;
+        }
+
+        var fromOffset = (from.X + nx, from.Y + ny);
+        var toOffset = (to.X + nx, to.Y + ny);
+        if (_mask.Clips)
+        {
+            if (ny == 0)
+            {
+                _mask.WriteCell(into.Slice(write, 6), from, fromOffset, toOffset, to, vertical, color);
+            }
+            else
+            {
+                _mask.WriteCell(into.Slice(write, 6), from, to, toOffset, fromOffset, vertical, color);
+            }
+        }
+        else if (ny == 0)
+        {
+            MeshGrid.WriteCell(into.Slice(write, 6), 0, 0, 0, 0, from, fromOffset, toOffset, to, color);
+        }
+        else
+        {
+            MeshGrid.WriteCell(into.Slice(write, 6), 0, 0, 0, 0, from, to, toOffset, fromOffset, color);
+        }
+
         write += 6;
     }
 

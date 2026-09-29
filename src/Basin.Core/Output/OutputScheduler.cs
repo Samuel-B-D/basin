@@ -21,6 +21,7 @@ public sealed class OutputScheduler : IDisposable
     private int _onTimeStreak;
     private bool _everMissed;
     private bool _pacedFromLastFrame;
+    private long _commits;
     private bool _disposed;
 
     public OutputScheduler(ICompositorEventLoop loop, IOutput output)
@@ -101,7 +102,11 @@ public sealed class OutputScheduler : IDisposable
         return refreshMilliHz > 0 ? 1_000_000.0 / refreshMilliHz : 16.0;
     }
 
-    public void NotifyCommitted() => _commitInFlight = true;
+    public void NotifyCommitted()
+    {
+        _commitInFlight = true;
+        _commits++;
+    }
 
     public void NotifyPresented(long presentedNanos)
     {
@@ -161,6 +166,27 @@ public sealed class OutputScheduler : IDisposable
         return true;
     }
 
+    private bool TryArmDeadlineAfter(long vblank)
+    {
+        var intervalNanos = (long)(IntervalMs() * 1_000_000);
+        if (vblank == 0 || intervalNanos <= 0)
+        {
+            return false;
+        }
+
+        var now = MonotonicClock.Nanos;
+        var lead = RenderAheadNanos(intervalNanos);
+        var next = vblank + intervalNanos;
+        while (next - lead - now < 1_000_000)
+        {
+            next += intervalNanos;
+        }
+
+        _timerArmed = true;
+        _timer.UpdateTimer((int)Math.Max(1, (next - lead - now) / 1_000_000));
+        return true;
+    }
+
     private long RenderAheadNanos(long intervalNanos)
     {
         var lead = (RenderAheadMillis * 1_000_000L) + Math.Min(_leadBoostNanos, intervalNanos);
@@ -184,6 +210,8 @@ public sealed class OutputScheduler : IDisposable
         _repaintQueued = false;
         _lastFireTick = Environment.TickCount64;
         _lastFireNanos = MonotonicClock.Nanos;
+        var target = PredictedVblankNanos;
+        var commits = _commits;
         _firing = true;
         AllocationScope.Pause();
         try
@@ -196,7 +224,8 @@ public sealed class OutputScheduler : IDisposable
             _firing = false;
         }
 
-        if (_repaintQueued && !_commitInFlight && !_disposed && !_timerArmed && !_idleQueued && !TryArmDeadline())
+        if (_repaintQueued && !_commitInFlight && !_disposed && !_timerArmed && !_idleQueued &&
+            !(_commits == commits ? TryArmDeadlineAfter(target) : TryArmDeadline()))
         {
             var elapsed = Environment.TickCount64 - _lastFireTick;
             var interval = IntervalMs();

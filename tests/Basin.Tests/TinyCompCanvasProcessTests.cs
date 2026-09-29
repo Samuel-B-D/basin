@@ -20,6 +20,26 @@ public sealed class TinyCompCanvasProcessTests
         "[canvas]\nenable = true\ngrid = \"never\"\nanimation_ms = 100\nsides = [\"left\", \"right\", \"top\", \"bottom\"]\n";
 
     [Fact]
+    public void The_grid_draws_over_a_wallpaper_that_maps_after_it()
+    {
+        using var session = CanvasSession.Start(
+            "[canvas]\nenable = true\ngrid = \"always\"\nwallpaper = \"output\"\nanimation_ms = 100\n");
+        Assert.SkipWhen(session is null, "tinycomp or weston-simple-shm is not available beside the tests");
+        using var wallpaper = new TestWallpaper(session!.SocketPath, 0xFFFF0000);
+        Assert.True(wallpaper.Width > 0 && wallpaper.Height > 0, "the wallpaper was configured");
+        wallpaper.Pump();
+
+        var shot = session.Shot("wallpaper");
+        for (var i = 0; i < 20 && Colored(shot, 0, ZoneWidth, red: true) < shot.Height * ZoneWidth / 2; i++)
+        {
+            shot = session.Shot($"wallpaper-{i}");
+        }
+
+        Assert.True(Colored(shot, 0, ZoneWidth, red: true) >= shot.Height * ZoneWidth / 2, "the wallpaper covers the left zone");
+        Assert.True(Colored(shot, 0, ZoneWidth, red: false) > 0, "the grid draws over the wallpaper in the left zone");
+    }
+
+    [Fact]
     public void Park_left_draws_the_client_inside_the_zone()
     {
         using var session = CanvasSession.Start();
@@ -1052,9 +1072,8 @@ public sealed class TinyCompCanvasProcessTests
         const string config = "[canvas]\nenable = true\nwindow = \"terrace\"\ngrid = \"never\"\nanimation_ms = 100\n";
         using var session = CanvasSession.Start(config, SsdWin());
         Assert.SkipWhen(session is null, "tinycomp or ssdwin is not available beside the tests");
-        Assert.SkipWhen(!File.Exists("/usr/bin/swaybg"), "swaybg is not installed");
-        session!.Spawn("/usr/bin/swaybg", "-c", "#c02020");
-        Thread.Sleep(1500);
+        using var wallpaper = new TestWallpaper(session!.SocketPath, 0xFFC02020);
+        wallpaper.Pump();
         var (first, last) = RedSpan(session.Shot("desktop"), 700);
         Assert.InRange(first, 228, 232);
         Assert.InRange(last, 1047, 1051);
@@ -1062,7 +1081,7 @@ public sealed class TinyCompCanvasProcessTests
         session.Rewrite(config + "wallpaper = \"output\"\n");
         session.Send("reload");
         Assert.NotNull(session.WaitForLine("RELOAD "));
-        Thread.Sleep(800);
+        wallpaper.Pump();
         Assert.Equal((0, 1279), RedSpan(session.Shot("output"), 700));
     }
 
@@ -1325,6 +1344,27 @@ public sealed class TinyCompCanvasProcessTests
         return candidate is not null && File.Exists(candidate) ? candidate : null;
     }
 
+    private static int Colored(Shot shot, int fromX, int width, bool red)
+    {
+        var count = 0;
+        for (var y = 0; y < shot.Height; y++)
+        {
+            for (var x = fromX; x < fromX + width; x++)
+            {
+                var i = ((y * shot.Width) + x) * 4;
+                var r = shot.Rgba[i];
+                var g = shot.Rgba[i + 1];
+                var b = shot.Rgba[i + 2];
+                if (red ? r > 200 && g < 40 && b < 40 : b - r > 60 && b - g > 60)
+                {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    }
+
     private static int Saturated(Shot shot, int fromX, int width) => Saturated(shot, fromX, 0, width, shot.Height);
 
     private static int Saturated(Shot shot, int fromX, int fromY, int width, int height)
@@ -1511,6 +1551,8 @@ public sealed class TinyCompCanvasProcessTests
             process.BeginErrorReadLine();
             _extra.Add(process);
         }
+
+        public string SocketPath => Path.Combine(_runtimeDir, _socket);
 
         public void Send(string command)
         {

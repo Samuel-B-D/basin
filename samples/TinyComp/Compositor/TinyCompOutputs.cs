@@ -300,6 +300,7 @@ internal sealed partial class TinyComp
         running |= StepCanvasMotions(tick);
         running |= StepShelfMotions(tick);
         running |= StepOverviews(tick);
+        running |= StepGridReveals(tick);
         running |= StepTilts(tick);
         running |= StepPhysics(tick);
         if (running)

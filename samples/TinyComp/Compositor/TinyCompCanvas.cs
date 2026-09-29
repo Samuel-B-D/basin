@@ -321,15 +321,17 @@ internal sealed partial class TinyComp
         };
         var color = settings.GridRenderColor;
         var alpha = GridAlphaOf(view);
+        var reveal = GridRevealOf(settings, canvas.Reveal);
         var spacing = canvas.Terraces ? TerraceGridSpacing : 0.0;
-        var changed = source.CellSize != settings.GridCellSize || source.Color != color || source.Alpha != alpha ||
+        var changed = source.CellSize != settings.GridCellSize || source.Color != color || source.Alpha != alpha || source.Reveal != reveal ||
             source.CornerRadius != canvas.Map.CornerRadius || source.CornerTaper != canvas.Map.CornerTaper ||
             source.MinLineSpacing != spacing || source.Separable != canvas.Map.Separable ||
             source.ViewScale != canvas.Map.ViewScale || source.ViewCenterX != canvas.Map.ViewCenterX ||
             source.ViewCenterY != canvas.Map.ViewCenterY;
         var desktop = !canvas.Terraces || settings.DesktopGridValue;
-        changed |= source.DesktopLines != desktop;
+        changed |= source.DesktopLines != desktop || source.SeamLines == desktop;
         source.DesktopLines = desktop;
+        source.SeamLines = !desktop;
         source.ViewScale = canvas.Map.ViewScale;
         source.ViewCenterX = canvas.Map.ViewCenterX;
         source.ViewCenterY = canvas.Map.ViewCenterY;
@@ -340,9 +342,10 @@ internal sealed partial class TinyComp
         source.CellSize = settings.GridCellSize;
         source.Color = color;
         source.Alpha = alpha;
+        source.Reveal = reveal;
         if (canvas.Grid is null)
         {
-            canvas.Grid = new SceneMesh(_layers.Background) { Source = source, Bounds = box };
+            canvas.Grid = new SceneMesh(_backdrop) { Source = source, Bounds = box };
             return true;
         }
 
@@ -352,16 +355,24 @@ internal sealed partial class TinyComp
     }
 
     private float GridAlphaOf(OutputView view) =>
-        view.Canvas.Overview ? GridAlphaFor(view.Canvas.Settings) * (float)OverviewOf(view).Value : GridAlphaFor(view.Canvas.Settings);
+        view.Canvas.Overview
+            ? GridAlphaFor(view.Canvas.Settings, view.Canvas.Reveal) * (float)OverviewOf(view).Value
+            : GridAlphaFor(view.Canvas.Settings, view.Canvas.Reveal);
 
-    private float GridAlphaFor(CanvasSetting settings) => settings.GridMode switch
+    private float StepGridAlphaOf(OutputView view) =>
+        GridAlphaFor(view.Canvas.Settings, OverviewOf(view).StepReveal) * (float)OverviewOf(view).Value;
+
+    private static float GridAlphaFor(CanvasSetting settings, GridRevealState reveal) => settings.GridMode switch
     {
         CanvasGridMode.Always => 1f,
-        CanvasGridMode.Drag => _canvasGridDragging ? 1f : 0f,
+        CanvasGridMode.Drag => reveal.Shown ? 1f : 0f,
         _ => 0f,
     };
 
-    private void SetCanvasGridDragging(bool dragging)
+    private static GridReveal GridRevealOf(CanvasSetting settings, GridRevealState reveal) =>
+        settings.GridMode == CanvasGridMode.Drag ? reveal.RevealFor(settings) : GridReveal.Full;
+
+    private void SetCanvasGridDragging(bool dragging, double x, double y)
     {
         if (_canvasGridDragging == dragging)
         {
@@ -372,29 +383,80 @@ internal sealed partial class TinyComp
         for (var i = 0; i < Views.Count; i++)
         {
             var view = Views[i];
-            if (view.Tag is not OutputPolicy || view.Canvas is not { GridSource: { } source, Grid: { } grid })
+            if (view.Tag is not OutputPolicy)
             {
                 continue;
             }
 
+            var settings = view.Canvas.Settings;
+            var overview = OverviewOf(view);
+            if (dragging)
+            {
+                view.Canvas.Reveal.Show(x, y, settings);
+                overview.StepReveal.Show(x, y, settings);
+            }
+            else
+            {
+                view.Canvas.Reveal.Drop(settings);
+                overview.StepReveal.Drop(settings);
+            }
+
+            ApplyGridReveal(view);
+        }
+
+        ScheduleEffectRepaint();
+    }
+
+    private bool StepGridReveals(in FrameTick tick)
+    {
+        var running = false;
+        for (var i = 0; i < Views.Count; i++)
+        {
+            var view = Views[i];
+            if (view.Tag is not OutputPolicy)
+            {
+                continue;
+            }
+
+            var settings = view.Canvas.Settings;
+            var overview = OverviewOf(view);
+            if (!view.Canvas.Reveal.Running && !overview.StepReveal.Running)
+            {
+                continue;
+            }
+
+            running |= view.Canvas.Reveal.Step(tick, settings);
+            running |= overview.StepReveal.Step(tick, settings);
+            ApplyGridReveal(view);
+        }
+
+        return running;
+    }
+
+    private void ApplyGridReveal(OutputView view)
+    {
+        var settings = view.Canvas.Settings;
+        if (view.Canvas is { GridSource: { } source, Grid: { } grid })
+        {
             var alpha = GridAlphaOf(view);
-            if (source.Alpha != alpha)
+            var reveal = GridRevealOf(settings, view.Canvas.Reveal);
+            if (source.Alpha != alpha || source.Reveal != reveal)
             {
                 source.Alpha = alpha;
+                source.Reveal = reveal;
                 grid.NotifyMeshChanged();
             }
         }
 
-        for (var i = 0; i < Views.Count; i++)
+        if (view.Canvas.Step is not null && OverviewOf(view) is { StepMesh: { } mesh } overview)
         {
-            if (Views[i] is { Tag: OutputPolicy, Canvas.Step: not null } stepped && OverviewOf(stepped).StepMesh is { } mesh)
+            var alpha = StepGridAlphaOf(view);
+            var reveal = GridRevealOf(settings, overview.StepReveal);
+            if (overview.StepSource.Alpha != alpha || overview.StepSource.Reveal != reveal)
             {
-                var alpha = GridAlphaOf(stepped);
-                if (OverviewOf(stepped).StepSource.Alpha != alpha)
-                {
-                    OverviewOf(stepped).StepSource.Alpha = alpha;
-                    mesh.NotifyMeshChanged();
-                }
+                overview.StepSource.Alpha = alpha;
+                overview.StepSource.Reveal = reveal;
+                mesh.NotifyMeshChanged();
             }
         }
     }

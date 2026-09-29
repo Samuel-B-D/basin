@@ -1,5 +1,6 @@
 using Basin;
 using Basin.Config;
+using Basin.Effects;
 using Tomlyn.Model;
 
 using Basin.Diagnostics;
@@ -15,6 +16,14 @@ internal sealed class CanvasSetting
     public const double DefaultEdgeScale = 0.2;
 
     public const uint DefaultGridColor = 0x2a35c0ff;
+
+    public const int DefaultGridAnimationMs = 200;
+
+    public const int DefaultGridLingerMs = 150;
+
+    public const int MaxGridMillis = 5000;
+
+    public static readonly EasingCurve DefaultGridEasing = EasingCurve.OutCubic;
 
     public const double DefaultSlope = 0.25;
 
@@ -58,6 +67,14 @@ internal sealed class CanvasSetting
 
     public bool? DesktopGrid { get; init; }
 
+    public GridAnimationStyle? GridAnimation { get; init; }
+
+    public int? GridAnimationMs { get; init; }
+
+    public EasingCurve? GridEasing { get; init; }
+
+    public int? GridLingerMs { get; init; }
+
     public CanvasWallpaper? Wallpaper { get; init; }
 
     public int? AnimationMs { get; init; }
@@ -99,6 +116,10 @@ internal sealed class CanvasSetting
         GridCell = 64,
         GridColor = DefaultGridColor,
         DesktopGrid = false,
+        GridAnimation = GridAnimationStyle.Fade,
+        GridAnimationMs = DefaultGridAnimationMs,
+        GridEasing = DefaultGridEasing,
+        GridLingerMs = DefaultGridLingerMs,
         Wallpaper = CanvasWallpaper.Desktop,
         AnimationMs = 250,
         Sides = CanvasSide.Horizontal,
@@ -168,6 +189,46 @@ internal sealed class CanvasSetting
     public uint GridRgba => GridColor ?? DefaultGridColor;
 
     public bool DesktopGridValue => DesktopGrid ?? false;
+
+    public GridAnimationStyle GridAnimationValue => GridAnimation ?? GridAnimationStyle.Fade;
+
+    public string GridAnimationName => NameOf(GridAnimationValue);
+
+    public int GridAnimationMillis => GridAnimationMs ?? DefaultGridAnimationMs;
+
+    public EasingCurve GridEasingValue => GridEasing ?? DefaultGridEasing;
+
+    public string GridEasingName => GridEasings.NameOf(GridEasingValue);
+
+    public int GridLingerMillis => GridLingerMs ?? DefaultGridLingerMs;
+
+    public GridRevealStyle GridRevealStyle => GridAnimationMillis == 0 ? GridRevealStyle.None : GridAnimationValue switch
+    {
+        GridAnimationStyle.Fade => GridRevealStyle.Fade,
+        GridAnimationStyle.Ripple => GridRevealStyle.Ripple,
+        GridAnimationStyle.Draw => GridRevealStyle.Draw,
+        GridAnimationStyle.Sweep => GridRevealStyle.Sweep,
+        _ => GridRevealStyle.None,
+    };
+
+    public static string NameOf(GridAnimationStyle style) => style switch
+    {
+        GridAnimationStyle.None => "none",
+        GridAnimationStyle.Ripple => "ripple",
+        GridAnimationStyle.Draw => "draw",
+        GridAnimationStyle.Sweep => "sweep",
+        _ => "fade",
+    };
+
+    public static GridAnimationStyle? GridAnimationFromName(string name) => name switch
+    {
+        "none" => GridAnimationStyle.None,
+        "fade" => GridAnimationStyle.Fade,
+        "ripple" => GridAnimationStyle.Ripple,
+        "draw" => GridAnimationStyle.Draw,
+        "sweep" => GridAnimationStyle.Sweep,
+        _ => null,
+    };
 
     public CanvasWallpaper WallpaperValue => Wallpaper ?? CanvasWallpaper.Desktop;
 
@@ -262,6 +323,10 @@ internal sealed class CanvasSetting
         GridCell = GridCell ?? fallback.GridCell,
         GridColor = GridColor ?? fallback.GridColor,
         DesktopGrid = DesktopGrid ?? fallback.DesktopGrid,
+        GridAnimation = GridAnimation ?? fallback.GridAnimation,
+        GridAnimationMs = GridAnimationMs ?? fallback.GridAnimationMs,
+        GridEasing = GridEasing ?? fallback.GridEasing,
+        GridLingerMs = GridLingerMs ?? fallback.GridLingerMs,
         Wallpaper = Wallpaper ?? fallback.Wallpaper,
         AnimationMs = AnimationMs ?? fallback.AnimationMs,
         Sides = Sides ?? fallback.Sides,
@@ -291,6 +356,10 @@ internal sealed class CanvasSetting
         int? gridCell = null;
         uint? gridColor = null;
         bool? desktopGrid = null;
+        GridAnimationStyle? gridAnimation = null;
+        int? gridAnimationMs = null;
+        EasingCurve? gridEasing = null;
+        int? gridLingerMs = null;
         CanvasWallpaper? wallpaper = null;
         int? animation = null;
         CanvasSide? sides = null;
@@ -367,6 +436,30 @@ internal sealed class CanvasSetting
                     break;
                 case "animation_ms" when value is long millis:
                     animation = (int)Math.Clamp(millis, 0, 10_000);
+                    break;
+                case "grid_animation" when value is string animationName:
+                    gridAnimation = GridAnimationFromName(animationName);
+                    if (gridAnimation is null)
+                    {
+                        log.Warn($"[{section}] grid_animation \"{animationName}\" is not none|fade|ripple|draw|sweep, keeping fade");
+                        gridAnimation = GridAnimationStyle.Fade;
+                    }
+
+                    break;
+                case "grid_animation_ms" when value is long revealMillis:
+                    gridAnimationMs = (int)Math.Clamp(revealMillis, 0, MaxGridMillis);
+                    break;
+                case "grid_easing" when value is string or TomlArray:
+                    gridEasing = GridEasings.FromValue(value);
+                    if (gridEasing is null)
+                    {
+                        log.Warn($"[{section}] grid_easing {Describe(value)} is not {string.Join('|', GridEasings.Names)} or [x1, y1, x2, y2], keeping out-cubic");
+                        gridEasing = DefaultGridEasing;
+                    }
+
+                    break;
+                case "grid_linger_ms" when value is long lingerMillis:
+                    gridLingerMs = (int)Math.Clamp(lingerMillis, 0, MaxGridMillis);
                     break;
                 case "corner" when value is string shape:
                     corner = shape switch
@@ -486,6 +579,10 @@ internal sealed class CanvasSetting
             GridCell = gridCell,
             GridColor = gridColor,
             DesktopGrid = desktopGrid,
+            GridAnimation = gridAnimation,
+            GridAnimationMs = gridAnimationMs,
+            GridEasing = gridEasing,
+            GridLingerMs = gridLingerMs,
             Wallpaper = wallpaper,
             AnimationMs = animation,
             Sides = sides,
@@ -615,6 +712,10 @@ internal sealed class CanvasSetting
             GridCell = GridCell,
             GridColor = GridColor,
             DesktopGrid = DesktopGrid,
+            GridAnimation = GridAnimation,
+            GridAnimationMs = GridAnimationMs,
+            GridEasing = GridEasing,
+            GridLingerMs = GridLingerMs,
             Wallpaper = Wallpaper,
             AnimationMs = AnimationMs,
             Sides = Sides,
@@ -661,6 +762,8 @@ internal sealed class CanvasSetting
 
         return sides;
     }
+
+    private static string Describe(object value) => value is string text ? $"\"{text}\"" : "array";
 
     private static double? Fraction(object value) => value switch
     {

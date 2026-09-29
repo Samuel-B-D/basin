@@ -9,8 +9,13 @@ internal sealed class ShmTestClient : IDisposable
     private readonly List<(uint Name, string Interface, uint Version)> _globals = [];
 
     public ShmTestClient(int fd)
+        : this(WlDisplay.ConnectToFd(fd))
     {
-        Display = WlDisplay.ConnectToFd(fd);
+    }
+
+    public ShmTestClient(WlDisplay display)
+    {
+        Display = display;
     }
 
     public WlDisplay Display { get; }

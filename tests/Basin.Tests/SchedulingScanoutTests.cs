@@ -78,6 +78,32 @@ public sealed class OutputSchedulerTests
         Assert.Equal(2, repaints);
     }
 
+    [Fact]
+    public void A_repaint_that_commits_nothing_waits_for_the_next_vblank()
+    {
+        using var host = new CompositorTestHost();
+        using var scheduler = new OutputScheduler(host.Loop, host.Output);
+        var repaints = 0;
+        scheduler.Repaint += () =>
+        {
+            repaints++;
+            scheduler.ScheduleRepaint();
+        };
+
+        host.Output.StepFrame();
+        scheduler.ScheduleRepaint();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (clock.ElapsedMilliseconds < 100)
+        {
+            host.Loop.Dispatch(1);
+        }
+
+        var interval = 1000.0 / (host.Output.CurrentMode.RefreshMilliHz / 1000.0);
+        var ceiling = (int)Math.Ceiling(clock.ElapsedMilliseconds / interval) + 2;
+        Assert.True(repaints >= 2, $"only {repaints} repaint(s) in {clock.ElapsedMilliseconds} ms");
+        Assert.True(repaints <= ceiling, $"{repaints} repaints in {clock.ElapsedMilliseconds} ms, more than one per vblank");
+    }
+
     private static void DispatchUntil(CompositorTestHost host, Func<bool> done)
     {
         var deadline = Environment.TickCount64 + 2_000;

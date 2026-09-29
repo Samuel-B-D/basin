@@ -38,6 +38,8 @@ internal sealed class CanvasView
 
     public CanvasGridSource? GridSource { get; set; }
 
+    public GridRevealState Reveal { get; } = new();
+
     public CanvasSetting Settings { get; set; } = CanvasSetting.Defaults;
 
     public int Generation { get; set; }

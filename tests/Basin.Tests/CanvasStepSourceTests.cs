@@ -145,4 +145,130 @@ public sealed class CanvasStepSourceTests
 
         Assert.Equal(2 * (3 + crossing), inside);
     }
+
+    private static readonly GridRevealStyle[] RevealStyles =
+        [GridRevealStyle.None, GridRevealStyle.Fade, GridRevealStyle.Ripple, GridRevealStyle.Draw, GridRevealStyle.Sweep];
+
+    private static CanvasStepSource RevealSource() =>
+        new() { Map = Map(CanvasStepSides.All), CellSize = 64, MinLineSpacing = 4 };
+
+    private static int GridVertices(CanvasStepSource source, in Box bounds) =>
+        source.VertexCount(bounds) - new CanvasStepSource { Map = source.Map, Lines = false }.VertexCount(bounds);
+
+    [Fact]
+    public void Full_progress_is_the_unmasked_step_grid_for_every_style()
+    {
+        var bounds = new Box(0, 0, 1600, 900);
+        var source = RevealSource();
+        var plain = Write(source, bounds);
+        foreach (var style in RevealStyles)
+        {
+            source.Reveal = new GridReveal(style, 1f, 400, 300, 24);
+            Assert.Equal(plain, Write(source, bounds));
+        }
+    }
+
+    [Fact]
+    public void A_step_reveal_counts_the_same_for_every_progress_and_origin_and_writes_what_it_counts()
+    {
+        var bounds = new Box(0, 0, 1600, 900);
+        var source = RevealSource();
+        foreach (var style in RevealStyles)
+        {
+            var expected = -1;
+            foreach (var progress in new[] { 0f, 0.1f, 0.5f, 0.99f })
+            {
+                foreach (var (x, y) in new[] { (0.0, 0.0), (800.0, 450.0), (1599.0, 899.0), (-40.0, 1000.0) })
+                {
+                    source.Reveal = new GridReveal(style, progress, x, y, 24);
+                    var count = source.VertexCount(bounds);
+                    var vertices = new MeshVertex[count + 1];
+                    var sentinel = new MeshVertex(-7, -7, -7, -7, default);
+                    Array.Fill(vertices, sentinel);
+                    source.WriteVertices(bounds, vertices.AsSpan(0, count));
+                    Assert.DoesNotContain(sentinel, vertices.AsSpan(0, count).ToArray());
+                    Assert.Equal(sentinel, vertices[count]);
+                    if (expected < 0)
+                    {
+                        expected = count;
+                    }
+
+                    Assert.Equal(expected, count);
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void Zero_progress_draws_no_step_grid_line_and_keeps_the_base_lines()
+    {
+        var bounds = new Box(0, 0, 1600, 900);
+        var source = RevealSource();
+        foreach (var style in RevealStyles)
+        {
+            source.Reveal = new GridReveal(style, 0f, 800, 450, 24);
+            var vertices = Write(source, bounds);
+            var lines = GridVertices(source, bounds);
+            for (var i = 0; i < lines; i++)
+            {
+                Assert.Equal(0f, vertices[i].Color.A);
+            }
+
+            for (var i = lines; i < vertices.Length; i++)
+            {
+                Assert.True(vertices[i].Color.A > 0f);
+            }
+        }
+    }
+
+    [Fact]
+    public void A_step_ripple_draws_nothing_past_its_radius()
+    {
+        var bounds = new Box(0, 0, 1600, 900);
+        var source = RevealSource();
+        var (ox, oy) = (500.0, 600.0);
+        var far = Math.Sqrt(Math.Pow(1600 - ox, 2) + Math.Pow(oy, 2));
+        foreach (var progress in new[] { 0.1f, 0.4f, 0.8f })
+        {
+            source.Reveal = new GridReveal(GridRevealStyle.Ripple, progress, ox, oy, 24);
+            var radius = progress * (far + 24);
+            var vertices = Write(source, bounds);
+            var lit = 0;
+            for (var i = 0; i < GridVertices(source, bounds); i++)
+            {
+                if (vertices[i].Color.A > 0f)
+                {
+                    lit++;
+                    var distance = Math.Sqrt(Math.Pow(vertices[i].X - ox, 2) + Math.Pow(vertices[i].Y - oy, 2));
+                    Assert.True(distance < radius, $"p {progress}: at {distance} past {radius}");
+                }
+            }
+
+            Assert.True(lit > 0);
+        }
+    }
+
+    [Fact]
+    public void A_step_sweep_draws_nothing_past_its_front()
+    {
+        var bounds = new Box(0, 0, 1600, 900);
+        var source = RevealSource();
+        foreach (var progress in new[] { 0.1f, 0.5f, 0.9f })
+        {
+            source.Reveal = new GridReveal(GridRevealStyle.Sweep, progress, 800, 30, 24);
+            var front = progress * (900 + 24);
+            var vertices = Write(source, bounds);
+            var lit = 0;
+            for (var i = 0; i < GridVertices(source, bounds); i++)
+            {
+                if (vertices[i].Color.A > 0f)
+                {
+                    lit++;
+                    Assert.True(vertices[i].Y < front, $"p {progress}: y {vertices[i].Y} past the front at {front}");
+                }
+            }
+
+            Assert.True(lit > 0);
+        }
+    }
 }

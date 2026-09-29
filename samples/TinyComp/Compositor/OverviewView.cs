@@ -86,4 +86,6 @@ internal sealed class OverviewView
     public SceneMesh? WallMesh { get; set; }
 
     public SceneMesh? StepMesh { get; set; }
+
+    public GridRevealState StepReveal { get; } = new();
 }

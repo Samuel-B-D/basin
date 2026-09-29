@@ -107,6 +107,80 @@ public sealed class TinyCompConfigTests : IDisposable
     }
 
     [Fact]
+    public void The_grid_reveal_keys_default_to_a_short_fade()
+    {
+        var log = BasinLog.For("t");
+        var config = TinyComp.Config.Parse(string.Empty, log, out _);
+        foreach (var settings in new[] { config.CanvasFor("DP-1", log), config.OverviewCanvasFor("DP-1", log) })
+        {
+            Assert.Equal(TinyComp.GridAnimationStyle.Fade, settings.GridAnimationValue);
+            Assert.Equal(200, settings.GridAnimationMillis);
+            Assert.Equal(EasingCurve.OutCubic, settings.GridEasingValue);
+            Assert.Equal("out-cubic", settings.GridEasingName);
+            Assert.Equal(150, settings.GridLingerMillis);
+            Assert.Equal(GridRevealStyle.Fade, settings.GridRevealStyle);
+        }
+    }
+
+    [Fact]
+    public void The_grid_reveal_keys_parse_in_the_canvas_the_overview_and_per_output()
+    {
+        var log = BasinLog.For("t");
+        var config = TinyComp.Config.Parse(
+            "[canvas]\ngrid_animation = \"ripple\"\ngrid_animation_ms = 300\ngrid_easing = \"in-out-cubic\"\ngrid_linger_ms = 40\n"
+            + "[overview]\ngrid_animation = \"sweep\"\ngrid_animation_ms = 120\ngrid_easing = \"linear\"\ngrid_linger_ms = 0\n"
+            + "[output.\"DP-2\"]\ngrid_animation = \"draw\"\ngrid_easing = [0.2, 0.0, 0.4, 1.0]\n"
+            + "[output.\"DP-2\".overview]\ngrid_animation = \"none\"\ngrid_linger_ms = 900\n",
+            log,
+            out var fatal);
+        Assert.Null(fatal);
+        var canvas = config.CanvasFor("DP-1", log);
+        Assert.Equal(TinyComp.GridAnimationStyle.Ripple, canvas.GridAnimationValue);
+        Assert.Equal(300, canvas.GridAnimationMillis);
+        Assert.Equal(EasingCurve.InOutCubic, canvas.GridEasingValue);
+        Assert.Equal(40, canvas.GridLingerMillis);
+        var overview = config.OverviewCanvasFor("DP-1", log);
+        Assert.Equal(TinyComp.GridAnimationStyle.Sweep, overview.GridAnimationValue);
+        Assert.Equal(120, overview.GridAnimationMillis);
+        Assert.Equal(EasingCurve.Linear, overview.GridEasingValue);
+        Assert.Equal(0, overview.GridLingerMillis);
+        var output = config.CanvasFor("DP-2", log);
+        Assert.Equal(TinyComp.GridAnimationStyle.Draw, output.GridAnimationValue);
+        Assert.Equal(300, output.GridAnimationMillis);
+        Assert.Equal(EasingCurve.CubicBezier(0.2, 0.0, 0.4, 1.0), output.GridEasingValue);
+        Assert.Equal("[0.2, 0, 0.4, 1]", output.GridEasingName);
+        var outputOverview = config.OverviewCanvasFor("DP-2", log);
+        Assert.Equal(TinyComp.GridAnimationStyle.None, outputOverview.GridAnimationValue);
+        Assert.Equal(GridRevealStyle.None, outputOverview.GridRevealStyle);
+        Assert.Equal(900, outputOverview.GridLingerMillis);
+        Assert.Equal(120, outputOverview.GridAnimationMillis);
+        Assert.DoesNotContain(_lines, line => line.Contains("grid_", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_unknown_grid_reveal_name_warns_and_keeps_the_default_and_the_milliseconds_clamp()
+    {
+        var log = BasinLog.For("t");
+        var config = TinyComp.Config.Parse(
+            "[canvas]\ngrid_animation = \"spin\"\ngrid_easing = \"spring\"\ngrid_animation_ms = 90000\ngrid_linger_ms = -5\n"
+            + "[overview]\ngrid_easing = [0.1, 0.2]\ngrid_animation_ms = 0\n",
+            log,
+            out _);
+        var canvas = config.CanvasFor("DP-1", log);
+        Assert.Equal(TinyComp.GridAnimationStyle.Fade, canvas.GridAnimationValue);
+        Assert.Equal(EasingCurve.OutCubic, canvas.GridEasingValue);
+        Assert.Equal(5000, canvas.GridAnimationMillis);
+        Assert.Equal(0, canvas.GridLingerMillis);
+        var overview = config.OverviewCanvasFor("DP-1", log);
+        Assert.Equal(EasingCurve.OutCubic, overview.GridEasingValue);
+        Assert.Equal(0, overview.GridAnimationMillis);
+        Assert.Equal(GridRevealStyle.None, overview.GridRevealStyle);
+        Assert.Contains(_lines, line => line.Contains("grid_animation \"spin\" is not none|fade|ripple|draw|sweep", StringComparison.Ordinal));
+        Assert.Contains(_lines, line => line.Contains("grid_easing \"spring\" is not", StringComparison.Ordinal));
+        Assert.Contains(_lines, line => line.Contains("grid_easing array is not", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void The_canvas_wallpaper_defaults_to_the_desktop_and_an_output_can_take_the_whole_output()
     {
         var log = BasinLog.For("t");

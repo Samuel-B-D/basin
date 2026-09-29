@@ -854,6 +854,47 @@ public sealed class ZeroAllocationTests
     [InlineData("skia-vulkan")]
     [InlineData("skia-graphite")]
     [InlineData("impeller")]
+    public void A_ripple_grid_reveal_showing_and_hiding_allocates_nothing_over_1000_frames(string renderer)
+    {
+        CompositorTestHost.SkipUnlessRunnable(renderer);
+        using var host = new CompositorTestHost(renderer: renderer);
+
+        var left = new Basin.Effects.CanvasWarp();
+        left.Layout(24, -1, 24, 80, 0.2, 0.25, 60);
+        var right = new Basin.Effects.CanvasWarp(1);
+        right.Layout(136, 1, 24, 80, 0.2, 0.25, 60);
+        var source = new Basin.Effects.CanvasGridSource { Left = left, Right = right, CellSize = 16 };
+        var grid = new Scene.SceneMesh(host.Scene.Root) { Bounds = new Box(0, 0, 160, 120), Source = source };
+
+        void Reveal(int i)
+        {
+            var phase = i % 80;
+            var raw = phase < 40 ? phase / 40.0 : (80 - phase) / 40.0;
+            var progress = (float)Basin.Effects.EasingCurve.OutCubic.Apply(raw);
+            source.Reveal = new Basin.Effects.GridReveal(
+                Basin.Effects.GridRevealStyle.Ripple, progress, 40 + (i % 50), 30 + (i % 30), 24);
+            grid.NotifyMeshChanged();
+            host.CommitFrame();
+        }
+
+        for (var i = 0; i < 160; i++)
+        {
+            Reveal(i);
+        }
+
+        NothingAllocated(1000, Reveal);
+        grid.Destroy();
+    }
+
+    [Theory]
+    [InlineData("pixman")]
+    [InlineData("gl")]
+    [InlineData("vulkan")]
+    [InlineData("skia")]
+    [InlineData("skia-gl")]
+    [InlineData("skia-vulkan")]
+    [InlineData("skia-graphite")]
+    [InlineData("impeller")]
     public void A_window_sliding_through_a_canvas_zone_allocates_nothing_over_1000_frames(string renderer)
     {
         CompositorTestHost.SkipUnlessRunnable(renderer);

@@ -354,7 +354,7 @@ internal sealed partial class TinyComp
                 var zoomNode = background ? overview.BackgroundZoom : overview.BottomZoom;
                 if (zoomNode is not { IsDestroyed: false })
                 {
-                    var root = background ? _layers.Background : _layers.Bottom;
+                    var root = background ? _wallpapers : _layers.Bottom;
                     zoomNode = new SceneTransform(root);
                     zoomNode.LowerToBottom();
                     if (background)

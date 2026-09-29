@@ -508,7 +508,7 @@ internal sealed partial class TinyComp
         BeginCanvasGrab(window, x, y);
         _ = StopSpin(window, report: false);
         BeginPhysicsDrag(window);
-        SetCanvasGridDragging(true);
+        SetCanvasGridDragging(true, x, y);
         _effects.OnMoveGrab(
             window.EffectTree,
             _grabX,
@@ -702,7 +702,12 @@ internal sealed partial class TinyComp
 
     private void WireLayerShell()
     {
-        _layerDriver = new Basin.Desktop.LayerShellSceneDriver(_layerShell, _layout, _layers)
+        _layerDriver = new Basin.Desktop.LayerShellSceneDriver(
+            _layerShell,
+            _layout,
+            layer => layer.Layer == LayerKind.Background
+                ? _wallpapers
+                : Basin.Desktop.LayerShellSceneDriver.TreeOf(_layers, layer.Layer))
         {
             DefaultOutput = _ => Views.Count > 0
                 ? (Views.FirstOrDefault(v => _layout.OutputAt(_cursorX, _cursorY) == v.Output) ?? Views[0]).Global

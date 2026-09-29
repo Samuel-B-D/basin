@@ -51,6 +51,8 @@ internal sealed partial class TinyComp :
     private readonly Scene _scene = new();
     private PointerRefresh? _pointerRefresh;
     private SceneLayers _layers = null!;
+    private SceneTree _wallpapers = null!;
+    private SceneTree _backdrop = null!;
     private readonly EffectsPolicy _effects;
     private PostEffects _post = null!;
     private ScreenShader _shader = null!;
@@ -455,6 +457,8 @@ internal sealed partial class TinyComp :
             }
         };
         _layers = new SceneLayers(_scene.Root);
+        _wallpapers = new SceneTree(_layers.Background);
+        _backdrop = new SceneTree(_layers.Background);
         _pointerRefresh = new PointerRefresh(_scene, _loop, RefreshPointer);
 
         var forcedCard = Environment.GetEnvironmentVariable("BASIN_DRM_DEVICE");

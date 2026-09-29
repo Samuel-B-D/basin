@@ -51,7 +51,7 @@ internal sealed partial class TinyComp
         _driver.Emptied += () => _runLoop.Stop();
         _driver.Painted += OnPainted;
         _driver.ModeChanged += OnModeChanged;
-        _driver.LayoutChanged += LayoutCanvasAll;
+        _driver.LayoutChanged += OnLayoutChanged;
         _driver.TransformChanged += OnTransformChanged;
         _driver.StampFrame += OnStampFrame;
         _driver.StampModeset += OnStampModeset;
@@ -315,6 +315,13 @@ internal sealed partial class TinyComp
     {
         UpdateSurfacePresence();
         MaybeScreenshotDamage(view);
+    }
+
+    private void OnLayoutChanged()
+    {
+        ArrangeLayerSurfaces();
+        _lockDriver.Reconfigure();
+        LayoutCanvasAll();
     }
 
     private void OnModeChanged(OutputView view)

@@ -738,7 +738,7 @@ internal sealed partial class TinyComp
         {
             foreach (var view in Views)
             {
-                if (view.Output != output)
+                if (view.Output != output || view.Tag is not OutputPolicy)
                 {
                     continue;
                 }

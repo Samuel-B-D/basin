@@ -11,7 +11,7 @@ namespace TinyComp;
 internal sealed class SettingsForm
 {
     private static readonly string[] SectionPrefixes =
-        ["compositor.", "frame.", "color.", "effects.", "canvas.", "overview.", "hypr.", "input.", "bindings.", "rule#", "output.", "settings."];
+        ["compositor.", "frame.", "color.", "effects.", "canvas.", "overview.", "physics.", "hypr.", "input.", "touch.", "bindings.", "rule#", "output.", "settings."];
 
     private static readonly IReadOnlyList<string> InheritOnOff = ["(inherit)", "on", "off"];
 
@@ -233,7 +233,7 @@ internal sealed class SettingsForm
             for (var i = 0; i < SectionPrefixes.Length; i++)
             {
                 if (path.StartsWith(SectionPrefixes[i], StringComparison.Ordinal) ||
-                    (i == 6 && path.StartsWith("shortcuts.", StringComparison.Ordinal)))
+                    (SettingsCatalog.Sections[i] == SettingsCatalog.Hypr && path.StartsWith("shortcuts.", StringComparison.Ordinal)))
                 {
                     _sectionDirty[i] = true;
                 }
@@ -579,6 +579,13 @@ internal sealed class SettingsForm
             SettingsWidgets.EnumRow(
                 paper, theme, "canvas", "Canvas", RuleSlot(i, "canvas", SettingKind.Choice, "(none)"),
                 ["(none)", "left", "right", "top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right"]);
+            SettingsWidgets.EnumRow(paper, theme, "physics", "Physics body", RuleSlot(i, "physics", SettingKind.Choice, "(inherit)", onOff: true), InheritOnOff);
+            SettingsWidgets.EnumRow(paper, theme, "pin", "Pinned", RuleSlot(i, "pin", SettingKind.Choice, "(inherit)", onOff: true), InheritOnOff);
+            SettingsWidgets.EnumRow(paper, theme, "no_collide", "No collide", RuleSlot(i, "no_collide", SettingKind.Choice, "(inherit)", onOff: true), InheritOnOff);
+            SettingsWidgets.TextRow(paper, theme, "mass", "Mass", RuleSlot(i, "mass", SettingKind.Literal), "density");
+            SettingsWidgets.TextRow(paper, theme, "gravity", "Gravity", RuleSlot(i, "gravity", SettingKind.Literal), "scale");
+            SettingsWidgets.TextRow(paper, theme, "bounce", "Bounce", RuleSlot(i, "bounce", SettingKind.Literal), "restitution");
+            SettingsWidgets.TextRow(paper, theme, "friction", "Friction", RuleSlot(i, "friction", SettingKind.Literal), "surface");
             paper.PopID();
         }
     }

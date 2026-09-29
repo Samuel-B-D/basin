@@ -300,6 +300,8 @@ internal sealed partial class TinyComp
         running |= StepCanvasMotions(tick);
         running |= StepShelfMotions(tick);
         running |= StepOverviews(tick);
+        running |= StepTilts(tick);
+        running |= StepPhysics(tick);
         if (running)
         {
             for (var i = 0; i < Views.Count; i++)

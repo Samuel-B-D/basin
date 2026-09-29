@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <BasinPlatforms>portable</BasinPlatforms>
+    <PackageId>Basin.Physics.Box2D</PackageId>
+    <RootNamespace>Basin.Physics</RootNamespace>
+    <Description>The Box2D.NET engine for Basin.Physics.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Basin.Tests" />
+    <ProjectReference Include="../Basin.Physics/Basin.Physics.csproj" />
+    <PackageReference Include="Box2D.NET" />
+  </ItemGroup>
+
+</Project>

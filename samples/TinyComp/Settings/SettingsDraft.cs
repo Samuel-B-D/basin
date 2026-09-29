@@ -7,6 +7,8 @@ namespace TinyComp;
 
 internal sealed class SettingsDraft
 {
+    private static readonly Dictionary<string, string[]> TableSegments = new(StringComparer.Ordinal);
+
     private readonly HashSet<string> _dirty = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _errors = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _hints = new(StringComparer.Ordinal);
@@ -209,7 +211,7 @@ internal sealed class SettingsDraft
         return parent is not null && parent.TryGetValue(segments[^1], out var value) ? value as TomlTableArray : null;
     }
 
-    public TomlTable? Table(string table) => Navigate(_draftModel, TomlDocument.Segments(table));
+    public TomlTable? Table(string table) => Navigate(_draftModel, SegmentsOf(table));
 
     public void Revert(string status)
     {
@@ -442,14 +444,25 @@ internal sealed class SettingsDraft
     }
 
     private static object? Lookup(TomlTable model, string table, string key) =>
-        Navigate(model, TomlDocument.Segments(table)) is { } scope && scope.TryGetValue(key, out var value) ? value : null;
+        Navigate(model, SegmentsOf(table)) is { } scope && scope.TryGetValue(key, out var value) ? value : null;
+
+    private static IReadOnlyList<string> SegmentsOf(string table)
+    {
+        if (!TableSegments.TryGetValue(table, out var segments))
+        {
+            segments = [.. TomlDocument.Segments(table)];
+            TableSegments[table] = segments;
+        }
+
+        return segments;
+    }
 
     private static TomlTable? Navigate(TomlTable model, IReadOnlyList<string> segments)
     {
         var scope = model;
-        foreach (var segment in segments)
+        for (var i = 0; i < segments.Count; i++)
         {
-            if (!scope.TryGetValue(segment, out var next) || next is not TomlTable table)
+            if (!scope.TryGetValue(segments[i], out var next) || next is not TomlTable table)
             {
                 return null;
             }

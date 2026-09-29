@@ -3,14 +3,12 @@ namespace Basin.Seat;
 public sealed class SwipeRecognizer
 {
     private const double RubberBandFalloff = 4.0;
-    private const double VelocitySmoothing = 0.4;
-    private const uint StaleVelocityMillis = 60;
 
     private double _raw;
     private double _width = 1;
-    private double _velocity;
-    private bool _hasVelocity;
-    private uint _lastUpdateMillis;
+    private double _travel;
+    private VelocityTracker _tracker;
+    private uint _beganMillis;
 
     public SwipeRecognizer(uint fingers = 3) => Fingers = fingers;
 
@@ -37,7 +35,9 @@ public sealed class SwipeRecognizer
 
     public int Direction => Math.Sign(_raw);
 
-    public double Velocity => _velocity;
+    public double Velocity => _tracker.Smoothed.X;
+
+    public double ReleaseVelocity { get; private set; }
 
     public double CommitFraction { get; set; } = 0.5;
 
@@ -50,6 +50,7 @@ public sealed class SwipeRecognizer
     public bool Begin(uint fingers, double width, uint timeMs)
     {
         Abort();
+        ReleaseVelocity = 0;
         if (fingers != Fingers || width <= 0)
         {
             return false;
@@ -57,7 +58,8 @@ public sealed class SwipeRecognizer
 
         IsActive = true;
         _width = width;
-        _lastUpdateMillis = timeMs;
+        _beganMillis = timeMs;
+        _tracker.Add(0, 0, 0);
         return true;
     }
 
@@ -70,16 +72,8 @@ public sealed class SwipeRecognizer
 
         var along = Axis == SwipeAxis.Vertical ? dy : dx;
         _raw += along / _width;
-
-        var elapsed = timeMs - _lastUpdateMillis;
-        if (elapsed > 0)
-        {
-            var instant = along * 1000.0 / elapsed;
-            _velocity = _hasVelocity ? _velocity + (VelocitySmoothing * (instant - _velocity)) : instant;
-            _hasVelocity = true;
-            _lastUpdateMillis = timeMs;
-        }
-
+        _travel += along;
+        _tracker.Add(_travel, 0, Nanos(timeMs));
         return true;
     }
 
@@ -91,7 +85,8 @@ public sealed class SwipeRecognizer
         }
 
         var progress = Progress;
-        var velocity = _hasVelocity && timeMs - _lastUpdateMillis < StaleVelocityMillis ? _velocity : 0;
+        var velocity = _tracker.Velocity(Nanos(timeMs)).X;
+        ReleaseVelocity = cancelled ? 0 : velocity / _width;
         var againstLimit = (_raw > 0 && ClampHigh) || (_raw < 0 && ClampLow);
         Abort();
 
@@ -114,12 +109,14 @@ public sealed class SwipeRecognizer
     {
         IsActive = false;
         _raw = 0;
-        _velocity = 0;
-        _hasVelocity = false;
-        _lastUpdateMillis = 0;
+        _travel = 0;
+        _tracker.Reset();
+        _beganMillis = 0;
         ClampLow = false;
         ClampHigh = false;
     }
+
+    private long Nanos(uint timeMs) => (long)(uint)(timeMs - _beganMillis) * 1_000_000;
 
     private static double Damp(double excess) => excess / (1 + (excess * RubberBandFalloff));
 }

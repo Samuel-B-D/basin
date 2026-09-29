@@ -61,7 +61,7 @@ public sealed class TouchMoveResize : ITouchCapture
     {
         if (_slot == id)
         {
-            Handler?.DragTo(x, y);
+            Handler?.DragTo(timeMs, x, y);
         }
     }
 
@@ -70,7 +70,7 @@ public sealed class TouchMoveResize : ITouchCapture
         if (_slot == id)
         {
             _slot = -1;
-            Handler?.DragEnd(cancelled: false);
+            Handler?.DragEnd(timeMs, cancelled: false);
         }
     }
 
@@ -79,7 +79,7 @@ public sealed class TouchMoveResize : ITouchCapture
         if (_slot >= 0)
         {
             _slot = -1;
-            Handler?.DragEnd(cancelled: true);
+            Handler?.DragEnd(0, cancelled: true);
         }
     }
 }

@@ -61,6 +61,10 @@
     <Project Path="src/Basin.Renderers/Basin.Renderers.csproj" />
     <Project Path="src/Basin.Effects/Basin.Effects.csproj" />
     <Project Path="src/Basin.Eis/Basin.Eis.csproj" />
+    <Project Path="src/Basin.Kinematics/Basin.Kinematics.csproj" />
+    <Project Path="src/Basin.Physics/Basin.Physics.csproj" />
+    <Project Path="src/Basin.Physics.Box2D/Basin.Physics.Box2D.csproj" />
+    <Project Path="src/Basin.Physics.Bepu/Basin.Physics.Bepu.csproj" />
     <Project Path="src/Basin.Scene/Basin.Scene.csproj" />
     <Project Path="src/Basin.Screencast.PipeWire/Basin.Screencast.PipeWire.csproj" />
     <Project Path="src/Basin.Testing/Basin.Testing.csproj" />

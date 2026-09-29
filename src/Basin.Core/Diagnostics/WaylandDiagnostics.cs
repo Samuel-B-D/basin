@@ -33,7 +33,7 @@ public static class WaylandDiagnostics
     public static IDisposable TraceProtocol(WlServerDisplay display)
     {
         ArgumentNullException.ThrowIfNull(display);
-        return display.AddProtocolLogger(static (in WlProtocolMessage message) =>
+        var logger = display.AddProtocolLogger(static (in WlProtocolMessage message) =>
         {
             if (BasinLog.IsEnabled(BasinLogLevel.Debug))
             {
@@ -41,5 +41,32 @@ public static class WaylandDiagnostics
                 Log.Debug($"{line}");
             }
         });
+        return new ProtocolTrace(logger);
+    }
+
+    private sealed class ProtocolTrace : IDisposable
+    {
+        private readonly IDisposable _logger;
+        private readonly bool _checked;
+        private bool _disposed;
+
+        public ProtocolTrace(IDisposable logger)
+        {
+            _logger = logger;
+            _checked = AllocationScope.Enabled;
+            AllocationScope.Enabled = false;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _logger.Dispose();
+            AllocationScope.Enabled = _checked;
+        }
     }
 }

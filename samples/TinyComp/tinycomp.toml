@@ -84,6 +84,8 @@ track_mouse  = false         # rings around the cursor while a button is held
 touch_points = false         # ring at each touch
 system_bell  = false         # flash on attention requests
 startup_feedback = "none"    # none | bouncing | blinking | passive
+rotate_step  = 15            # rotate-left and rotate-right, in degrees
+rotate_release = "exact"     # two-finger twist release: exact | spin
 
 # Canvas with compressed edge zones. [output."NAME"] takes the same keys.
 [canvas]
@@ -150,6 +152,34 @@ grid_cell     = 64           # canvas pixels between grid lines
 grid_color    = "#2a35c0"    # grid line color
 desktop_grid  = false        # grid on the zoomed desktop
 animation_ms  = 250          # open and close
+
+# Windows as rigid bodies: throw, collide, fall.
+[physics]
+enable        = false        # physics on or off
+engine        = "bepu"       # bepu | box2d
+gravity       = 0            # pixels per second squared, down; negative is up
+gravity_steps = [0, 2000]    # the gravity action cycles these
+friction      = 0.3          # surface friction, 0 to 2
+restitution   = 0.2          # bounce, 0 to 1
+density       = 1.0          # mass per area
+damping       = 2.0          # slowdown per second
+throw_multiplier = 1.0       # release speed factor
+max_throw_speed = 6000       # pixels per second
+stop_speed    = 20           # pixels per second
+impact_speed  = 600          # slowest impact that squashes or shakes
+rotation      = true         # windows spin
+upright       = true         # a tilted window turns back upright at rest
+impacts       = ["squash"]   # squash | shake
+# [physics.workspace.2]
+# gravity     = 2000         # per-workspace gravity
+
+[touch]
+hide_cursor    = true        # hide the cursor while the touchscreen is used, show it on mouse input
+titlebar_twist = true        # two fingers, one on the titlebar, turn the window
+window_twist   = 3           # fingers turned anywhere on a window turn it: 3 to 5, 0 is off
+hold_move      = true        # two fingers held still on a window, then slid, move it
+hold_ms        = 300         # how long the fingers rest before a slide moves the window
+hold_move_turn = true        # turning the held fingers also turns the window
 
 [settings]
 palette   = "dark"           # dark | light
@@ -230,6 +260,14 @@ click_method   = "clickfinger"  # none | button_areas | clickfinger
 # "Super+Up"      = "shelve-top"
 # "Super+Down"    = "shelve-bottom"
 # "Super+u"       = "unshelve"
+# Physics actions.
+# "Alt+Shift+g"   = "gravity"
+# "Alt+Shift+f"   = "physics-freeze"
+# Rotation actions.
+# "Alt+Shift+comma"  = "rotate-left"
+# "Alt+Shift+period" = "rotate-right"
+# "Alt+Shift+u"   = "upright"
+# "Alt+Shift+s"   = "stop-spin"
 
 # Window rules.
 # [[rule]]
@@ -243,3 +281,10 @@ click_method   = "clickfinger"  # none | button_areas | clickfinger
 # width  = 1280
 # height = 720
 # canvas = "left"            # left | right | top | bottom | top-left | top-right | bottom-left | bottom-right
+# physics    = false         # not a body
+# pin        = true          # a body that does not move
+# no_collide = true          # passes through other windows
+# mass       = 2.0           # density
+# gravity    = 0.5           # gravity scale
+# bounce     = 0.8           # restitution
+# friction   = 0.1

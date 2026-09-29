@@ -583,6 +583,7 @@ internal sealed partial class TinyComp
         var from = _swipeFrom;
         var to = _swipeTo;
         var visual = _swipeVisual;
+        var velocity = _swipe.ReleaseVelocity * _swipeDirection;
         _swipeView = null;
         _swipeFrom = null;
         _swipeTo = null;
@@ -609,7 +610,7 @@ internal sealed partial class TinyComp
                 _slidingTo = to is null ? null : from;
             }
 
-            _effects.SettleSlide(commit, () => FinishPendingSlide());
+            _effects.SettleSlide(commit, velocity, () => FinishPendingSlide());
             view?.Scheduler?.ScheduleRepaint();
         }
 

@@ -39,6 +39,18 @@ internal sealed class Config
 
     public bool DamageTint { get; set; }
 
+    public bool HideCursorOnTouch { get; set; } = true;
+
+    public bool TitlebarTwist { get; set; } = true;
+
+    public int WindowTwistFingers { get; set; } = 3;
+
+    public bool HoldMove { get; set; } = true;
+
+    public int HoldMillis { get; set; } = 300;
+
+    public bool HoldMoveTurn { get; set; } = true;
+
     public bool QuillDemo { get; set; }
 
     public static RenderColor DefaultBackground { get; } = new(0.09f, 0.1f, 0.12f, 1f);
@@ -101,6 +113,10 @@ internal sealed class Config
 
     public bool ShakeCursor { get; set; }
 
+    public double RotateStep { get; set; } = 15;
+
+    public bool RotateSpin { get; set; }
+
     public bool MouseClick { get; set; }
 
     public bool MouseMark { get; set; }
@@ -126,6 +142,8 @@ internal sealed class Config
     public IReadOnlyList<string> Post { get; set; } = [];
 
     public IReadOnlyList<ShaderSetting> Shaders { get; set; } = [];
+
+    public PhysicsSetting Physics { get; set; } = PhysicsSetting.Defaults;
 
     public bool ShaderContinuous { get; set; }
 
@@ -226,6 +244,12 @@ internal sealed class Config
         "shelve-bottom" => KeyAction.ShelveBottom,
         "unshelve" => KeyAction.Unshelve,
         "settings" => KeyAction.Settings,
+        "gravity" => KeyAction.Gravity,
+        "physics-freeze" => KeyAction.PhysicsFreeze,
+        "rotate-left" => KeyAction.RotateLeft,
+        "rotate-right" => KeyAction.RotateRight,
+        "upright" => KeyAction.Upright,
+        "stop-spin" => KeyAction.StopSpin,
         _ => null,
     };
 
@@ -235,7 +259,8 @@ internal sealed class Config
         "carry-next", "carry-prev", "workspace-new", "zoom-in", "zoom-out", "zoom-reset", "mark-undo",
         "mark-clear", "bell", "canvas-toggle", "park-left", "park-right", "park-up", "park-down", "recall",
         "shelf-smaller", "shelf-larger", "shelf-reset", "canvas-mode", "overview", "shelve-left",
-        "shelve-right", "shelve-top", "shelve-bottom", "unshelve", "settings",
+        "shelve-right", "shelve-top", "shelve-bottom", "unshelve", "settings", "gravity", "physics-freeze",
+        "rotate-left", "rotate-right", "upright", "stop-spin",
     ];
 
     private static readonly string[] SharedKeys =
@@ -504,6 +529,8 @@ internal sealed class Config
             Stretch = effects.Flag("stretch", Stretch);
             Notifications = effects.Flag("notifications", Notifications);
             ShakeCursor = effects.Flag("shake_cursor", ShakeCursor);
+            RotateStep = Math.Clamp(effects.Number("rotate_step", RotateStep), 0.5, 180);
+            RotateSpin = effects.Choice("rotate_release", "exact", "exact", "spin") == "spin";
             MouseClick = effects.Flag("mouse_click", MouseClick);
             MouseMark = effects.Flag("mouse_mark", MouseMark);
             TrackMouse = effects.Flag("track_mouse", TrackMouse);
@@ -556,6 +583,30 @@ internal sealed class Config
             {
                 NoteCanvasKeys(terraceKeys);
             }
+        }
+
+        if (reader.Section("physics") is { } physics)
+        {
+            Physics = PhysicsSetting.Parse(physics);
+        }
+
+        if (reader.Section("touch") is { } touch)
+        {
+            HideCursorOnTouch = touch.Flag("hide_cursor", HideCursorOnTouch);
+            TitlebarTwist = touch.Flag("titlebar_twist", TitlebarTwist);
+            var fingers = touch.Number("window_twist", WindowTwistFingers);
+            if (fingers is 0 or (>= 3 and <= 5))
+            {
+                WindowTwistFingers = fingers;
+            }
+            else
+            {
+                log.Warn($"[touch] window_twist {fingers} is not 0 or 3 to 5, keeping {WindowTwistFingers}");
+            }
+
+            HoldMove = touch.Flag("hold_move", HoldMove);
+            HoldMillis = Math.Clamp(touch.Number("hold_ms", HoldMillis), 50, 2000);
+            HoldMoveTurn = touch.Flag("hold_move_turn", HoldMoveTurn);
         }
 
         if (reader.Section("settings") is { } settings)
@@ -780,6 +831,9 @@ internal sealed class Config
         bool? Flag(string key) =>
             table.TryGetValue(key, out var value) && value is bool flag ? flag : null;
 
+        double? Real(string key) =>
+            table.TryGetValue(key, out var value) ? value switch { double real => real, long whole => whole, _ => null } : null;
+
         return new Rule
         {
             AppIds = appIds,
@@ -803,6 +857,13 @@ internal sealed class Config
             Y = Number("y"),
             Width = Number("width"),
             Height = Number("height"),
+            Physics = Flag("physics"),
+            Mass = Real("mass"),
+            Gravity = Real("gravity"),
+            Bounce = Real("bounce"),
+            Friction = Real("friction"),
+            Pin = Flag("pin"),
+            NoCollide = Flag("no_collide"),
             Canvas = Text("canvas") switch
             {
                 "left" => CanvasSide.Left,

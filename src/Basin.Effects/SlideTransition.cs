@@ -1,3 +1,4 @@
+using Basin.Kinematics;
 using Basin.Scene;
 
 namespace Basin.Effects;
@@ -17,12 +18,16 @@ public sealed class SlideTransition
     private int _side;
     private bool _interactive;
     private EffectTimeline _timeline;
+    private SpringHandoff _spring;
+    private bool _springing;
 
     public SlideTransition(long durationNanos = 200_000_000)
     {
         _nanos = durationNanos;
         _timeline.Easing = EasingCurve.CubicBezier(0, 0, 0.2, 1);
     }
+
+    public double SpringStiffness { get; set; } = 800;
 
     public bool IsActive => _outgoing is not null;
 
@@ -51,6 +56,7 @@ public sealed class SlideTransition
         _width = width;
         _side = side;
         _interactive = false;
+        _springing = false;
         Apply();
         _timeline.Start(_nanos);
     }
@@ -109,7 +115,23 @@ public sealed class SlideTransition
         _inFrom = _inApplied;
         _outTo = commit ? -_side * _width : 0;
         _inTo = commit ? 0 : _side * _width;
+        _springing = false;
         _timeline.Start(_nanos);
+    }
+
+    public void Settle(bool commit, double velocity)
+    {
+        if (!_interactive)
+        {
+            return;
+        }
+
+        Settle(commit);
+        commit &= _incoming is not null;
+        var travel = -_outApplied * _side;
+        _spring = new SpringHandoff(SpringStiffness, 1.0);
+        _spring.Start(travel, 0, velocity * _width, 0, commit ? _width : 0, 0);
+        _springing = true;
     }
 
     public bool Step(in FrameTick tick)
@@ -124,6 +146,22 @@ public sealed class SlideTransition
         {
             Clear();
             return false;
+        }
+
+        if (_springing)
+        {
+            var moving = _spring.Step(tick);
+            var travel = Math.Clamp(_spring.X, 0, _width);
+            _outApplied = -_side * travel;
+            _inApplied = (_side * _width) - (_side * travel);
+            Apply();
+            if (!moving)
+            {
+                Clear();
+                return false;
+            }
+
+            return true;
         }
 
         var t = _timeline.Progress(tick);
@@ -166,5 +204,6 @@ public sealed class SlideTransition
         _incoming = null;
         _outgoingNode = null;
         _incomingNode = null;
+        _springing = false;
     }
 }

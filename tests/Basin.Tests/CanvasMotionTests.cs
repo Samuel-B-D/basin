@@ -56,6 +56,26 @@ public sealed class CanvasMotionTests
     }
 
     [Fact]
+    public void A_settle_starts_at_the_given_speed_and_lands_exactly()
+    {
+        var motion = new CanvasMotion();
+        motion.Settle(0.4, 1.0, velocity: 3.0);
+        Assert.True(motion.IsRunning);
+
+        Assert.True(motion.Step(Tick(0), out var first));
+        Assert.InRange(first, 0.4 + (3.0 * 0.016 * 0.5), 1.0);
+        var steps = 0;
+        while (steps < 200 && motion.Step(Tick(++steps * 16), out var value))
+        {
+            Assert.InRange(value, 0.4, 1.0);
+        }
+
+        Assert.True(steps < 200);
+        Assert.Equal(1.0, motion.Current);
+        Assert.False(motion.IsRunning);
+    }
+
+    [Fact]
     public void A_zero_duration_or_no_travel_lands_at_once()
     {
         var motion = new CanvasMotion();

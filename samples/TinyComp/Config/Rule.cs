@@ -28,6 +28,20 @@ internal sealed class Rule : WindowRule
 
     public CanvasSide? Canvas { get; init; }
 
+    public bool? Physics { get; init; }
+
+    public double? Mass { get; init; }
+
+    public double? Gravity { get; init; }
+
+    public double? Bounce { get; init; }
+
+    public double? Friction { get; init; }
+
+    public bool? Pin { get; init; }
+
+    public bool? NoCollide { get; init; }
+
     public bool WobblyFor(bool fallback) => Effects == false ? false : Wobbly ?? fallback;
 
     public string? OpenFor(string? fallback) => Effects == false ? null : Open ?? fallback;

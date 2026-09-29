@@ -97,6 +97,36 @@ public sealed class SlideTransitionTests
     }
 
     [Fact]
+    public void Settling_with_a_velocity_carries_the_finger_speed()
+    {
+        using var host = new CompositorTestHost();
+        var still = Workspace(host);
+        var stillTo = Workspace(host);
+        var flung = Workspace(host);
+        var flungTo = Workspace(host);
+
+        var rest = new SlideTransition();
+        rest.BeginInteractive(still.Stack, stillTo.Stack, Area, direction: 1);
+        rest.Progress = 0.3;
+        rest.Settle(commit: true, velocity: 0);
+
+        var fling = new SlideTransition();
+        fling.BeginInteractive(flung.Stack, flungTo.Stack, Area, direction: 1);
+        fling.Progress = 0.3;
+        fling.Settle(commit: true, velocity: 4);
+
+        Assert.True(rest.Step(Tick(0)));
+        Assert.True(fling.Step(Tick(0)));
+        Assert.True(OffsetOf(flung.Stack) < OffsetOf(still.Stack));
+        Assert.InRange(OffsetOf(flung.Stack), -800, -240);
+
+        RunOut(fling);
+        RunOut(rest);
+        Assert.False(fling.IsActive);
+        Assert.False(rest.IsActive);
+    }
+
+    [Fact]
     public void Settling_to_a_cancel_returns_to_rest()
     {
         using var host = new CompositorTestHost();

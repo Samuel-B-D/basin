@@ -9,6 +9,7 @@ internal sealed class PostEffects : IDisposable
 {
     private static readonly AnimationDuration Crossfade = new(400);
     private static readonly AnimationDuration Rotation = new(250);
+    private static readonly AnimationDuration ShakeDuration = new(320);
 
     private readonly IRenderer _renderer;
     private readonly BasinLogger _log;
@@ -25,6 +26,7 @@ internal sealed class PostEffects : IDisposable
     private ShowPaintStage? _showPaint;
     private BlendChangesStage? _blend;
     private ScreenTransformAnimation? _transform;
+    private ScreenTransformAnimation? _shake;
     private bool _warned;
 
     public PostEffects(IRenderer renderer, string rendererName, BasinLogger log)
@@ -43,6 +45,8 @@ internal sealed class PostEffects : IDisposable
     public BlendChangesStage? Blend => _blend;
 
     public ScreenTransformAnimation? Transform => _transform;
+
+    public ScreenTransformAnimation? Shake => _shake;
 
     public bool Any => _stages.Count > 0;
 
@@ -126,6 +130,12 @@ internal sealed class PostEffects : IDisposable
     public bool BeginRotation(IBuffer? previous, OutputTransform from, OutputTransform to, in FrameTick tick) =>
         previous is not null && _transform?.Begin(previous, from, to, tick, Rotation) == true;
 
+    public bool BeginShake(double amplitudeX, double amplitudeY, in FrameTick tick)
+    {
+        _shake ??= new ScreenTransformAnimation(_renderer);
+        return _shake.BeginShake(amplitudeX, amplitudeY, tick, ShakeDuration);
+    }
+
     public bool Step(in FrameTick tick, int width, int height)
     {
         var running = false;
@@ -149,6 +159,11 @@ internal sealed class PostEffects : IDisposable
             running |= transform.Step(tick);
         }
 
+        if (_shake is { IsRunning: true } shake)
+        {
+            running |= shake.Step(tick);
+        }
+
         return running;
     }
 
@@ -167,6 +182,7 @@ internal sealed class PostEffects : IDisposable
     {
         _blend?.Dispose();
         _transform?.Dispose();
+        _shake?.Dispose();
         _invertShader?.Dispose();
         _zoomShader?.Dispose();
         _colorBlindShader?.Dispose();

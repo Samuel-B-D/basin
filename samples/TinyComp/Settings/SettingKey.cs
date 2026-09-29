@@ -2,7 +2,7 @@ namespace TinyComp;
 
 internal sealed record SettingKey(string Section, string Table, string Key, string Label, SettingKind Kind)
 {
-    public string Path => Table.Length == 0 ? Key : Table + "." + Key;
+    public string Path { get; } = Table.Length == 0 ? Key : Table + "." + Key;
 
     public string? Default { get; init; }
 

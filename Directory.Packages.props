@@ -54,6 +54,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageVersion Include="Box2D.NET" Version="3.1.654" />
+    <PackageVersion Include="BepuPhysics" Version="2.5.0-beta.29" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageVersion Include="Prowl.Quill" Version="$(ProwlVersion)" />
     <PackageVersion Include="Prowl.Paper" Version="$(ProwlVersion)" />
     <PackageVersion Include="Prowl.Scaffold" Version="$(ProwlVersion)" />

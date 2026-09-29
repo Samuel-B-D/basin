@@ -1600,7 +1600,16 @@ internal sealed partial class TinyComp
 
         if (overview.Open == open)
         {
-            overview.Progress.Begin(overview.Value, open ? 1.0 : 0.0, CanvasAnimationNanos(view));
+            var nanos = CanvasAnimationNanos(view);
+            if (nanos > 0)
+            {
+                overview.Progress.Settle(overview.Value, open ? 1.0 : 0.0, -_overviewSwipeRecognizer.ReleaseVelocity);
+            }
+            else
+            {
+                overview.Progress.Begin(overview.Value, open ? 1.0 : 0.0, nanos);
+            }
+
             if (!overview.Progress.IsRunning)
             {
                 overview.Value = open ? 1.0 : 0.0;

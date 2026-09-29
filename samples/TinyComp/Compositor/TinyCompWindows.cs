@@ -179,6 +179,9 @@ internal sealed partial class TinyComp
         _report.Line($"UNMAPPED {window.Toplevel.AppId}");
         _windows.Remove(window);
         ForgetCanvas(window);
+        ForgetPhysics(window);
+        _tilts.Remove(window);
+        _twisting = ReferenceEquals(_twisting, window) ? null : _twisting;
         var workspace = window.Workspace;
         window.Workspace = null;
         if (_focused == window)
@@ -491,13 +494,20 @@ internal sealed partial class TinyComp
             Trace($"beginmove win=({window.X},{window.Y}) cursor=({_cursorX:F0},{_cursorY:F0})");
         }
 
+        var (x, y) = _grabOrigin.For(serial);
+        BeginMoveAt(window, x, y);
+    }
+
+    internal void BeginMoveAt(IGrabTarget window, double x, double y)
+    {
         _mode = DragMode.Move;
         _grabWindow = window;
-        var (x, y) = _grabOrigin.For(serial);
         var (canvasX, canvasY) = ToCanvasPointAt(x, y, window);
         _grabX = canvasX - window.X;
         _grabY = canvasY - window.Y;
         BeginCanvasGrab(window, x, y);
+        _ = StopSpin(window, report: false);
+        BeginPhysicsDrag(window);
         SetCanvasGridDragging(true);
         _effects.OnMoveGrab(
             window.EffectTree,
@@ -536,7 +546,8 @@ internal sealed partial class TinyComp
                 _layers.Top,
                 origin: () => PopupContentOrigin(popup),
                 constrainBox: () => _layout.BoxOf(_layout.OutputAt(_cursorX, _cursorY) ?? Views[0].Output),
-                scale: () => PopupScale(popup));
+                scale: () => PopupScale(popup),
+                transform: () => PopupTurn(popup));
         }
 
         popup.Xdg.Mapped += () =>

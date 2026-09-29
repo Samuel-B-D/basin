@@ -1315,7 +1315,7 @@ public sealed class TinyCompCanvasProcessTests
         Assert.Equal("SHELVE refused: canvas", session.WaitForLine("SHELVE "));
     }
 
-    private static string? SsdWin([CallerFilePath] string sourcePath = "") => WlClient("ssdwin", sourcePath);
+    internal static string? SsdWin([CallerFilePath] string sourcePath = "") => WlClient("ssdwin", sourcePath);
 
     private static string? WlClient(string name, string sourcePath)
     {
@@ -1350,9 +1350,9 @@ public sealed class TinyCompCanvasProcessTests
         return count;
     }
 
-    private readonly record struct Shot(byte[] Rgba, int Width, int Height);
+    internal readonly record struct Shot(byte[] Rgba, int Width, int Height);
 
-    private sealed class CanvasSession : IDisposable
+    internal sealed class CanvasSession : IDisposable
     {
         private readonly Process _compositor;
         private readonly string _runtimeDir;
@@ -1516,6 +1516,18 @@ public sealed class TinyCompCanvasProcessTests
         {
             _compositor.StandardInput.WriteLine(command);
             _compositor.StandardInput.Flush();
+            Thread.Sleep(60);
+        }
+
+        public void SendPaced(IEnumerable<string> commands, int gapMillis)
+        {
+            foreach (var command in commands)
+            {
+                _compositor.StandardInput.WriteLine(command);
+                _compositor.StandardInput.Flush();
+                Thread.Sleep(gapMillis);
+            }
+
             Thread.Sleep(60);
         }
 

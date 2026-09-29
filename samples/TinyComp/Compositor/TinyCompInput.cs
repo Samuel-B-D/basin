@@ -57,10 +57,15 @@ internal sealed partial class TinyComp
             _idle.NotifyActivity();
             HandleKey(time, key, pressed);
         };
-        _touchBinder!.Button += OnButton;
+        _touchBinder!.Button += (time, button, pressed) =>
+        {
+            RevealCursorForPointer();
+            OnButton(time, button, pressed);
+        };
         _touchBinder!.Motion += (time, dx, dy, dxu, dyu) =>
         {
             _idle.NotifyActivity();
+            RevealCursorForPointer();
             if (dxu is { } unacceleratedDx && dyu is { } unacceleratedDy)
             {
                 _relativePointer.NotifyMotion((ulong)time * 1000, dx, dy, unacceleratedDx, unacceleratedDy);
@@ -73,7 +78,11 @@ internal sealed partial class TinyComp
 
             OnPointerPlaced(time);
         };
-        _touchBinder!.Axis += HandleAxis;
+        _touchBinder!.Axis += (time, axis) =>
+        {
+            RevealCursorForPointer();
+            HandleAxis(time, axis);
+        };
         input.Gesture += (_, type, gesture) =>
         {
             _idle.NotifyActivity();
@@ -102,13 +111,25 @@ internal sealed partial class TinyComp
 
                     break;
                 case Libinput.LibinputEventType.GesturePinchBegin:
-                    _gestures.NotifyPinchBegin(time, (uint)gesture.FingerCount);
+                    if (!BeginPadTwist(time))
+                    {
+                        _gestures.NotifyPinchBegin(time, (uint)gesture.FingerCount);
+                    }
+
                     break;
                 case Libinput.LibinputEventType.GesturePinchUpdate:
-                    _gestures.NotifyPinchUpdate(time, gesture.Dx, gesture.Dy, gesture.Scale, gesture.AngleDelta);
+                    if (!UpdatePadTwist(time, gesture.AngleDelta))
+                    {
+                        _gestures.NotifyPinchUpdate(time, gesture.Dx, gesture.Dy, gesture.Scale, gesture.AngleDelta);
+                    }
+
                     break;
                 case Libinput.LibinputEventType.GesturePinchEnd:
-                    _gestures.NotifyPinchEnd(time, gesture.Cancelled);
+                    if (!EndPadTwist(time, gesture.Cancelled))
+                    {
+                        _gestures.NotifyPinchEnd(time, gesture.Cancelled);
+                    }
+
                     break;
                 case Libinput.LibinputEventType.GestureHoldBegin:
                     _gestures.NotifyHoldBegin(time, (uint)gesture.FingerCount);
@@ -191,7 +212,12 @@ internal sealed partial class TinyComp
         ConfigureOverviewTriggers();
         _touchDriver.Router.HitTester = new Basin.Seat.Backends.SceneTouchHitTester(_scene);
         _touchDriver.Router.Chrome = this;
-        _touchDriver.Router.Gestures = new Basin.Seat.TouchGestureSet(_touchSwipeGesture, _overviewTouchGesture);
+        _twistGesture.Handler = new TwistHandler(this);
+        _windowTwistGesture.Handler = new WindowTwistHandler(this);
+        _holdDragGesture.Handler = new HoldDragHandler(this);
+        ApplyTouchSettings();
+        _touchDriver.Router.Gestures = new Basin.Seat.TouchGestureSet(
+            _touchSwipeGesture, _overviewTouchGesture, _twistGesture, _windowTwistGesture, _holdDragGesture);
         _touchDriver.Router.Activity = this;
         _touchDriver.AttachPointer(this);
         _touchDriver.Routed += (_, _, surface) =>
@@ -203,16 +229,43 @@ internal sealed partial class TinyComp
         };
     }
 
-    void Basin.Seat.ITouchActivitySink.OnTouchActivity() => _idle.NotifyActivity();
+    void Basin.Seat.ITouchActivitySink.OnTouchActivity()
+    {
+        _idle.NotifyActivity();
+        if (_config.HideCursorOnTouch)
+        {
+            _cursor.Hide();
+        }
+    }
+
+    private void RevealCursorForPointer()
+    {
+        if (_cursor.IsHidden)
+        {
+            _cursor.Reveal();
+        }
+    }
 
     void Basin.Seat.ITouchPointerTarget.Warp(uint timeMs, double x, double y) => MoveCursor(x, y, timeMs);
 
     void Basin.Seat.ITouchPointerTarget.Button(uint timeMs, uint button, bool pressed) =>
         OnButton(timeMs, button, pressed);
 
-    void Basin.Seat.ITouchDragHandler.DragTo(double x, double y) => DragTo(x, y);
+    void Basin.Seat.ITouchDragHandler.DragTo(uint timeMs, double x, double y)
+    {
+        _lastMotionMillis = timeMs;
+        DragTo(x, y);
+    }
 
-    void Basin.Seat.ITouchDragHandler.DragEnd(bool cancelled) => EndTouchDrag();
+    void Basin.Seat.ITouchDragHandler.DragEnd(uint timeMs, bool cancelled)
+    {
+        if (!cancelled)
+        {
+            _lastMotionMillis = timeMs;
+        }
+
+        EndTouchDrag();
+    }
 
     bool Basin.Seat.ITouchChrome.TryPress(int id, uint timeMs, double x, double y)
     {
@@ -318,7 +371,7 @@ internal sealed partial class TinyComp
                 EndSplitDrag();
             }
 
-            if (_mode == DragMode.Move && _grabWindow is { } dropped)
+            if (_mode == DragMode.Move && _grabWindow is { } dropped && !EndPhysicsDrag(dropped))
             {
                 ReassignDraggedWorkspace(dropped);
                 ClearCanvasHomeAfterDrop(dropped);

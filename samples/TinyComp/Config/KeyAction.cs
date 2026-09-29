@@ -35,4 +35,10 @@ internal enum KeyAction
     ShelveBottom,
     Unshelve,
     Settings,
+    Gravity,
+    PhysicsFreeze,
+    RotateLeft,
+    RotateRight,
+    Upright,
+    StopSpin,
 }

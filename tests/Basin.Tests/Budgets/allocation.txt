@@ -30,6 +30,9 @@
 # row is the peak resident size of the same command under a collector that never
 # reclaims, which is coarse: ZeroGC reserves about 64 MB before anything runs.
 #
+# The engine rows come from PhysicsWorldTests. Each is 100 steps of a Box2D world,
+# and the figure is what the engine allocates inside AllocationScope.Pause.
+#
 # scope    kind     path                          bytes
 server     exact    commit-with-frame-callback     5120
 server     exact    frame-callback-fire               0
@@ -45,6 +48,10 @@ zerogc     ceiling  headless-shm                 55463116
 zerogc     ceiling  inlet-headless               85096857
 workload   ceiling  tinycomp-headless            41440368
 zerogc     ceiling  tinycomp-headless            380362752
+workload   ceiling  tinycomp-physics             41977046
+zerogc     ceiling  tinycomp-physics             187367424
+workload   ceiling  tinycomp-physics-box2d       41981078
+zerogc     ceiling  tinycomp-physics-box2d       188473344
 workload   ceiling  westonia-headless            4942915
 zerogc     ceiling  westonia-headless            638617190
 workload   ceiling  dam-headless                 463814
@@ -67,8 +74,8 @@ server-managed exact    attach-and-damage              3200
 server-managed exact    pointer-axis                      0
 channel    exact    remote-frame                   6400
 channel    exact    remote-dmabuf-frame            6400
-server     exact    popup-cycle                  880000
-server-managed exact    popup-cycle                  905600
+server     exact    popup-cycle                  880800
+server-managed exact    popup-cycle                  906400
 server     exact    color-representation-set          0
 server-managed exact    color-representation-set          0
 server     exact    frame-with-a-client            8000
@@ -181,3 +188,9 @@ server     exact    overview-step-toggle-textured      0
 server     exact    overview-step-drag-textured       0
 server-managed exact    overview-step-toggle-textured      0
 server-managed exact    overview-step-drag-textured       0
+engine     exact    physics-step-contacts         35200
+engine     exact    physics-step-resting              0
+engine     exact    physics-step-moving           35200
+engine     exact    physics-step-contacts-bepu        0
+engine     exact    physics-step-moving-bepu          0
+engine     exact    physics-step-resting-bepu         0

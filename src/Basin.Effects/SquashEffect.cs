@@ -18,6 +18,8 @@ public sealed class SquashEffect
 
     public bool IsRestoring => _restoring;
 
+    public bool Fade { get; set; } = true;
+
     public bool Begin(
         TransformStack stack, in Box window, in Box icon, bool restoring, in FrameTick now, AnimationDuration duration)
     {
@@ -97,7 +99,7 @@ public sealed class SquashEffect
         var centerX = bounds.X + (bounds.Width / 2.0);
         var centerY = bounds.Y + (bounds.Height / 2.0);
 
-        node.Alpha = (float)Math.Clamp(1.0 - t, 0, 1);
+        node.Alpha = Fade ? (float)Math.Clamp(1.0 - t, 0, 1) : 1f;
         node.Matrix = RenderTransform.Multiply(
             RenderTransform.Translation(moveX, moveY),
             RenderTransform.Multiply(

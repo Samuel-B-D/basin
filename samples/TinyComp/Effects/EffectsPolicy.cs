@@ -81,10 +81,10 @@ internal sealed class EffectsPolicy : IDisposable
 
     public bool SlideDragging => _slide.IsInteractive;
 
-    public void SettleSlide(bool commit, Action done)
+    public void SettleSlide(bool commit, double velocity, Action done)
     {
         _slideDone = done;
-        _slide.Settle(commit);
+        _slide.Settle(commit, velocity);
     }
 
     public TransformStack StackFor(SceneTree tree) => _runner.StackFor(tree);

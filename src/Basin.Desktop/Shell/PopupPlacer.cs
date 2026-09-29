@@ -6,11 +6,20 @@ namespace Basin.Desktop;
 public sealed class PopupPlacer
 {
     private readonly OutputLayout _layout;
+    private readonly List<Action> _placements = [];
 
     public PopupPlacer(OutputLayout layout)
     {
         ArgumentNullException.ThrowIfNull(layout);
         _layout = layout;
+    }
+
+    public void PlaceAll()
+    {
+        for (var i = _placements.Count - 1; i >= 0; i--)
+        {
+            _placements[i]();
+        }
     }
 
     public static Point ChainOffset(XdgPopupWindow popup)
@@ -34,12 +43,13 @@ public sealed class PopupPlacer
         SceneTree parentTree,
         Func<Point>? origin = null,
         Func<Box>? constrainBox = null,
-        Func<double>? scale = null)
+        Func<double>? scale = null,
+        Func<RenderTransform>? transform = null)
     {
         ArgumentNullException.ThrowIfNull(popup);
         ArgumentNullException.ThrowIfNull(parentTree);
 
-        var frame = scale is null ? null : new SceneTransform(parentTree);
+        var frame = scale is null && transform is null ? null : new SceneTransform(parentTree);
         var scene = new SceneSurface(frame ?? parentTree, popup.Surface);
 
         Point Origin() => origin?.Invoke() ?? ScenePositionOf(parentTree);
@@ -58,7 +68,8 @@ public sealed class PopupPlacer
             var localX = chain.X + popup.SurfacePosition.X;
             var localY = chain.Y + popup.SurfacePosition.Y;
             var k = Scale();
-            if (frame is null || k == 1.0)
+            var turn = transform?.Invoke() ?? RenderTransform.Identity;
+            if (frame is null || (k == 1.0 && turn.IsIdentity))
             {
                 if (frame is not null)
                 {
@@ -70,10 +81,15 @@ public sealed class PopupPlacer
             }
 
             scene.Tree.SetPosition(localX, localY);
-            frame.Matrix = new RenderTransform(
+            var placement = new RenderTransform(
                 k, 0, contentOrigin.X - treePosition.X,
                 0, k, contentOrigin.Y - treePosition.Y,
                 0, 0, 1);
+            frame.Matrix = turn.IsIdentity
+                ? placement
+                : RenderTransform.Multiply(
+                    RenderTransform.Translation(contentOrigin.X - treePosition.X, contentOrigin.Y - treePosition.Y),
+                    RenderTransform.Multiply(turn, RenderTransform.Scale(k, k)));
         }
 
         void Constrain()
@@ -108,8 +124,18 @@ public sealed class PopupPlacer
         popup.Xdg.Committed += Place;
         popup.GeometryChanged += Place;
         popup.Repositioned += Constrain;
+        if (transform is not null)
+        {
+            _placements.Add(Place);
+        }
+
         scene.Destroyed += () =>
         {
+            if (transform is not null)
+            {
+                _placements.Remove(Place);
+            }
+
             popup.Xdg.Committed -= Place;
             popup.GeometryChanged -= Place;
             popup.Repositioned -= Constrain;

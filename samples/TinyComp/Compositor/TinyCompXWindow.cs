@@ -25,6 +25,8 @@ internal sealed partial class TinyComp
         private FrameCornerRig? _cornerRig;
         private bool _active;
         private bool _maximized;
+
+        internal bool Maximized => _maximized;
         private RestoreGeometry _restore;
 
         public XWindow(TinyComp comp, Basin.XWayland.XWaylandWindow xwin, SceneSurface scene, bool framable)
@@ -371,6 +373,7 @@ internal sealed partial class TinyComp
                 ?? _comp.Views[0];
             _restore = _restore.Saving(new Box(X, Y, XWin.Width, XWin.Height));
             _maximized = true;
+            _comp.StraightenForFill(this);
             ApplyMaximizeGeometry(view);
         }
 

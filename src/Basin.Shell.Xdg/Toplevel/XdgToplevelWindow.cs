@@ -164,6 +164,28 @@ public sealed class XdgToplevelWindow : IToplevelHandle
 
     public void SetFullscreen(bool fullscreen) => SetState(XdgToplevel.State.Fullscreen, fullscreen);
 
+    public bool RaiseMaximizeRequest(bool maximized)
+    {
+        if (MaximizeRequested is not { } requested)
+        {
+            return false;
+        }
+
+        requested(maximized);
+        return true;
+    }
+
+    public bool RaiseFullscreenRequest(bool fullscreen)
+    {
+        if (FullscreenRequested is not { } requested)
+        {
+            return false;
+        }
+
+        requested(fullscreen);
+        return true;
+    }
+
     public void SetResizing(bool resizing) => SetState(XdgToplevel.State.Resizing, resizing);
 
     public void SetTiled(ResizeEdges edges)

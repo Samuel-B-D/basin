@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <BasinPlatforms>portable</BasinPlatforms>
+    <PackageId>Basin.Physics</PackageId>
+    <RootNamespace>Basin.Physics</RootNamespace>
+    <Description>A rigid-body world for Basin windows, with the engine behind a seam.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Basin.Tests" />
+    <InternalsVisibleTo Include="Basin.Physics.Box2D" />
+    <InternalsVisibleTo Include="Basin.Physics.Bepu" />
+    <ProjectReference Include="../Basin.Core/Basin.Core.csproj" />
+    <ProjectReference Include="../Basin.Kinematics/Basin.Kinematics.csproj" />
+    <ProjectReference Include="../Basin.Scene/Basin.Scene.csproj" />
+  </ItemGroup>
+
+</Project>

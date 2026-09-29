@@ -1,4 +1,4 @@
-namespace Basin.Effects;
+namespace Basin.Kinematics;
 
 public struct SpringMotion
 {

@@ -7,7 +7,7 @@ namespace Tarn;
 
 public sealed class TarnShell : IDisposable
 {
-    private readonly Action<Basin.Scene.FrameTick> _tick;
+    private readonly Action<FrameTick> _tick;
 
     public TarnShell(
         BasinCompositorHost host,

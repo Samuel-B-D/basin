@@ -224,6 +224,7 @@ public sealed class SceneOutput : IDisposable, IColorLutTable
             {
                 _settleBoxes[i] = planeBox;
                 _settleCounts[i] = 1;
+                _settleRefusals[i] = null;
                 return _settleCounts[i] >= OffloadEntryThreshold;
             }
 

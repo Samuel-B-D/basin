@@ -67,6 +67,34 @@ public sealed class TinyCompConfigTests : IDisposable
     }
 
     [Fact]
+    public void The_touch_table_reads_every_gesture_switch_and_refuses_a_two_finger_window_twist()
+    {
+        var log = BasinLog.For("t");
+        var defaults = TinyComp.Config.Parse(string.Empty, log, out _);
+        Assert.True(defaults.HideCursorOnTouch);
+        Assert.True(defaults.TitlebarTwist);
+        Assert.Equal(3, defaults.WindowTwistFingers);
+        Assert.True(defaults.HoldMove);
+        Assert.Equal(300, defaults.HoldMillis);
+        Assert.True(defaults.HoldMoveTurn);
+
+        var config = TinyComp.Config.Parse(
+            "[touch]\nhide_cursor = false\ntitlebar_twist = false\nwindow_twist = 0\nhold_move = false\nhold_ms = 5000\nhold_move_turn = false\n",
+            log,
+            out _);
+        Assert.False(config.HideCursorOnTouch);
+        Assert.False(config.TitlebarTwist);
+        Assert.Equal(0, config.WindowTwistFingers);
+        Assert.False(config.HoldMove);
+        Assert.Equal(2000, config.HoldMillis);
+        Assert.False(config.HoldMoveTurn);
+
+        var refused = TinyComp.Config.Parse("[touch]\nwindow_twist = 2\n", log, out _);
+        Assert.Equal(3, refused.WindowTwistFingers);
+        Assert.Contains(_lines, line => line.Contains("window_twist 2 is not 0 or 3 to 5", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void The_overview_anchor_defaults_to_fill_and_an_output_can_center_it()
     {
         var log = BasinLog.For("t");

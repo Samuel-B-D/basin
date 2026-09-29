@@ -8,15 +8,17 @@ internal static class SettingsCatalog
     public const string Effects = "Effects";
     public const string Canvas = "Canvas";
     public const string Overview = "Overview";
+    public const string Physics = "Physics";
     public const string Hypr = "Hypr";
     public const string Input = "Input";
+    public const string Touch = "Touch";
     public const string Bindings = "Bindings";
     public const string Rules = "Rules";
     public const string Outputs = "Outputs";
     public const string Panel = "Panel";
 
     public static IReadOnlyList<string> Sections { get; } =
-        [Compositor, Frames, Color, Effects, Canvas, Overview, Hypr, Input, Bindings, Rules, Outputs, Panel];
+        [Compositor, Frames, Color, Effects, Canvas, Overview, Physics, Hypr, Input, Touch, Bindings, Rules, Outputs, Panel];
 
     public static IReadOnlyList<string> Restarts { get; } =
     [
@@ -184,6 +186,15 @@ internal static class SettingsCatalog
             {
                 Default = "\"none\"", Choices = ["none", "bouncing", "blinking", "passive"], Group = "Feedback",
             },
+            new(Effects, "effects", "rotate_step", "Rotate step (degrees)", SettingKind.Real)
+            {
+                Default = "15", Min = 0.5, Max = 180, Step = 0.5, Group = "Rotation",
+            },
+            new(Effects, "effects", "rotate_release", "Twist release", SettingKind.Choice)
+            {
+                Default = "\"exact\"", Choices = ["exact", "spin"], Group = "Rotation",
+                Note = "Exact keeps the angle the fingers left. Spin carries their speed; stop-spin or a grab catches it.",
+            },
 
             new(Canvas, "canvas", "enable", "Canvas", SettingKind.Flag) { Default = "false" },
             new(Canvas, "canvas", "sides", "Sides", SettingKind.Names) { Default = "[\"left\", \"right\"]", Choices = Sides },
@@ -221,6 +232,34 @@ internal static class SettingsCatalog
             new(Canvas, "canvas", "shelf_shape", "Shelf shape", SettingKind.Choice) { Default = "\"square\"", Choices = ["square", "flat"] },
             new(Canvas, "canvas", "slope_window", "Window on the slope", SettingKind.Choice) { Default = "\"bend\"", Choices = ["bend", "flat"] },
             new(Canvas, "canvas", "drag", "Drag", SettingKind.Choice) { Default = "\"cursor\"", Choices = ["cursor", "grid"] },
+
+            new(Touch, "touch", "hide_cursor", "Hide cursor on touch", SettingKind.Flag) { Default = "true" },
+            new(Touch, "touch", "titlebar_twist", "Twist with a finger on the titlebar", SettingKind.Flag) { Default = "true" },
+            new(Touch, "touch", "window_twist", "Fingers that twist a window anywhere", SettingKind.Integer)
+            {
+                Default = "3", Min = 0, Max = 5, Note = "0 turns it off; 1 and 2 are refused, since apps own them.",
+            },
+            new(Touch, "touch", "hold_move", "Hold two fingers, then slide, to move", SettingKind.Flag) { Default = "true" },
+            new(Touch, "touch", "hold_ms", "Hold before a move, ms", SettingKind.Integer) { Default = "300", Min = 50, Max = 2000 },
+            new(Touch, "touch", "hold_move_turn", "Turn while moving", SettingKind.Flag) { Default = "true" },
+            new(Physics, "physics", "enable", "Physics", SettingKind.Flag) { Default = "false" },
+            new(Physics, "physics", "engine", "Engine", SettingKind.Choice) { Default = "\"bepu\"", Choices = PhysicsSetting.EngineNames },
+            new(Physics, "physics", "gravity", "Gravity", SettingKind.Real) { Default = "0", Min = -10000, Max = 10000, Step = 100 },
+            new(Physics, "physics", "gravity_steps", "Gravity steps", SettingKind.Reals)
+            {
+                Default = "[0, 2000]", Min = -10000, Max = 10000, Note = "The gravity action cycles these.",
+            },
+            new(Physics, "physics", "friction", "Friction", SettingKind.Real) { Default = "0.3", Min = 0, Max = 2, Step = 0.05 },
+            new(Physics, "physics", "restitution", "Restitution", SettingKind.Real) { Default = "0.2", Min = 0, Max = 1, Step = 0.05 },
+            new(Physics, "physics", "density", "Density", SettingKind.Real) { Default = "1.0", Min = 0.1, Max = 10, Step = 0.1 },
+            new(Physics, "physics", "damping", "Damping", SettingKind.Real) { Default = "2.0", Min = 0, Max = 20, Step = 0.1 },
+            new(Physics, "physics", "throw_multiplier", "Throw multiplier", SettingKind.Real) { Default = "1.0", Min = 0, Max = 5, Step = 0.1 },
+            new(Physics, "physics", "max_throw_speed", "Max throw speed", SettingKind.Real) { Default = "6000", Min = 0, Max = 20000, Step = 100 },
+            new(Physics, "physics", "stop_speed", "Stop speed", SettingKind.Real) { Default = "20", Min = 0, Max = 200, Step = 1 },
+            new(Physics, "physics", "impact_speed", "Impact speed", SettingKind.Real) { Default = "600", Min = 0, Max = 5000, Step = 50 },
+            new(Physics, "physics", "rotation", "Rotation", SettingKind.Flag) { Default = "true" },
+            new(Physics, "physics", "upright", "Upright at rest", SettingKind.Flag) { Default = "true" },
+            new(Physics, "physics", "impacts", "Impacts", SettingKind.Names) { Default = "[\"squash\"]", Choices = ["squash", "shake"] },
 
             new(Overview, "overview", "enable", "Overview", SettingKind.Flag) { Default = "true" },
             new(Overview, "overview", "scale", "Scale", SettingKind.Real) { Default = "0.75", Min = 0.3, Max = 0.95, Step = 0.05 },

@@ -8,7 +8,7 @@ public sealed class AllocationBudgetTests
 
     private static readonly string[] Scopes =
     [
-        "server", "client", "channel", "native", "workload", "zerogc",
+        "server", "client", "channel", "native", "workload", "zerogc", "engine",
         "server-managed", "client-managed",
     ];
 

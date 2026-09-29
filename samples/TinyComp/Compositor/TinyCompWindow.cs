@@ -84,6 +84,17 @@ internal sealed partial class TinyComp
                     ApplyMaximize(maximized);
                 }
             };
+            toplevel.StateChanged += () =>
+            {
+                var filling = toplevel.HasState(Basin.Shell.Xdg.Protocol.XdgToplevel.State.Fullscreen) ||
+                    toplevel.HasState(Basin.Shell.Xdg.Protocol.XdgToplevel.State.Maximized);
+                if (filling && !_filling)
+                {
+                    comp.StraightenForFill(this);
+                }
+
+                _filling = filling;
+            };
             toplevel.FullscreenRequested += fullscreen =>
             {
                 toplevel.RequestConfigure();
@@ -246,6 +257,8 @@ internal sealed partial class TinyComp
         }
 
         private RestoreGeometry _maximizeRestore;
+
+        private bool _filling;
 
         public void ToggleMaximize() =>
             ApplyMaximize(!Toplevel.HasState(Basin.Shell.Xdg.Protocol.XdgToplevel.State.Maximized));

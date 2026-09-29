@@ -7,12 +7,17 @@ public sealed class ScreenTransformAnimation : IPostStage, IDisposable
 {
     public const double DefaultMillis = 250;
 
+    public const int ShakeCycles = 3;
+
     private readonly ThreadAffinity _thread = ThreadAffinity.Capture();
     private readonly IRenderer _renderer;
     private EffectTimeline _timeline;
     private BufferLock _hold;
     private ITexture? _texture;
     private double _angle;
+    private double _shakeX;
+    private double _shakeY;
+    private bool _shaking;
     private bool _running;
     private bool _disposed;
 
@@ -28,6 +33,22 @@ public sealed class ScreenTransformAnimation : IPostStage, IDisposable
     public double Progress { get; private set; }
 
     public double Angle => _angle;
+
+    public bool IsShaking => _running && _shaking;
+
+    public (double X, double Y) ShakeOffset
+    {
+        get
+        {
+            if (!IsShaking)
+            {
+                return (0, 0);
+            }
+
+            var wave = (1.0 - Progress) * Math.Sin(Progress * Math.PI * 2 * ShakeCycles);
+            return (_shakeX * wave, _shakeY * wave);
+        }
+    }
 
     public static double AngleBetween(OutputTransform from, OutputTransform to)
     {
@@ -45,9 +66,30 @@ public sealed class ScreenTransformAnimation : IPostStage, IDisposable
         }
 
         Release();
+        _shaking = false;
         _hold = previous.Lock();
         _angle = AngleBetween(from, to);
         _timeline.Easing = EasingCurve.InOutCubic;
+        _timeline.Start(duration.Nanos);
+        _timeline.Anchor(now);
+        Progress = 0;
+        _running = true;
+        return true;
+    }
+
+    public bool BeginShake(double amplitudeX, double amplitudeY, in FrameTick now, AnimationDuration duration)
+    {
+        _thread.Assert();
+        if (duration.IsDisabled || (_running && !_shaking) || (amplitudeX == 0 && amplitudeY == 0))
+        {
+            return false;
+        }
+
+        _shakeX = amplitudeX;
+        _shakeY = amplitudeY;
+        _shaking = true;
+        _angle = 0;
+        _timeline.Easing = EasingCurve.Linear;
         _timeline.Start(duration.Nanos);
         _timeline.Anchor(now);
         Progress = 0;
@@ -84,6 +126,18 @@ public sealed class ScreenTransformAnimation : IPostStage, IDisposable
         if (!_running)
         {
             pass.AddTexture(frame, new TextureRenderOptions { DstBox = full });
+            return;
+        }
+
+        if (_shaking)
+        {
+            var (offsetX, offsetY) = ShakeOffset;
+            pass.AddRect(new RenderColor(0f, 0f, 0f, 1f), full);
+            pass.AddTexture(frame, new TextureRenderOptions
+            {
+                DstBox = full,
+                Transform = RenderTransform.Translation(offsetX, offsetY),
+            });
             return;
         }
 

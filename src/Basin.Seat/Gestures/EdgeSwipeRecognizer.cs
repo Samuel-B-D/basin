@@ -4,9 +4,6 @@ public sealed class EdgeSwipeRecognizer
 {
     public const int WithheldCapacity = 32;
 
-    private const double VelocitySmoothing = 0.4;
-    private const uint StaleVelocityMillis = 60;
-
     private readonly EdgeSwipeSample[] _withheld = new EdgeSwipeSample[WithheldCapacity];
     private int _withheldCount;
     private int _id;
@@ -19,10 +16,8 @@ public sealed class EdgeSwipeRecognizer
     private double _in;
     private double _releaseX;
     private double _releaseY;
-    private double _velocity;
-    private bool _hasVelocity;
+    private VelocityTracker _tracker;
     private uint _beganMillis;
-    private uint _lastMillis;
     private uint _holdSince;
     private bool _held;
     private bool _reachedIn;
@@ -81,7 +76,7 @@ public sealed class EdgeSwipeRecognizer
         }
     }
 
-    public double Velocity => _velocity;
+    public double Velocity => _tracker.Smoothed.X;
 
     public double X => _releaseX;
 
@@ -111,16 +106,15 @@ public sealed class EdgeSwipeRecognizer
         _height = height;
         Outcome = EdgeSwipeOutcome.None;
         Zone = EdgeSwipeZone.None;
-        _velocity = 0;
-        _hasVelocity = false;
+        _tracker.Reset();
         _held = false;
         _reachedIn = false;
         _backedOut = false;
         _holdSince = 0;
         _beganMillis = timeMs;
-        _lastMillis = timeMs;
         Project(x, y, out _originIn, out _originAlong);
         _in = _originIn;
+        _tracker.Add(_in, 0, 0);
         _releaseX = x;
         _releaseY = y;
         _withheldCount = 0;
@@ -214,8 +208,7 @@ public sealed class EdgeSwipeRecognizer
         _phase = Phase.Idle;
         _withheldCount = 0;
         _in = 0;
-        _velocity = 0;
-        _hasVelocity = false;
+        _tracker.Reset();
         _held = false;
         _reachedIn = false;
         _backedOut = false;
@@ -238,15 +231,7 @@ public sealed class EdgeSwipeRecognizer
 
     private void Track(double inward, uint timeMs)
     {
-        var elapsed = timeMs - _lastMillis;
-        if (elapsed > 0)
-        {
-            var instant = (inward - _in) * 1000.0 / elapsed;
-            _velocity = _hasVelocity ? _velocity + (VelocitySmoothing * (instant - _velocity)) : instant;
-            _hasVelocity = true;
-            _lastMillis = timeMs;
-        }
-
+        _tracker.Add(inward, 0, Nanos(timeMs));
         _in = inward;
 
         var progress = Progress;
@@ -295,9 +280,11 @@ public sealed class EdgeSwipeRecognizer
             return EdgeSwipeOutcome.In;
         }
 
-        var velocity = _hasVelocity && timeMs - _lastMillis < StaleVelocityMillis ? _velocity : 0;
+        var velocity = _tracker.Velocity(Nanos(timeMs)).X;
         return velocity >= FlingPerSecond * Scale ? EdgeSwipeOutcome.In : EdgeSwipeOutcome.Cancelled;
     }
+
+    private long Nanos(uint timeMs) => (long)(uint)(timeMs - _beganMillis) * 1_000_000;
 
     private ScreenEdge EdgeAt(double x, double y, double width, double height)
     {

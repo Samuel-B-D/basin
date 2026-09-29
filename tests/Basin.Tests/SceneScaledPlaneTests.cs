@@ -79,6 +79,21 @@ public sealed class SceneScaledPlaneTests
         Assert.All(rig.Offered, offered => Assert.Equal(8, offered.DstBox.Width));
     }
 
+    [Fact]
+    public void A_layer_refused_in_one_place_is_offered_again_where_it_comes_to_rest()
+    {
+        using var rig = new Rig(threshold: 3);
+        rig.Output.Accept = (layer, _) => layer.DstBox.X != 20;
+        rig.Frame.Matrix = new RenderTransform(1, 0, 10, 0, 1, 20, 0, 0, 1);
+        rig.Commit(4);
+        Assert.Equal(0, rig.Scene.OffloadCommits);
+        Assert.True(rig.Scene.DeclinedFor(PlaneDeclineReason.BackendRefused) > 0);
+
+        rig.Frame.Matrix = new RenderTransform(1, 0, 60, 0, 1, 20, 0, 0, 1);
+        rig.Commit(4);
+        Assert.True(rig.Scene.OffloadCommits > 0);
+    }
+
     private sealed class Rig : IDisposable
     {
         private readonly CompositorTestHost _host = new();

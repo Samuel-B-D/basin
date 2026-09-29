@@ -248,20 +248,22 @@ public sealed class XdgToplevelSource : IToplevelSource, IDisposable
             case ToplevelRequestKind.Close:
                 window.Close();
                 return true;
-            case ToplevelRequestKind.Maximize:
-                window.SetMaximized(true);
+            case ToplevelRequestKind.Maximize or ToplevelRequestKind.Unmaximize:
+                var maximized = request.Kind == ToplevelRequestKind.Maximize;
+                if (!window.RaiseMaximizeRequest(maximized))
+                {
+                    window.SetMaximized(maximized);
+                }
+
                 window.RequestConfigure();
                 return true;
-            case ToplevelRequestKind.Unmaximize:
-                window.SetMaximized(false);
-                window.RequestConfigure();
-                return true;
-            case ToplevelRequestKind.Fullscreen:
-                window.SetFullscreen(true);
-                window.RequestConfigure();
-                return true;
-            case ToplevelRequestKind.Unfullscreen:
-                window.SetFullscreen(false);
+            case ToplevelRequestKind.Fullscreen or ToplevelRequestKind.Unfullscreen:
+                var fullscreen = request.Kind == ToplevelRequestKind.Fullscreen;
+                if (!window.RaiseFullscreenRequest(fullscreen))
+                {
+                    window.SetFullscreen(fullscreen);
+                }
+
                 window.RequestConfigure();
                 return true;
             case ToplevelRequestKind.Minimize or ToplevelRequestKind.Unminimize

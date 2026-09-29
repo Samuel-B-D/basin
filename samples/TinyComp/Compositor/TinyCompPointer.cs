@@ -29,14 +29,23 @@ internal sealed partial class TinyComp
         };
         pointer.Motion += (time, x, y) =>
         {
+            RevealCursorForPointer();
             var output = _layout.OutputAt(_cursorX, _cursorY) ?? Views[0].Output;
             var (layoutX, layoutY) = _layout.ToLayout(output, x, y);
             MoveCursor(layoutX, layoutY, time);
         };
         pointer.RelativeMotion += (time, dx, dy, dxu, dyu) =>
             _relativePointer.NotifyMotion(time, dx, dy, dxu, dyu);
-        pointer.Button += (time, button, pressed) => OnButton(time, button, pressed);
-        pointer.Axis += HandleAxis;
+        pointer.Button += (time, button, pressed) =>
+        {
+            RevealCursorForPointer();
+            OnButton(time, button, pressed);
+        };
+        pointer.Axis += (time, axis) =>
+        {
+            RevealCursorForPointer();
+            HandleAxis(time, axis);
+        };
         pointer.Leave += () => _seat.Pointer.NotifyClearFocus();
         pointer.SwipeBegin += (time, fingers) =>
         {
@@ -59,24 +68,49 @@ internal sealed partial class TinyComp
                 _gestures.NotifySwipeEnd(time, cancelled);
             }
         };
-        pointer.PinchBegin += (time, fingers) => _gestures.NotifyPinchBegin(time, fingers);
+        pointer.PinchBegin += (time, fingers) =>
+        {
+            if (!BeginPadTwist(time))
+            {
+                _gestures.NotifyPinchBegin(time, fingers);
+            }
+        };
         pointer.PinchUpdate += (time, dx, dy, scale, rotation) =>
-            _gestures.NotifyPinchUpdate(time, dx, dy, scale, rotation);
-        pointer.PinchEnd += (time, cancelled) => _gestures.NotifyPinchEnd(time, cancelled);
+        {
+            if (!UpdatePadTwist(time, rotation))
+            {
+                _gestures.NotifyPinchUpdate(time, dx, dy, scale, rotation);
+            }
+        };
+        pointer.PinchEnd += (time, cancelled) =>
+        {
+            if (!EndPadTwist(time, cancelled))
+            {
+                _gestures.NotifyPinchEnd(time, cancelled);
+            }
+        };
         pointer.HoldBegin += (time, fingers) => _gestures.NotifyHoldBegin(time, fingers);
         pointer.HoldEnd += (time, cancelled) => _gestures.NotifyHoldEnd(time, cancelled);
     }
 
-    internal void InjectPointerMotion(uint time, double dx, double dy) =>
+    internal void InjectPointerMotion(uint time, double dx, double dy)
+    {
+        RevealCursorForPointer();
         MoveCursor(_cursorX + dx, _cursorY + dy, time);
+    }
 
     internal void InjectPointerMotionAbsolute(uint time, double x, double y)
     {
+        RevealCursorForPointer();
         var bounds = _layout.Bounds;
         MoveCursor(bounds.X + (x * bounds.Width), bounds.Y + (y * bounds.Height), time);
     }
 
-    internal void InjectPointerButton(uint time, uint button, bool pressed) => OnButton(time, button, pressed);
+    internal void InjectPointerButton(uint time, uint button, bool pressed)
+    {
+        RevealCursorForPointer();
+        OnButton(time, button, pressed);
+    }
 
     internal void InjectKey(uint time, uint key, bool pressed) =>
         HandleKey(time, key, pressed, fromInputMethod: true);
@@ -109,6 +143,7 @@ internal sealed partial class TinyComp
     private void MoveCursor(double x, double y, uint time)
     {
         _cursorPlaced = true;
+        _lastMotionMillis = time;
         var rawDx = x - _lastRawX;
         var rawDy = y - _lastRawY;
         (_lastRawX, _lastRawY) = (x, y);
@@ -173,13 +208,18 @@ internal sealed partial class TinyComp
             case DragMode.Move when _grabWindow is { } window:
                 if (DragCanvasScaled(window, x, y))
                 {
+                    _ = PhysicsDragTo(window, 0, 0, follow: true);
                     return true;
                 }
 
                 var beforeX = window.X;
                 var beforeY = window.Y;
                 var (canvasX, canvasY) = ToCanvasPointAt(x, y, window);
-                window.MoveTo((int)(canvasX - _grabX), (int)(canvasY - _grabY));
+                if (!PhysicsDragTo(window, canvasX, canvasY, follow: false))
+                {
+                    window.MoveTo((int)(canvasX - _grabX), (int)(canvasY - _grabY));
+                }
+
                 _effects.OnMoved(window.X - beforeX, window.Y - beforeY);
                 return true;
 
@@ -392,7 +432,7 @@ internal sealed partial class TinyComp
                 EndSplitDrag();
             }
 
-            if (_mode == DragMode.Move && _grabWindow is { } dropped)
+            if (_mode == DragMode.Move && _grabWindow is { } dropped && !EndPhysicsDrag(dropped))
             {
                 ReassignDraggedWorkspace(dropped);
                 ClearCanvasHomeAfterDrop(dropped);
@@ -690,7 +730,8 @@ internal sealed partial class TinyComp
     internal double ScaleForWindow(Window window) => ScaleForBox(ScreenBoxOf(window));
 
     private bool IsOnDeformedWindow(Surface surface) =>
-        _canvasStates.Count > 0 && CanvasOwnerOf(surface) is { } window && BlocksConstraints(window);
+        (_canvasStates.Count > 0 || _physicsBindings.Count > 0) && CanvasOwnerOf(surface) is { } window &&
+        (BlocksConstraints(window) || IsTilted(window));
 
     private double ScaleOfSurface(Surface surface) =>
         _canvasStates.Count > 0 && CanvasOwnerOf(surface) is { } window ? CanvasScaleOf(window) : 1.0;

@@ -40,7 +40,7 @@ public sealed class TouchMoveResizeTests
         router.Motion(3, 0, 160, 260);
         router.Up(4, 0);
 
-        Assert.Equal(["drag 150,250", "drag 160,260", "end false"], handler.Log);
+        Assert.Equal(["drag 150,250 at 2", "drag 160,260 at 3", "end false at 4"], handler.Log);
         Assert.False(drag.Dragging);
     }
 
@@ -73,7 +73,7 @@ public sealed class TouchMoveResizeTests
         router.Motion(2, 5, 35, 45);
         router.Up(3, 5);
 
-        Assert.Equal(["drag 35,45", "end false"], handler.Log);
+        Assert.Equal(["drag 35,45 at 2", "end false at 3"], handler.Log);
         Assert.Equal(["press 5"], chrome.Log);
     }
 
@@ -90,7 +90,7 @@ public sealed class TouchMoveResizeTests
 
         router.Cancel();
 
-        Assert.Equal(["end true"], handler.Log);
+        Assert.Equal(["end true at 0"], handler.Log);
         Assert.False(drag.Dragging);
     }
 
@@ -98,9 +98,9 @@ public sealed class TouchMoveResizeTests
     {
         public List<string> Log { get; } = [];
 
-        public void DragTo(double x, double y) => Log.Add($"drag {x},{y}");
+        public void DragTo(uint timeMs, double x, double y) => Log.Add($"drag {x},{y} at {timeMs}");
 
-        public void DragEnd(bool cancelled) => Log.Add($"end {(cancelled ? "true" : "false")}");
+        public void DragEnd(uint timeMs, bool cancelled) => Log.Add($"end {(cancelled ? "true" : "false")} at {timeMs}");
     }
 
     private sealed class TakingChrome : ITouchChrome

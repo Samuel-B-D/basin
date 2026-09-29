@@ -104,6 +104,9 @@ internal sealed partial class TinyComp
         }
 
         ForgetCanvas(xwindow);
+        ForgetPhysics(xwindow);
+        _tilts.Remove(xwindow);
+        _twisting = ReferenceEquals(_twisting, xwindow) ? null : _twisting;
         if (xwindow.Framable)
         {
             _effects.OnClosing(

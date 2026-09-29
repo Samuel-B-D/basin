@@ -13,6 +13,7 @@ public class SceneSeatInput : SeatInputSink
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(layout);
         _scene = scene;
+        seat.Pointer.MapToSurface ??= scene.TryMapToSurface;
         Pointer = new LayoutPointer(layout);
         Pointer.Reposition();
     }

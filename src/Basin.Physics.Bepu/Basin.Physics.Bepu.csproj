@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <BasinPlatforms>portable</BasinPlatforms>
+    <PackageId>Basin.Physics.Bepu</PackageId>
+    <RootNamespace>Basin.Physics</RootNamespace>
+    <Description>The bepuphysics2 engine for Basin.Physics, held to a plane.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Basin.Tests" />
+    <ProjectReference Include="../Basin.Physics/Basin.Physics.csproj" />
+    <PackageReference Include="BepuPhysics" />
+  </ItemGroup>
+
+</Project>

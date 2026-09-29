@@ -46,6 +46,10 @@
     <ProjectReference Include="../../src/Basin.Portal/Basin.Portal.csproj" />
     <ProjectReference Include="../../src/Basin.Portal.Prompts.Skia/Basin.Portal.Prompts.Skia.csproj" />
     <ProjectReference Include="../../src/Basin.Screencast.PipeWire/Basin.Screencast.PipeWire.csproj" />
+    <ProjectReference Include="../../src/Basin.Kinematics/Basin.Kinematics.csproj" />
+    <ProjectReference Include="../../src/Basin.Physics/Basin.Physics.csproj" />
+    <ProjectReference Include="../../src/Basin.Physics.Box2D/Basin.Physics.Box2D.csproj" />
+    <ProjectReference Include="../../src/Basin.Physics.Bepu/Basin.Physics.Bepu.csproj" />
     <ProjectReference Include="../../src/Basin.Scene/Basin.Scene.csproj" />
     <ProjectReference Include="../../src/Basin.Transport.Waypipe/Basin.Transport.Waypipe.csproj" />
     <ProjectReference Include="../../src/Basin.Seat/Basin.Seat.csproj" />

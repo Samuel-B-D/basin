@@ -1,4 +1,5 @@
 using Basin.Effects;
+using Basin.Kinematics;
 using Basin.Scene;
 using Xunit;
 

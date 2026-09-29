@@ -25,6 +25,7 @@ internal sealed partial class TinyComp
         _ipc.SyntheticInput = new SyntheticInput(this);
         RegisterCommands(_ipc.Methods);
         RegisterOverviewCommands(_ipc.Methods);
+        RegisterPhysicsCommands(_ipc.Methods);
         RegisterSettingsCommands(_ipc.Methods);
         DeclareOverviewEvents();
     }
@@ -167,6 +168,18 @@ internal sealed partial class TinyComp
             {
                 _report.Line($"WIN {window.Toplevel.AppId} {window.X} {window.Y} mode={_mode} scene={(window.SceneSurface is null ? "none" : "yes")} screen={ScreenBoxOf(window).X}");
                 ReportCanvasWhere(window);
+                if (PhysicsOn)
+                {
+                    _report.Line($"PHYS {NameOf(window)} {PhysicsWhere(window)}");
+                }
+
+                if (AngleOf(window) is var tilt && tilt != 0)
+                {
+                    _report.Line(string.Create(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        $"TILT {NameOf(window)} angle={tilt * 180 / Math.PI:F2} held={(IsHeldTilt(window) ? "yes" : "no")} spinning={(IsSpinning(window) ? "yes" : "no")}"));
+                }
+
                 if (ViewOfWindow(window) is { Tag: OutputPolicy, Canvas.Overview: true } || IsShelved(window))
                 {
                     _report.Line(OverviewWhere(window));
@@ -499,7 +512,7 @@ internal sealed partial class TinyComp
     private void ReportStats()
     {
         _report.Line($"STATS transactions={_useTransactions} timedout={Transaction.TimedOutCount}");
-        _report.Line($"STATS cursor theme={(_cursor.Images?.HasTheme == true ? _cursor.Images.Size.ToString() : "none")} " + $"showing={_cursor.Showing} " + $"on={(_cursor.CursorOutput?.Name ?? "none")}");
+        _report.Line($"STATS cursor theme={(_cursor.Images?.HasTheme == true ? _cursor.Images.Size.ToString() : "none")} " + $"showing={_cursor.Showing} " + $"on={(_cursor.CursorOutput?.Name ?? "none")} hidden={(_cursor.IsHidden ? "yes" : "no")}");
         foreach (var view in Views)
         {
             var so = view.Scene;
@@ -523,18 +536,21 @@ internal sealed partial class TinyComp
     {
         public bool PointerMotionAbsolute(uint timeMs, double x, double y)
         {
+            comp.RevealCursorForPointer();
             comp.MoveCursor(x, y, timeMs);
             return true;
         }
 
         public bool PointerButton(uint timeMs, uint button, bool pressed)
         {
+            comp.RevealCursorForPointer();
             comp.OnButton(timeMs, button, pressed);
             return true;
         }
 
         public bool PointerAxis(uint timeMs, uint axis, double value, uint source)
         {
+            comp.RevealCursorForPointer();
             comp.HandleAxis(timeMs, new PointerAxis((WlPointer.Axis)axis, value, Source: (WlPointer.AxisSource)source));
             return true;
         }
@@ -542,6 +558,61 @@ internal sealed partial class TinyComp
         public bool Key(uint timeMs, uint keycode, bool pressed)
         {
             comp.HandleKey(timeMs, keycode, pressed);
+            return true;
+        }
+
+        public bool TouchDown(uint timeMs, int id, double x, double y)
+        {
+            if (comp._touchDriver?.Router is not { } router)
+            {
+                return false;
+            }
+
+            router.Down(timeMs, id, x, y);
+            return true;
+        }
+
+        public bool TouchMotion(uint timeMs, int id, double x, double y)
+        {
+            if (comp._touchDriver?.Router is not { } router)
+            {
+                return false;
+            }
+
+            router.Motion(timeMs, id, x, y);
+            return true;
+        }
+
+        public bool TouchUp(uint timeMs, int id)
+        {
+            if (comp._touchDriver?.Router is not { } router)
+            {
+                return false;
+            }
+
+            router.Up(timeMs, id);
+            return true;
+        }
+
+        public bool TouchFrame()
+        {
+            if (comp._touchDriver?.Router is not { } router)
+            {
+                return false;
+            }
+
+            router.Frame();
+            return true;
+        }
+
+        public bool TouchCancel()
+        {
+            if (comp._touchDriver?.Router is not { } router)
+            {
+                return false;
+            }
+
+            router.Cancel();
             return true;
         }
 

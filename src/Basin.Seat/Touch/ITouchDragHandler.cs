@@ -2,7 +2,7 @@ namespace Basin.Seat;
 
 public interface ITouchDragHandler
 {
-    void DragTo(double x, double y);
+    void DragTo(uint timeMs, double x, double y);
 
-    void DragEnd(bool cancelled);
+    void DragEnd(uint timeMs, bool cancelled);
 }

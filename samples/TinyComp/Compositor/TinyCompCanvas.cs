@@ -1551,16 +1551,30 @@ internal sealed partial class TinyComp
         if (across is not null)
         {
             var (cornerX, cornerY) = ParkTargets(canvas, window, box, vertical ? across : warp, vertical ? warp : across);
+            var cornerLine = $"PARK {NameOf(window)} {ParkName(side)} to={cornerX} y={cornerY}{ParkScale(canvas, window, box, cornerX, cornerY)} corner";
+            state.ShelfPinned = false;
+            if (GuidedMove(window, cornerX, cornerY, cornerLine))
+            {
+                return;
+            }
+
             BeginCanvasMotion(window, state, vertical: false, cornerX, nanos);
             BeginCanvasMotion(window, state, vertical: true, cornerY, nanos);
-            _report.Line($"PARK {NameOf(window)} {ParkName(side)} to={cornerX} y={cornerY}{ParkScale(canvas, window, box, cornerX, cornerY)} corner");
+            _report.Line(cornerLine);
             return;
         }
 
         var (targetX, targetY) = ParkTargets(canvas, window, box, vertical ? null : warp, vertical ? warp : null);
         var target = vertical ? targetY : targetX;
+        var line = $"PARK {NameOf(window)} {ParkName(side)} to={target}{ParkScale(canvas, window, box, targetX, targetY)}";
+        state.ShelfPinned = false;
+        if (GuidedMove(window, vertical ? window.X : targetX, vertical ? targetY : window.Y, line))
+        {
+            return;
+        }
+
         BeginCanvasMotion(window, state, vertical, target, nanos);
-        _report.Line($"PARK {NameOf(window)} {ParkName(side)} to={target}{ParkScale(canvas, window, box, targetX, targetY)}");
+        _report.Line(line);
     }
 
     private (int X, int Y) ParkTargets(CanvasView canvas, IGrabTarget window, in Box box, CanvasWarp? side, CanvasWarp? end)
@@ -1714,6 +1728,13 @@ internal sealed partial class TinyComp
         state.Home = null;
         state.Anchor = null;
         var nanos = CanvasAnimationNanos(view);
+        var recallLine = $"RECALL {NameOf(window)} to={targetX ?? window.X} y={targetY ?? window.Y}";
+        state.ShelfPinned = false;
+        if (GuidedMove(window, targetX ?? window.X, targetY ?? window.Y, recallLine))
+        {
+            return;
+        }
+
         if (targetX is { } x)
         {
             BeginCanvasMotion(window, state, vertical: false, x, nanos);
@@ -1724,7 +1745,7 @@ internal sealed partial class TinyComp
             BeginCanvasMotion(window, state, vertical: true, y, nanos);
         }
 
-        _report.Line($"RECALL {NameOf(window)} to={targetX ?? window.X} y={targetY ?? window.Y}");
+        _report.Line(recallLine);
     }
 
     private void BeginCanvasMotion(IGrabTarget window, CanvasWindowState state, bool vertical, int target, long nanos)

@@ -405,6 +405,38 @@ internal sealed partial class TinyComp
                 _ = ToggleOverview(null, null);
                 return true;
 
+            case KeyAction.Gravity:
+                CycleGravity();
+                return true;
+
+            case KeyAction.PhysicsFreeze:
+                SetPhysicsFrozen(!_physicsFrozen);
+                return true;
+
+            case KeyAction.StopSpin:
+                if (FocusedGrabTarget() is { } spinning)
+                {
+                    _ = StopSpin(spinning);
+                }
+
+                return true;
+
+            case KeyAction.RotateLeft or KeyAction.RotateRight or KeyAction.Upright:
+                if (FocusedGrabTarget() is { } turned)
+                {
+                    if (action == KeyAction.Upright)
+                    {
+                        UprightWindow(turned);
+                    }
+                    else
+                    {
+                        var step = _config.RotateStep * Math.PI / 180;
+                        RotateWindow(turned, action == KeyAction.RotateLeft ? -step : step, relative: true);
+                    }
+                }
+
+                return true;
+
             case KeyAction.ShelveLeft:
                 ShelveFocused(CanvasSide.Left);
                 return true;

@@ -982,6 +982,7 @@ internal sealed partial class TinyComp :
         };
         _dragIcon.Created += _ => RefreshSurfaceLuts();
         ApplyEffectSettings(config);
+        ApplyPhysicsSettings();
     }
 
     private void StartQuillDemo()
@@ -1072,6 +1073,7 @@ internal sealed partial class TinyComp :
         }
 
         _hostChrome.Clear();
+        ClearPhysics();
         _quillDemo?.Dispose();
         _quillDemo = null;
         DisposeSettings();

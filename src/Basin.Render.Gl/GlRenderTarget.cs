@@ -23,6 +23,35 @@ public sealed unsafe class GlRenderTarget
 
     private uint _textureOrRenderbuffer;
     private EglImage? _image;
+    private uint _backdropCopyTexture;
+    private uint _backdropCopyFbo;
+
+    public uint BackdropTexture(GlDevice device, int width, int height)
+    {
+        if (ColorTexture != 0)
+        {
+            return ColorTexture;
+        }
+
+        var gl = device.Gl;
+        if (_backdropCopyTexture == 0)
+        {
+            _backdropCopyTexture = gl.GenTexture();
+            gl.BindTexture(TextureTarget.Texture2D, _backdropCopyTexture);
+            gl.TexStorage2D(TextureTarget.Texture2D, 1, SizedInternalFormat.Rgba8, (uint)width, (uint)height);
+            _backdropCopyFbo = gl.GenFramebuffer();
+            gl.BindFramebuffer(FramebufferTarget.Framebuffer, _backdropCopyFbo);
+            gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, _backdropCopyTexture, 0);
+        }
+
+        gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, Framebuffer);
+        gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, _backdropCopyFbo);
+        gl.BlitFramebuffer(
+            0, 0, width, height,
+            0, 0, width, height,
+            (uint)GLEnum.ColorBufferBit, BlitFramebufferFilter.Nearest);
+        return _backdropCopyTexture;
+    }
 
     public static GlRenderTarget Create(GlDevice device, IBuffer buffer)
     {
@@ -131,6 +160,18 @@ public sealed unsafe class GlRenderTarget
     public void Dispose(GlDevice device)
     {
         var gl = device.Gl;
+        if (_backdropCopyTexture != 0)
+        {
+            device.NotifyTextureDeleting(_backdropCopyTexture);
+            gl.DeleteFramebuffer(_backdropCopyFbo);
+            gl.DeleteTexture(_backdropCopyTexture);
+        }
+
+        if (ColorTexture != 0)
+        {
+            device.NotifyTextureDeleting(ColorTexture);
+        }
+
         gl.DeleteFramebuffer(Framebuffer);
         gl.DeleteTexture(_textureOrRenderbuffer);
         _image?.Dispose();

@@ -161,6 +161,7 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
     private readonly Program _up;
     private readonly Program _onscreen;
     private readonly Dictionary<(int Width, int Height), Pyramid> _pyramids = [];
+    private readonly Dictionary<uint, (int Width, int Height)> _backdrops = [];
     private readonly float[] _colorMatrix = new float[BlurColorMatrix.Length];
     private uint _noiseTexture;
     private int _noiseStrength = -1;
@@ -238,8 +239,11 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
         _onscreen = Compile(OnscreenSource);
         BlurColorMatrix.Build(_options.Saturation, _options.Contrast, _colorMatrix);
         EnsureNoise();
+        _device.TextureDeleting += ForgetTexture;
         BasinCounters.Track();
     }
+
+    internal int PyramidCount => _pyramids.Count;
 
     public bool Record(in GlBackdropContext context, out GlBackdropResult result)
     {
@@ -248,6 +252,7 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
         _active = _current.Strength is { } strength ? BlurStrength.For(strength) : _strength;
         var levels = _active.Iterations;
         var pad = _active.ExpandSize;
+        TrackBackdrop(context.Backdrop, context.TargetWidth, context.TargetHeight);
         var pyramid = PyramidFor(context.TargetWidth, context.TargetHeight);
         var padded = new Box(
                 context.Bounds.X - pad,
@@ -395,6 +400,47 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
         gl.DrawArrays(PrimitiveType.Triangles, 0, 3);
     }
 
+    private void TrackBackdrop(uint texture, int width, int height)
+    {
+        if (_backdrops.TryGetValue(texture, out var seen))
+        {
+            if (seen.Width == width && seen.Height == height)
+            {
+                return;
+            }
+
+            _backdrops[texture] = (width, height);
+            DropUnusedPyramid(seen.Width, seen.Height);
+            return;
+        }
+
+        _backdrops[texture] = (width, height);
+    }
+
+    private void ForgetTexture(uint texture)
+    {
+        if (_backdrops.Remove(texture, out var seen))
+        {
+            DropUnusedPyramid(seen.Width, seen.Height);
+        }
+    }
+
+    private void DropUnusedPyramid(int width, int height)
+    {
+        foreach (var seen in _backdrops.Values)
+        {
+            if (seen.Width == width && seen.Height == height)
+            {
+                return;
+            }
+        }
+
+        if (_pyramids.Remove((width, height), out var pyramid))
+        {
+            DestroyPyramid(pyramid);
+        }
+    }
+
     private Pyramid PyramidFor(int width, int height)
     {
         if (_pyramids.TryGetValue((width, height), out var existing))
@@ -488,6 +534,8 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
 
         _disposed = true;
         BasinCounters.Untrack();
+        _device.TextureDeleting -= ForgetTexture;
+        _backdrops.Clear();
         var gl = _device.Gl;
         DropPyramids();
         gl.DeleteProgram(_down.Handle);
@@ -569,16 +617,22 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
 
     private void DropPyramids()
     {
-        var gl = _device.Gl;
         foreach (var pyramid in _pyramids.Values)
         {
-            foreach (var level in pyramid.Chain)
-            {
-                gl.DeleteFramebuffer(level.Fbo);
-                gl.DeleteTexture(level.Texture);
-            }
+            DestroyPyramid(pyramid);
         }
 
         _pyramids.Clear();
+    }
+
+    private void DestroyPyramid(Pyramid pyramid)
+    {
+        var gl = _device.Gl;
+        foreach (var level in pyramid.Chain)
+        {
+            _device.NotifyTextureDeleting(level.Texture);
+            gl.DeleteFramebuffer(level.Fbo);
+            gl.DeleteTexture(level.Texture);
+        }
     }
 }

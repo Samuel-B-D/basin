@@ -59,11 +59,7 @@ internal sealed unsafe class GlRenderPass : IRenderPass
             return;
         }
 
-        var backdrop = _entry!.ColorTexture;
-        if (backdrop == 0)
-        {
-            backdrop = EnsureBackdropCopy();
-        }
+        var backdrop = _entry!.BackdropTexture(_renderer.Device, _target.Width, _target.Height);
 
         var context = new GlBackdropContext
         {
@@ -158,40 +154,6 @@ internal sealed unsafe class GlRenderPass : IRenderPass
         var recorded = glFilter.Record(in context);
         BindPassState();
         return recorded;
-    }
-
-    private uint _backdropCopyTexture;
-    private uint _backdropCopyFbo;
-    private int _backdropCopyWidth;
-    private int _backdropCopyHeight;
-
-    private uint EnsureBackdropCopy()
-    {
-        if (_backdropCopyTexture == 0 || _backdropCopyWidth != _target!.Width || _backdropCopyHeight != _target.Height)
-        {
-            if (_backdropCopyTexture != 0)
-            {
-                _gl.DeleteTexture(_backdropCopyTexture);
-                _gl.DeleteFramebuffer(_backdropCopyFbo);
-            }
-
-            _backdropCopyTexture = _gl.GenTexture();
-            _gl.BindTexture(TextureTarget.Texture2D, _backdropCopyTexture);
-            _gl.TexStorage2D(TextureTarget.Texture2D, 1, SizedInternalFormat.Rgba8, (uint)_target!.Width, (uint)_target.Height);
-            _backdropCopyFbo = _gl.GenFramebuffer();
-            _gl.BindFramebuffer(FramebufferTarget.Framebuffer, _backdropCopyFbo);
-            _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, _backdropCopyTexture, 0);
-            _backdropCopyWidth = _target.Width;
-            _backdropCopyHeight = _target.Height;
-        }
-
-        _gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, _entry!.Framebuffer);
-        _gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, _backdropCopyFbo);
-        _gl.BlitFramebuffer(
-            0, 0, _target!.Width, _target.Height,
-            0, 0, _target.Width, _target.Height,
-            (uint)GLEnum.ColorBufferBit, BlitFramebufferFilter.Nearest);
-        return _backdropCopyTexture;
     }
 
     public void AddRect(in RenderColor color, in Box box, PixmanRegion32? clip = null)
@@ -560,17 +522,6 @@ internal sealed unsafe class GlRenderPass : IRenderPass
     }
 
     private int _signalFenceFd = -1;
-
-    internal void DisposeResources()
-    {
-        if (_backdropCopyTexture != 0)
-        {
-            _gl.DeleteTexture(_backdropCopyTexture);
-            _gl.DeleteFramebuffer(_backdropCopyFbo);
-            _backdropCopyTexture = 0;
-            _backdropCopyFbo = 0;
-        }
-    }
 
     private void SetTransform(int location, in RenderTransform transform)
     {

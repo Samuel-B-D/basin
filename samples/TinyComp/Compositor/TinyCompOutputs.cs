@@ -153,7 +153,13 @@ internal sealed partial class TinyComp
                     return;
                 }
 
-                var chrome = new HostChrome(this, frame, renderer, $"basin — {hosted.Name}", () => _runLoop.Stop());
+                if (FrameHosts.For(renderer) is not { } host)
+                {
+                    _log.Error($"host frame: {FrameHosts.Describe(renderer)}");
+                    return;
+                }
+
+                var chrome = new HostChrome(this, frame, host, renderer, $"basin — {hosted.Name}", () => _runLoop.Stop());
                 _hostChrome.Add(chrome);
                 hosted.Committed += chrome.OnOutputChanged;
             };

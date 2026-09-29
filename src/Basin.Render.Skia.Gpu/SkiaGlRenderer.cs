@@ -40,6 +40,34 @@ public sealed class SkiaGlRenderer : IRenderer
         _context = SkiaCensus.Track(context);
         _paint = SkiaCensus.Track(new SKPaint());
         _pass = new SkiaGlRenderPass(this, _paint);
+        _device.TextureDeleting += ForgetBackdropImage;
+    }
+
+    private void ForgetBackdropImage(uint texture)
+    {
+        while (true)
+        {
+            var found = false;
+            (uint Texture, int Width, int Height) stale = default;
+            foreach (var key in _backdropImages.Keys)
+            {
+                if (key.Texture == texture)
+                {
+                    stale = key;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                return;
+            }
+
+            _backdropImages.Remove(stale, out var cached);
+            SkiaCensus.Release(cached.Image);
+            SkiaCensus.Release(cached.Backend);
+        }
     }
 
     public GlDevice Device => _device;
@@ -196,6 +224,7 @@ public sealed class SkiaGlRenderer : IRenderer
     {
         _thread.Assert();
         DropTargets();
+        _device.TextureDeleting -= ForgetBackdropImage;
         foreach (var (backend, image) in _backdropImages.Values)
         {
             SkiaCensus.Release(image);
@@ -203,7 +232,6 @@ public sealed class SkiaGlRenderer : IRenderer
         }
 
         _backdropImages.Clear();
-        _pass.ReleaseBackdropCopy(_device.Gl);
         ColorTransforms.Dispose();
         RenderFences.CloseFence(_completionFence);
         _completionFence = -1;

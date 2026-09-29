@@ -121,6 +121,7 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
         Descriptors = new VulkanDescriptorPools(Dev);
         InputDescriptors = new VulkanDescriptorPools(Dev, DescriptorType.InputAttachment);
+        Dev.ImageViewDestroying += ForgetEffectSet;
 
         var inputBinding = new DescriptorSetLayoutBinding
         {
@@ -316,6 +317,14 @@ public sealed unsafe class VulkanRenderer : IRenderer
         return allocation.Set;
     }
 
+    private void ForgetEffectSet(ImageView view)
+    {
+        if (_effectSets.Remove(view.Handle, out var allocation))
+        {
+            Descriptors.Free(allocation);
+        }
+    }
+
     public bool WaitsOnGpu => Dev.WaitsOnGpu;
 
     public RenderFencePrecision FencePrecision => RenderFencePrecision.Context;
@@ -410,6 +419,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
         _targets.Clear();
 
         Dev.Ring.ReleaseAllRetired();
+        Dev.ImageViewDestroying -= ForgetEffectSet;
+        _effectSets.Clear();
         _pass.DestroyResources();
         foreach (var transform in _colorTransforms.Values)
         {

@@ -88,11 +88,7 @@ internal sealed unsafe class SkiaGlRenderPass : IRenderPass
 
         _renderer.Context.Flush();
         var gl = _renderer.Device.Gl;
-        var backdrop = _entry!.Native.ColorTexture;
-        if (backdrop == 0)
-        {
-            backdrop = EnsureBackdropCopy(gl);
-        }
+        var backdrop = _entry!.Native.BackdropTexture(_renderer.Device, _target.Width, _target.Height);
 
         gl.BindVertexArray(0);
         for (var unit = 0u; unit < 3; unit++)
@@ -138,46 +134,6 @@ internal sealed unsafe class SkiaGlRenderPass : IRenderPass
         }
 
         _paint.BlendMode = SKBlendMode.SrcOver;
-    }
-
-    private uint _backdropCopyTexture;
-    private uint _backdropCopyFbo;
-    private int _backdropCopyWidth;
-    private int _backdropCopyHeight;
-
-    private uint EnsureBackdropCopy(GL gl)
-    {
-        if (_backdropCopyTexture == 0 || _backdropCopyWidth != _target!.Width || _backdropCopyHeight != _target.Height)
-        {
-            ReleaseBackdropCopy(gl);
-            _backdropCopyTexture = gl.GenTexture();
-            gl.BindTexture(TextureTarget.Texture2D, _backdropCopyTexture);
-            gl.TexStorage2D(TextureTarget.Texture2D, 1, SizedInternalFormat.Rgba8, (uint)_target!.Width, (uint)_target.Height);
-            _backdropCopyFbo = gl.GenFramebuffer();
-            gl.BindFramebuffer(FramebufferTarget.Framebuffer, _backdropCopyFbo);
-            gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, _backdropCopyTexture, 0);
-            _backdropCopyWidth = _target.Width;
-            _backdropCopyHeight = _target.Height;
-        }
-
-        gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, _entry!.Native.Framebuffer);
-        gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, _backdropCopyFbo);
-        gl.BlitFramebuffer(
-            0, 0, _target!.Width, _target.Height,
-            0, 0, _target.Width, _target.Height,
-            (uint)GLEnum.ColorBufferBit, BlitFramebufferFilter.Nearest);
-        return _backdropCopyTexture;
-    }
-
-    internal void ReleaseBackdropCopy(GL gl)
-    {
-        if (_backdropCopyTexture != 0)
-        {
-            gl.DeleteTexture(_backdropCopyTexture);
-            gl.DeleteFramebuffer(_backdropCopyFbo);
-            _backdropCopyTexture = 0;
-            _backdropCopyFbo = 0;
-        }
     }
 
     private int _scopedSubmits;

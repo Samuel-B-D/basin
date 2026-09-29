@@ -358,6 +358,10 @@ public sealed unsafe class VulkanDevice : IDisposable, IRenderDevice
 
     public bool WaitsOnGpu => FenceWait.IsGpuSide;
 
+    public event Action<ImageView>? ImageViewDestroying;
+
+    public void NotifyImageViewDestroying(ImageView view) => ImageViewDestroying?.Invoke(view);
+
     public void Dispose()
     {
         _ = Api.DeviceWaitIdle(Device);

@@ -238,6 +238,7 @@ public sealed unsafe class SkiaGraphiteTarget : IDisposable
 
         if (_backdropView.Handle != 0)
         {
+            device.NotifyImageViewDestroying(_backdropView);
             vk.DestroyImageView(device.Device, _backdropView, null);
             _backdropView = default;
         }

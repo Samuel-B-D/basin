@@ -264,12 +264,14 @@ internal sealed unsafe class RenderTarget : IVulkanRetired
         vk.DestroyFramebuffer(renderer.Dev.Device, Framebuffer, null);
         if (SrgbView.Handle != 0)
         {
+            renderer.Dev.NotifyImageViewDestroying(SrgbView);
             vk.DestroyImageView(renderer.Dev.Device, SrgbView, null);
         }
 
         if (BlendImage.Handle != 0)
         {
             renderer.InputDescriptors.Free(BlendSet);
+            renderer.Dev.NotifyImageViewDestroying(BlendView);
             vk.DestroyImageView(renderer.Dev.Device, BlendView, null);
             vk.DestroyImage(renderer.Dev.Device, BlendImage, null);
             vk.FreeMemory(renderer.Dev.Device, BlendMemory, null);

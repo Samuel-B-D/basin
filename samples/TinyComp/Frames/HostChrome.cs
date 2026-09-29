@@ -10,6 +10,7 @@ internal sealed class HostChrome : IDisposable
 
     private readonly TinyComp _comp;
     private readonly WaylandHostFrame _frame;
+    private readonly IUIHost _host;
     private readonly IFrameRenderer _renderer;
     private readonly Action _onClose;
     private readonly string _title;
@@ -27,10 +28,11 @@ internal sealed class HostChrome : IDisposable
     private bool _faulted;
     private bool _disposed;
 
-    internal HostChrome(TinyComp comp, WaylandHostFrame frame, IFrameRenderer renderer, string title, Action onClose)
+    internal HostChrome(TinyComp comp, WaylandHostFrame frame, IUIHost host, IFrameRenderer renderer, string title, Action onClose)
     {
         _comp = comp;
         _frame = frame;
+        _host = host;
         _renderer = renderer;
         _title = title;
         _onClose = onClose;
@@ -148,10 +150,10 @@ internal sealed class HostChrome : IDisposable
     {
         if (_surface is null)
         {
-            var target = (_comp.UIHost.Produces & UITargetKind.Dmabuf) != 0
+            var target = (_host.Produces & UITargetKind.Dmabuf) != 0
                 ? UITargetKind.Dmabuf
                 : UITargetKind.Memory;
-            _surface = _comp.UIHost.CreateSurface(new UISurfaceOptions
+            _surface = _host.CreateSurface(new UISurfaceOptions
             {
                 Target = target,
                 Width = outerWidth,

@@ -153,6 +153,63 @@ public sealed class BackdropBlurTests
         Golden.AssertMatches(rgba, Size, Size, $"frosted-node-{row}", tolerance: 2);
     }
 
+    [Theory]
+    [MemberData(nameof(BlurRows))]
+    public void A_target_resized_many_times_keeps_only_live_pyramids(string row)
+    {
+        CompositorTestHost.SkipUnlessRunnable(row);
+        var stack = RendererCatalog.Create(row, CompositorTestHost.RenderNodePath);
+        var scene = new Scene.Scene();
+        var checker = new MemoryBuffer(Size, Size, DrmFormat.Xrgb8888);
+        var veil = new MemoryBuffer(32, 32, DrmFormat.Argb8888);
+        using var region = new Pixman.PixmanRegion32(0, 0, 32, 32);
+        var blur = BackdropBlurs.For(stack.Renderer);
+        try
+        {
+            Assert.NotNull(blur);
+            Checker(checker);
+            Solid(veil, 0x40102030);
+            var floor = new SceneBuffer(scene.Root);
+            floor.SetBuffer(checker);
+            var node = new SceneBuffer(scene.Root);
+            node.SetPosition(16, 16);
+            node.SetBuffer(veil);
+            node.SetBackdropEffect(blur, region, key: null);
+
+            for (var i = 0; i < 100; i++)
+            {
+                var target = new MemoryBuffer(Size + i, Size + (i % 7), DrmFormat.Xrgb8888);
+                try
+                {
+                    Assert.True(scene.Render(stack.Renderer, target, new RenderColor(0, 0, 0, 1)));
+                }
+                finally
+                {
+                    target.Destroy();
+                }
+            }
+
+            var pyramids = blur switch
+            {
+                GlBackdropBlur gl => gl.PyramidCount,
+                VulkanBackdropBlur vulkan => vulkan.PyramidCount,
+                _ => throw new InvalidOperationException(blur.GetType().Name),
+            };
+            Assert.True(pyramids <= (blur is GlBackdropBlur ? 0 : 2), $"{pyramids} pyramids outlived their targets");
+
+            node.Destroy();
+            floor.Destroy();
+        }
+        finally
+        {
+            blur?.Dispose();
+            veil.Destroy();
+            checker.Destroy();
+            stack.DeviceAllocator?.Dispose();
+            stack.Renderer.Dispose();
+        }
+    }
+
     internal static byte[] RenderFrosted(string row, Action<IBackdropBlur>? configure, object? key, IBackdropEffect? foreign = null)
     {
         var stack = RendererCatalog.Create(row, CompositorTestHost.RenderNodePath);

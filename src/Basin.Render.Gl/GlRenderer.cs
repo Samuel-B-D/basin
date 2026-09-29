@@ -209,7 +209,6 @@ public sealed unsafe class GlRenderer : IRenderer
         _targets.Clear();
         RenderFences.CloseFence(_completionFence);
         _completionFence = -1;
-        _pass.DisposeResources();
         TextureProgram.Dispose(_device.Gl);
         TextureLutProgram.Dispose(_device.Gl);
         TextureColorProgram.Dispose(_device.Gl);

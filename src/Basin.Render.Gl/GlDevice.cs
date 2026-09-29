@@ -65,6 +65,10 @@ public sealed unsafe class GlDevice : IDisposable, IRenderDevice
 
     public EglContext Context => _context;
 
+    public event Action<uint>? TextureDeleting;
+
+    public void NotifyTextureDeleting(uint texture) => TextureDeleting?.Invoke(texture);
+
     public Basin.Render.Gbm.GbmAllocator CreateAllocator(Basin.Diagnostics.FdLedger? ledger = null) =>
         new(_gbm, SampleableFormats, ledger);
 

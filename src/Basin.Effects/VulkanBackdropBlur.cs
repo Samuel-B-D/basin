@@ -52,7 +52,7 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
     private readonly Pipeline _up;
     private readonly Pipeline _onscreen;
     private readonly Dictionary<(uint Width, uint Height), Pyramid> _pyramids = [];
-    private readonly Dictionary<ulong, DescriptorSet> _backdropSets = [];
+    private readonly Dictionary<ulong, (DescriptorSet Set, uint Width, uint Height)> _backdropSets = [];
     private readonly float[] _colorMatrix = new float[BlurColorMatrix.Length];
     private Image _noiseImage;
     private DeviceMemory _noiseMemory;
@@ -196,6 +196,7 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
         var poolInfo = new DescriptorPoolCreateInfo
         {
             SType = StructureType.DescriptorPoolCreateInfo,
+            Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit,
             MaxSets = 256,
             PoolSizeCount = 1,
             PPoolSizes = &poolSize,
@@ -229,13 +230,16 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
         BlurColorMatrix.Build(_options.Saturation, _options.Contrast, _colorMatrix);
         CreateNoiseImage();
         UploadNoise();
+        _device.ImageViewDestroying += ForgetView;
         BasinCounters.Track();
     }
+
+    internal int PyramidCount => _pyramids.Count;
 
     public bool Record(in VulkanBackdropContext context, out VulkanBackdropResult result)
     {
         var commands = context.Commands;
-        _plainSet = BackdropSetFor(context.Backdrop);
+        _plainSet = BackdropSetFor(context.Backdrop, context.TargetExtent);
         _targetExtent = context.TargetExtent;
         _surface = context.Bounds;
         _current = context.Key is { } key && _surfaces.TryGetValue(key, out var stored) ? stored : new BlurSurfaceOptions();
@@ -260,7 +264,7 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
 
         for (var i = 1; i <= levels; i++)
         {
-            var srcSet = i == 1 ? BackdropSetFor(context.Backdrop) : pyramid.Chain[i - 1].Set;
+            var srcSet = i == 1 ? _plainSet : pyramid.Chain[i - 1].Set;
             BlurPass(commands, _down, pyramid.Chain[i], srcSet, srcScale: 2f, RegionAtLevel(padded, i), i - 1);
             MakeSampleable(commands, pyramid.Chain[i].Image);
         }
@@ -458,15 +462,54 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
         return level;
     }
 
-    private DescriptorSet BackdropSetFor(ImageView view)
+    private DescriptorSet BackdropSetFor(ImageView view, Extent2D target)
     {
-        if (!_backdropSets.TryGetValue(view.Handle, out var set))
+        if (_backdropSets.TryGetValue(view.Handle, out var entry))
         {
-            set = AllocateSet(view);
-            _backdropSets[view.Handle] = set;
+            if (entry.Width == target.Width && entry.Height == target.Height)
+            {
+                return entry.Set;
+            }
+
+            _backdropSets.Remove(view.Handle);
+            FreeSet(entry.Set);
+            DropUnusedPyramid(entry.Width, entry.Height);
         }
 
+        var set = AllocateSet(view);
+        _backdropSets[view.Handle] = (set, target.Width, target.Height);
         return set;
+    }
+
+    private void ForgetView(ImageView view)
+    {
+        if (_backdropSets.Remove(view.Handle, out var entry))
+        {
+            FreeSet(entry.Set);
+            DropUnusedPyramid(entry.Width, entry.Height);
+        }
+    }
+
+    private void DropUnusedPyramid(uint width, uint height)
+    {
+        foreach (var entry in _backdropSets.Values)
+        {
+            if (entry.Width == width && entry.Height == height)
+            {
+                return;
+            }
+        }
+
+        if (_pyramids.Remove((width, height), out var pyramid))
+        {
+            _ = _device.Api.DeviceWaitIdle(_device.Device);
+            DestroyPyramid(pyramid);
+        }
+    }
+
+    private void FreeSet(DescriptorSet set)
+    {
+        _ = _device.Api.FreeDescriptorSets(_device.Device, _descriptorPool, 1, in set);
     }
 
     private DescriptorSet AllocateSet(ImageView view)
@@ -639,6 +682,7 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
 
         _disposed = true;
         BasinCounters.Untrack();
+        _device.ImageViewDestroying -= ForgetView;
         var vk = _device.Api;
         _ = vk.DeviceWaitIdle(_device.Device);
         DropPyramids();
@@ -848,19 +892,26 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
 
     private void DropPyramids()
     {
-        var vk = _device.Api;
-        _ = vk.DeviceWaitIdle(_device.Device);
+        _ = _device.Api.DeviceWaitIdle(_device.Device);
         foreach (var pyramid in _pyramids.Values)
         {
-            foreach (var level in pyramid.Chain)
-            {
-                vk.DestroyFramebuffer(_device.Device, level.Framebuffer, null);
-                vk.DestroyImageView(_device.Device, level.View, null);
-                vk.DestroyImage(_device.Device, level.Image, null);
-                vk.FreeMemory(_device.Device, level.Memory, null);
-            }
+            DestroyPyramid(pyramid);
         }
 
         _pyramids.Clear();
+    }
+
+    private void DestroyPyramid(Pyramid pyramid)
+    {
+        var vk = _device.Api;
+        foreach (var level in pyramid.Chain)
+        {
+            _device.NotifyImageViewDestroying(level.View);
+            FreeSet(level.Set);
+            vk.DestroyFramebuffer(_device.Device, level.Framebuffer, null);
+            vk.DestroyImageView(_device.Device, level.View, null);
+            vk.DestroyImage(_device.Device, level.Image, null);
+            vk.FreeMemory(_device.Device, level.Memory, null);
+        }
     }
 }

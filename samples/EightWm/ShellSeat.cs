@@ -151,6 +151,13 @@ internal sealed partial class ShellSeat :
         }
     }
 
+    internal void AttachConfigurator(InputConfigurator configurator)
+    {
+        configurator.Rejected += outcome =>
+            _log.Warn($"input: {InputSettingNames.Key(outcome.Setting)} on {outcome.DeviceName ?? "every device"}: {outcome.Result}");
+        configurator.Attach(_seat, _binder, _libinput?.Configuration);
+    }
+
     internal double PointerX => _pointer.X;
 
     internal double PointerY => _pointer.Y;

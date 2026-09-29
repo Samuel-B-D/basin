@@ -36,6 +36,7 @@ internal sealed partial class TinyComp :
     private readonly Basin.Session.ISession? _session;
     private readonly Basin.Backend.Drm.DrmBackend? _drm;
     private readonly Basin.Backend.Libinput.LibinputBackend? _input;
+    private readonly Basin.Seat.Backends.InputConfigurator _inputConfigurator = new();
     private readonly Basin.Backend.Libinput.LibinputTabletSource? _tablets;
     private readonly Basin.Capabilities.ISessionStore _sessionStore;
     private readonly Dictionary<XdgToplevelWindow, (string Session, string Name)> _sessionWindows = [];
@@ -668,6 +669,7 @@ internal sealed partial class TinyComp :
             _services.Install(dmabufModule);
         }
 
+        _services.UseDefault<IInputDeviceConfiguration>(_inputConfigurator);
         _services.Freeze();
         _dmabufGlobal = dmabufModule?.Global;
         WireInputCapture();
@@ -945,6 +947,7 @@ internal sealed partial class TinyComp :
         var keymapNames = Basin.Seat.SystemKeymap.Read();
         _seat.Keyboard.SetKeymap(keymapNames);
         _report.Line($"KEYMAP {keymapNames.Layout ?? "xkb default"}{(keymapNames.Model is { } model ? $" {model}" : string.Empty)}");
+        AttachInputConfigurator();
 
         _compositor.SurfaceCreated += surface => surface.Committed += () =>
         {
@@ -1085,6 +1088,7 @@ internal sealed partial class TinyComp :
         _xwayland?.Dispose();
         _protocolTrace?.Dispose();
         _tablets?.Dispose();
+        _inputConfigurator.Dispose();
         _input?.Dispose();
         _layoutConfiguration?.Dispose();
         _orientationSensor?.Dispose();

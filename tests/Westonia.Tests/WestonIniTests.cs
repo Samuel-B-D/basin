@@ -267,4 +267,42 @@ public sealed class WestonIniTests
         Assert.Null(ini.Path);
         Assert.Equal(PanelPosition.Top, ini.Shell.PanelPosition);
     }
+
+    [Fact]
+    public void Libinput_and_keyboard_sections_become_input_rules()
+    {
+        var ini = WestonIni.FromLines([
+            "[libinput]",
+            "enable-tap=true",
+            "scroll-method=button",
+            "scroll-button=BTN_MIDDLE",
+            "accel-profile=flat",
+            "no-such-key=1",
+            "[keyboard]",
+            "keymap_layout=de",
+            "repeat-rate=30",
+        ]);
+        var warnings = new List<string>();
+
+        var rules = WestonInputRules.From(ini, warnings.Add);
+
+        Assert.Equal(2, rules.Count);
+        var libinput = rules[0];
+        Assert.True(libinput.Match.IsCatchAll);
+        Assert.True(libinput.Names(Basin.Capabilities.InputSetting.Tap, out var tap) && tap.IsOn);
+        Assert.True(libinput.Names(Basin.Capabilities.InputSetting.ScrollMethod, out var method));
+        Assert.Equal((uint)Basin.Capabilities.InputScrollMethod.OnButtonDown, method.Value);
+        Assert.True(libinput.Names(Basin.Capabilities.InputSetting.ScrollButton, out var button));
+        Assert.Equal(274u, button.Value);
+        Assert.True(libinput.Names(Basin.Capabilities.InputSetting.AccelProfile, out var profile));
+        Assert.Equal((uint)Basin.Capabilities.InputAccelProfile.Flat, profile.Value);
+        Assert.Contains(warnings, w => w.Contains("no-such-key", StringComparison.Ordinal));
+
+        var keyboard = rules[1];
+        Assert.True(keyboard.Match.AnyKeyboard);
+        Assert.True(keyboard.Names(Basin.Capabilities.InputSetting.KeymapLayout, out var layout));
+        Assert.Equal("de", layout.TextValue);
+        Assert.True(keyboard.Names(Basin.Capabilities.InputSetting.RepeatRate, out var rate));
+        Assert.Equal(30u, rate.Value);
+    }
 }

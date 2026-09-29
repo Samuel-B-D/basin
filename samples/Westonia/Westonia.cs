@@ -39,6 +39,7 @@ internal sealed partial class Westonia : IDisposable
     private Basin.Desktop.FractionalScaleManager? _fractionalScale;
     private readonly Basin.Desktop.CursorController _cursor;
     private readonly Basin.Backend.Libinput.LibinputBackend? _input;
+    private readonly Basin.Seat.Backends.InputConfigurator _inputConfigurator = new();
     private WestoniaSeat? _seat;
     private ShellSwitcher? _switcher;
     private Basin.Effects.IBackdropBlur? _panelBlur;
@@ -141,6 +142,7 @@ internal sealed partial class Westonia : IDisposable
         }
 
         _services.Use<IWorkspaceModel>(_deferredWorkspaces);
+        _services.UseDefault<IInputDeviceConfiguration>(_inputConfigurator);
         _services.Freeze();
         _shell.Client = _services.Find<IShellClient>();
 
@@ -251,7 +253,6 @@ internal sealed partial class Westonia : IDisposable
         cursorTheme.Images = _cursor.Images;
         BasinReport.Line($"CURSOR {_cursor.Showing} {_cursor.Images?.Size ?? 0}px {_cursor.DrawnBy}");
         ApplyKeyboardConfig();
-        ApplyLibinputConfig();
         ApplyOutputConfig();
         _seat = new WestoniaSeat(
             _host, _services, _layout, _scene, _cursor, _avalonia, _shellSurfaces, _shell, _input, log)
@@ -262,6 +263,8 @@ internal sealed partial class Westonia : IDisposable
             FrameCursorAt = FrameCursorName,
         };
         _seat.PointerMoved = position => _shell.UpdateGrab(position.X, position.Y);
+        _seat.Configurator = _inputConfigurator;
+        AttachInput();
         _shell.Input = _seat.Router;
 
         _bindingModifier = BindingModifiers.Parse(_ini.Shell.BindingModifier);
@@ -561,6 +564,7 @@ internal sealed partial class Westonia : IDisposable
         _lock?.Dispose();
         _workspaces?.Dispose();
         _switcher?.Dispose();
+        _inputConfigurator.Dispose();
         _seat?.Dispose();
         _uiDriver.Dispose();
         _screens.Dispose();

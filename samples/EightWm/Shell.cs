@@ -20,6 +20,7 @@ internal sealed partial class Shell : IDisposable
     private readonly Basin.Effects.IBackdropBlur? _charmsBlur;
     private readonly IAllocator? _deviceAllocator;
     private readonly Basin.Host.BasinHost _host;
+    private readonly Basin.Seat.Backends.InputConfigurator _inputConfigurator = new();
     private readonly OutputLayout _layout = new();
     private readonly Scene _scene = new();
     private readonly BasinServices _services;
@@ -117,6 +118,7 @@ internal sealed partial class Shell : IDisposable
             _services.Install(new LinuxDmabufModule(_renderer.DmabufTextureFormats, renderDevice.DevicePath, captureFormats: _renderer.DmabufRenderFormats));
         }
 
+        _services.UseDefault<Basin.Capabilities.IInputDeviceConfiguration>(_inputConfigurator);
         _services.Freeze();
 
         Seat = _services.Require<Basin.Seat.Seat>();
@@ -210,6 +212,7 @@ internal sealed partial class Shell : IDisposable
         _router = new UISurfaceRouter(_scene, _chromeIndex);
 
         _seat = new ShellSeat(_host, _services, this, _outputs, _scene, _layout, cursorTheme, inputSink, log);
+        _seat.AttachConfigurator(_inputConfigurator);
 
         LoadConfig();
         AttachColor();
@@ -419,6 +422,7 @@ internal sealed partial class Shell : IDisposable
         ReleaseChrome();
         _uiDriver.Dispose();
         _screens.Dispose();
+        _inputConfigurator.Dispose();
         _seat.Dispose();
         _ui.Dispose();
         _gpu?.Dispose();

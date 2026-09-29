@@ -3,6 +3,7 @@
   <PropertyGroup>
     <PackageId>Basin.Backend.Libinput</PackageId>
     <RootNamespace>Basin.Backend.Libinput</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Description>Physical input backend for Basin using libinput.</Description>
   </PropertyGroup>
 

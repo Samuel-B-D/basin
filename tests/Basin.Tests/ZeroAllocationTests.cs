@@ -1019,6 +1019,24 @@ public sealed class ZeroAllocationTests
     }
 
     [Fact]
+    public void An_axis_event_with_a_scroll_factor_allocates_nothing_over_1000_events()
+    {
+        using var host = new CompositorTestHost(200, 100);
+        var binder = new Seat.Backends.SeatBinder(
+            host.Seat, host.Layout, new LayoutPointer(host.Layout), new Desktop.CursorController(host.Layout));
+        var seen = 0.0;
+        binder.Axis += (_, axis) => seen = axis.Value;
+        var axis = new PointerAxis(Wayland.WlPointer.Axis.VerticalScroll, 10, 120);
+        for (var i = 0; i < 20; i++)
+        {
+            binder.DeliverAxis((uint)i, axis, 1.5);
+        }
+
+        NothingAllocated(1000, round => binder.DeliverAxis((uint)round, axis, 1.5));
+        Assert.Equal(15, seen);
+    }
+
+    [Fact]
     public void Output_capture_with_an_exclusion_allocates_nothing()
     {
         using var host = new CompositorTestHost();

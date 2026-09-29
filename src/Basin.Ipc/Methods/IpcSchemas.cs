@@ -172,6 +172,17 @@ internal static class IpcSchemas
             {"type":"object","properties":{"text":{"type":"string"},"kind":{"type":"string","enum":["clipboard","primary"],"description":"The default is clipboard."}},"required":["text"]}
             """);
 
+        Add(IpcMethodNames.DevicesList, ReadOnly, "List the input devices: id, name, type, capabilities, sysname, vendor, product, bus, the output it maps to, and the indexes of the config rules it matched.", Empty);
+        Add(IpcMethodNames.DevicesGet, ReadOnly, "Return every setting the device supports: its current value, its default, where the value came from (default, config or runtime), and the value words it takes.", """
+            {"type":"object","properties":{"device":{"anyOf":[{"type":"integer","minimum":0},{"type":"string","pattern":"^[0-9]+$"}],"description":"The device id from devices/list."}},"required":["device"]}
+            """);
+        Add(IpcMethodNames.DevicesSet, Idempotent, "Set input settings at run time on one device or on every device of a type. The values hold until devices/reset, and the config file does not change. Returns ok, unsupported or invalid per device and key.", """
+            {"type":"object","properties":{"device":{"anyOf":[{"type":"integer","minimum":0},{"type":"string","pattern":"^[0-9]+$"}],"description":"The device id from devices/list. Give device or type."},"type":{"type":"string","enum":["keyboard","pointer","touchpad","touch","tablet_tool","tablet_pad","switch"],"description":"Every device of this type. keyboard means every device with keys."},"settings":{"type":"object","description":"Setting keys to values, for example {\"tap\": true, \"accel_speed\": -0.3, \"scroll_method\": \"two_finger\", \"layout\": \"us,de\"}. devices/get lists the keys and value words a device takes.","additionalProperties":{"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"array","items":{"type":"number"}}]}}},"required":["settings"],"examples":[{"type":"touchpad","settings":{"tap":true}}]}
+            """);
+        Add(IpcMethodNames.DevicesReset, Idempotent, "Remove run-time input settings from a device, so the config value or the default comes back. With no keys, every run-time setting on the device.", """
+            {"type":"object","properties":{"device":{"anyOf":[{"type":"integer","minimum":0},{"type":"string","pattern":"^[0-9]+$"}],"description":"The device id from devices/list."},"keys":{"type":"array","items":{"type":"string"},"description":"Setting keys, for example [\"tap\"]."}},"required":["device"]}
+            """);
+
         Add(IpcMethodNames.ApprovalAnswer, None, "Answer an approval request from approval/requested. Only the first connection subscribed to approval/requested can answer.", """
             {"type":"object","properties":{"id":{"type":"integer","minimum":1,"description":"The id from the approval/requested event."},"answer":{"type":"string","enum":["allow_once","allow_run","deny"],"description":"allow_run also allows later calls to the same method for the rest of the run."}},"required":["id","answer"]}
             """);

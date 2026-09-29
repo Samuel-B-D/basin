@@ -333,6 +333,42 @@ public sealed partial class BasinIpcClient
         (await CallAsync(IpcMethodNames.ProcessSpawn, new IpcSpawnParams(argv, env, cwd), Json.IpcSpawnParams, Json.IpcSpawnResult, cancellationToken)
             .ConfigureAwait(false)).Pid;
 
+    public async Task<IReadOnlyList<IpcDevice>> ListDevicesAsync(CancellationToken cancellationToken = default) =>
+        (await CallAsync(IpcMethodNames.DevicesList, Json.IpcDeviceList, cancellationToken).ConfigureAwait(false)).Devices.Items();
+
+    public Task<IpcDeviceSettings> GetDeviceAsync(ulong device, CancellationToken cancellationToken = default) =>
+        CallAsync(IpcMethodNames.DevicesGet, new IpcDeviceParams(device), Json.IpcDeviceParams, Json.IpcDeviceSettings, cancellationToken);
+
+    public Task<IReadOnlyList<IpcDeviceOutcome>> SetDeviceAsync(
+        ulong device, IReadOnlyDictionary<string, string> settings, CancellationToken cancellationToken = default) =>
+        SetDevicesAsync(device, null, settings, cancellationToken);
+
+    public Task<IReadOnlyList<IpcDeviceOutcome>> SetDevicesOfTypeAsync(
+        string type, IReadOnlyDictionary<string, string> settings, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return SetDevicesAsync(null, type, settings, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<IpcDeviceOutcome>> ResetDeviceAsync(
+        ulong device, IReadOnlyList<string>? keys = null, CancellationToken cancellationToken = default) =>
+        (await CallAsync(IpcMethodNames.DevicesReset, new IpcDeviceResetParams(device, keys), Json.IpcDeviceResetParams, Json.IpcDeviceResult, cancellationToken)
+            .ConfigureAwait(false)).Results.Items();
+
+    private async Task<IReadOnlyList<IpcDeviceOutcome>> SetDevicesAsync(
+        ulong? device, string? type, IReadOnlyDictionary<string, string> settings, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        var values = new Dictionary<string, JsonElement>(settings.Count, StringComparer.Ordinal);
+        foreach (var (key, value) in settings)
+        {
+            values[key] = JsonSerializer.SerializeToElement(value, Json.String);
+        }
+
+        return (await CallAsync(IpcMethodNames.DevicesSet, new IpcDeviceSetParams(device, type, values), Json.IpcDeviceSetParams, Json.IpcDeviceResult, cancellationToken)
+            .ConfigureAwait(false)).Results.Items();
+    }
+
     private async Task<IpcCapture> CaptureAsync<TParams>(
         string method, TParams parameters, JsonTypeInfo<TParams> info, CancellationToken cancellationToken)
     {

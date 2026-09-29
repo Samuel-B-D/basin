@@ -24,6 +24,8 @@ internal sealed class RiverInputDevice
 
     internal string SeatName { get; private set; } = RiverInputManager.DefaultSeatName;
 
+    internal RiverInputDeviceV1Resource? Resource => _resource;
+
     internal void Bind(RiverInputDeviceV1Resource resource)
     {
         _resource = resource;

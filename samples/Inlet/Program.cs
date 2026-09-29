@@ -261,6 +261,8 @@ internal static class Program
             services.Install(xwaylandModule);
         }
 
+        using var inputConfigurator = new Basin.Seat.Backends.InputConfigurator();
+        services.UseDefault<Basin.Capabilities.IInputDeviceConfiguration>(inputConfigurator);
         services.Freeze();
 
         if (blur is not null)
@@ -709,15 +711,15 @@ internal static class Program
             pointer.Warp(start.X + (start.Width / 2.0), start.Y + (start.Height / 2.0));
             cursor.MoveTo(pointer.X, pointer.Y);
 
-            var inputConfiguration = new Basin.Backend.Libinput.LibinputDeviceConfiguration(libinput);
-            management.LibinputConfig.Configuration = inputConfiguration;
+            management.LibinputConfig.InputDeviceFor = id => libinput.Configuration.DeviceFor(id);
+            management.LibinputConfig.Configuration = inputConfigurator;
             var keyboardDevices = new Dictionary<Basin.Backend.Libinput.InputDevice, Basin.Seat.KeyboardDevice>();
 
             void Register(Basin.Backend.Libinput.InputDevice device)
             {
-                var type = device.HasKeyboard ? InputDeviceType.Keyboard
-                    : device.HasTouch ? InputDeviceType.Touch
-                    : InputDeviceType.Pointer;
+                var type = device.HasKeyboard ? Basin.Shell.River.InputDeviceType.Keyboard
+                    : device.HasTouch ? Basin.Shell.River.InputDeviceType.Touch
+                    : Basin.Shell.River.InputDeviceType.Pointer;
                 management.InputManager.AddDevice(device, device.Name, type);
                 if (device.HasKeyboard)
                 {
@@ -747,6 +749,20 @@ internal static class Program
             management.InputManager.DeviceAssigned += (device, name) =>
                 BasinReport.Line($"ASSIGN {(device as Basin.Backend.Libinput.InputDevice)?.Name} -> {name}");
 
+            ulong ConfiguredId(object handle) =>
+                handle is Basin.Backend.Libinput.InputDevice device ? libinput.Configuration.IdFor(device) : 0;
+
+            management.InputManager.RepeatInfoChanged += (handle, rate, delay) =>
+            {
+                var id = ConfiguredId(handle);
+                inputConfigurator.Set(id, Basin.Capabilities.InputSetting.RepeatRate, Basin.Capabilities.InputSettingValue.Of((uint)Math.Max(0, rate)));
+                inputConfigurator.Set(id, Basin.Capabilities.InputSetting.RepeatDelay, Basin.Capabilities.InputSettingValue.Of((uint)Math.Max(0, delay)));
+            };
+            management.InputManager.ScrollFactorChanged += (handle, factor) =>
+                inputConfigurator.Set(ConfiguredId(handle), Basin.Capabilities.InputSetting.ScrollFactor, Basin.Capabilities.InputSettingValue.Number(factor));
+            management.InputManager.MappedToOutput += (handle, output) =>
+                inputConfigurator.Set(ConfiguredId(handle), Basin.Capabilities.InputSetting.MapToOutput, Basin.Capabilities.InputSettingValue.Text(output?.Name ?? string.Empty));
+
             touchBinder.BindLibinput(libinput);
         }
 
@@ -756,7 +772,7 @@ internal static class Program
             parent.KeyboardAdded += parentKeyboard =>
             {
                 BasinReport.Line($"INPUT Keyboard host");
-                parentKeyboard.RepeatInfo += (rate, delay) => seat.Keyboard.SetRepeatInfo(rate, delay);
+                parentKeyboard.RepeatInfo += (rate, delay) => inputConfigurator.AdoptRepeatInfo(rate, delay);
             };
             parent.PointerAdded += _ => BasinReport.Line($"INPUT Pointer host");
             touchBinder.BindParent(parent);
@@ -766,6 +782,10 @@ internal static class Program
                 services.Find<Basin.Capabilities.IDragTracker>(),
                 services.Find<Basin.Capabilities.IIdleSource>());
         }
+
+        inputConfigurator.Rejected += outcome => BasinReport.Line(
+            $"INPUT-RULE {outcome.Result.ToString().ToLowerInvariant()} {Basin.Capabilities.InputSettingNames.Key(outcome.Setting)} device={outcome.DeviceName ?? "none"}");
+        inputConfigurator.Attach(seat, touchBinder, libinput?.Configuration);
 
         injectedInput.OnKey = (keyboard, timeMs, key, pressed) =>
         {

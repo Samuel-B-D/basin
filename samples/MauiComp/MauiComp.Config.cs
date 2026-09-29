@@ -42,7 +42,7 @@ internal sealed partial class MauiComp
         ApplyConfig();
         _outputs.ScheduleAll();
         BasinReport.Line(
-            $"RELOAD theme={loaded.Theme}"
+            $"RELOAD theme={loaded.Theme} input-rules={loaded.InputRules.Count}"
             + (restart.Count == 0 ? string.Empty : $" restart-required={string.Join(',', restart)}"));
     }
 
@@ -56,6 +56,11 @@ internal sealed partial class MauiComp
         if (_blur is not null)
         {
             _blur.Options = _blur.Options with { Strength = _config.BlurStrength };
+        }
+
+        if (_inputConfigurator.IsAttached)
+        {
+            _inputConfigurator.Apply(_config.InputRules);
         }
 
         PlaceShell();

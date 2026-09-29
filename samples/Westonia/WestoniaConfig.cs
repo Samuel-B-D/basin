@@ -8,107 +8,40 @@ namespace Westonia;
 
 internal sealed partial class Westonia
 {
+    private string? SystemLayout { get; set; }
+
     private void ApplyKeyboardConfig()
     {
-        var keyboard = _ini.Keyboard;
-        var named = keyboard.Layout is not null || keyboard.Model is not null || keyboard.Rules is not null ||
-                    keyboard.Variant is not null || keyboard.Options is not null;
-
-        var names = named
-            ? new KeymapNames(
-                keyboard.Rules, keyboard.Model, keyboard.Layout, keyboard.Variant, keyboard.Options)
-            : Basin.Seat.SystemKeymap.Read();
-
+        var names = Basin.Seat.SystemKeymap.Read();
+        SystemLayout = names.Layout;
         Seat.Keyboard.SetKeymap(names);
-        Seat.Keyboard.SetRepeatInfo(keyboard.RepeatRate, keyboard.RepeatDelay);
-        _report.Line($"KEYMAP {(named ? "weston.ini" : "system")} layout={names.Layout ?? "default"} " + $"compiled={(Seat.Keyboard.Keymap is null ? "no" : "yes")} " + $"repeat={keyboard.RepeatRate}/{keyboard.RepeatDelay}");
     }
 
-    private void ApplyLibinputConfig()
+    private void AttachInput()
     {
-        if (_ini.Libinput.Count == 0)
+        _inputConfigurator.Rejected += outcome =>
         {
-            return;
-        }
-
-        if (_services.Find<IInputDeviceConfiguration>() is not { } configuration)
-        {
-            _log.Warn($"[libinput] is set but this session has no input device configuration");
-            return;
-        }
-
-        Span<InputDeviceInfo> devices = new InputDeviceInfo[32];
-        var count = configuration.Enumerate(devices);
-        for (var i = 0; i < count; i++)
-        {
-            foreach (var (key, value) in _ini.Libinput)
+            if (outcome.Device != 0 || _input is not null)
             {
-                if (SettingFor(key) is not { } setting)
+                if (outcome.Result == InputSettingResult.Unsupported)
                 {
-                    _log.Warn($"weston.ini: [libinput] {key} is not honored");
-                    continue;
+                    _log.Debug($"weston.ini: {InputSettingNames.Key(outcome.Setting)} on {outcome.DeviceName ?? "every device"}: {outcome.Result}");
                 }
-
-                var result = configuration.Set(devices[i].Id, setting, ValueFor(setting, value));
-                if (result != InputSettingResult.Success)
+                else
                 {
-                    _log.Info($"[libinput] {key} on {(devices[i].Name)}: {result}");
+                    _log.Info($"weston.ini: {InputSettingNames.Key(outcome.Setting)} on {outcome.DeviceName ?? "every device"}: {outcome.Result}");
                 }
             }
-        }
+            else
+            {
+                _log.Warn($"weston.ini: {InputSettingNames.Key(outcome.Setting)} is set but this session has no input device configuration");
+            }
+        };
+        _inputConfigurator.Apply(WestonInputRules.From(_ini, message => _log.Warn($"{message}")));
+        _inputConfigurator.Attach(Seat, _seat!.Binder, _input?.Configuration);
+        var keyboard = _ini.Keyboard;
+        _report.Line($"KEYMAP {(_inputConfigurator.NamesSeatKeymap ? "weston.ini" : "system")} layout={keyboard.Layout ?? SystemLayout ?? "default"} " + $"compiled={(Seat.Keyboard.Keymap is null ? "no" : "yes")} " + $"repeat={keyboard.RepeatRate}/{keyboard.RepeatDelay}");
     }
-
-    private static InputSetting? SettingFor(string key) => key switch
-    {
-        "enable-tap" or "tap" => InputSetting.Tap,
-        "tap-button-map" => InputSetting.TapButtonMap,
-        "tap-and-drag" or "drag" => InputSetting.Drag,
-        "tap-and-drag-lock" or "drag-lock" => InputSetting.DragLock,
-        "accel-profile" => InputSetting.AccelProfile,
-        "accel-speed" => InputSetting.AccelSpeed,
-        "natural-scroll" => InputSetting.NaturalScroll,
-        "left-handed" => InputSetting.LeftHanded,
-        "click-method" => InputSetting.ClickMethod,
-        "middle-emulation" => InputSetting.MiddleEmulation,
-        "scroll-method" => InputSetting.ScrollMethod,
-        "scroll-button" => InputSetting.ScrollButton,
-        "disable-while-typing" or "dwt" => InputSetting.DisableWhileTyping,
-        "rotation" => InputSetting.Rotation,
-        "calibration-matrix" or "calibration_matrix" => InputSetting.CalibrationMatrix,
-        "send-events" => InputSetting.SendEvents,
-        _ => null,
-    };
-
-    private static InputSettingValue ValueFor(InputSetting setting, string value) => setting switch
-    {
-        InputSetting.AccelSpeed or InputSetting.Rotation =>
-            new InputSettingValue(0, [Number(value)]),
-        InputSetting.CalibrationMatrix =>
-            new InputSettingValue(0, value.Split([' ', ','], StringSplitOptions.RemoveEmptyEntries)
-                .Select(Number).ToArray()),
-        InputSetting.TapButtonMap => new InputSettingValue(value == "lrm" ? 0u : 1u),
-        InputSetting.ClickMethod => new InputSettingValue(value switch
-        {
-            "clickfinger" => 2u,
-            "button-areas" => 1u,
-            _ => 0u,
-        }),
-        InputSetting.ScrollMethod => new InputSettingValue(value switch
-        {
-            "two-finger" => 2u,
-            "edge" => 4u,
-            "button" => 8u,
-            _ => 1u,
-        }),
-        InputSetting.ScrollButton => new InputSettingValue(uint.TryParse(value, out var button) ? button : 0u),
-        _ => new InputSettingValue(Truthy(value) ? 1u : 0u),
-    };
-
-    private static double Number(string value) =>
-        double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0.0;
-
-    private static bool Truthy(string value) =>
-        value.ToLowerInvariant() is "true" or "1" or "yes" or "on" or "enabled";
 
     private void ApplyOutputConfig()
     {

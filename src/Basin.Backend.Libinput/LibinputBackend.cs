@@ -14,6 +14,7 @@ public sealed class LibinputBackend : IDisposable
     private LibinputContext? _libinput;
     private IEventSource? _source;
     private bool _suspended;
+    private LibinputDeviceConfiguration? _configuration;
 
     public LibinputBackend(ICompositorEventLoop loop, ISession session)
     {
@@ -22,6 +23,8 @@ public sealed class LibinputBackend : IDisposable
     }
 
     public IReadOnlyCollection<InputDevice> Devices => _devices.Values;
+
+    public LibinputDeviceConfiguration Configuration => _configuration ??= new LibinputDeviceConfiguration(this);
 
     public bool HasTouchDevice
     {

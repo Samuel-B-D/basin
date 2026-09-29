@@ -14,6 +14,7 @@ internal static class Program
             + "  basinctl activate ID | close ID | move ID X Y | resize ID W H | wait APP_ID\n"
             + "  basinctl shot OUTPUT FILE.png | chord CHORD | key CODE | text TEXT... | spawn ARGV...\n"
             + "  basinctl subscribe EVENT... | clipboard [primary] | raw JSON | quit\n"
+            + "  basinctl devices | device ID | device ID key=value... | device ID reset [KEY...]\n"
             + "  basinctl METHOD [key=value ...]")
         {
             ReportsOptions = false,

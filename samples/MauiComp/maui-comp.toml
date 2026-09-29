@@ -8,3 +8,28 @@ taskbar    = false
 start_menu = true
 switcher   = true
 titlebars  = false
+
+# Input devices: [input] for every device, [input.<type>] per type
+# (keyboard, pointer, touchpad, touch, tablet_tool, tablet_pad, switch),
+# [[input.device]] per device.
+# [input.touchpad]
+# tap            = true
+# natural_scroll = false
+# click_method   = "clickfinger"  # none | button_areas | clickfinger
+# scroll_method  = "two_finger"   # none | two_finger | edge | on_button_down
+# dwt            = true           # disable while typing
+
+# [input.pointer]
+# accel_profile  = "adaptive"     # none | flat | adaptive | custom
+# accel_speed    = 0.0            # -1 to 1
+# scroll_factor  = 1.0
+
+# [input.keyboard]
+# layout       = "us"
+# options      = ""
+# repeat_rate  = 25               # per second
+# repeat_delay = 400              # milliseconds
+
+# [[input.device]]
+# name          = "Logitech*"     # glob; or sysname, vendor, product, output
+# accel_profile = "flat"

@@ -75,9 +75,14 @@ public static class IpcMethodNames
 
     public const string ApprovalAnswer = "approval/answer";
 
+    public const string DevicesList = "devices/list";
+    public const string DevicesGet = "devices/get";
+    public const string DevicesSet = "devices/set";
+    public const string DevicesReset = "devices/reset";
+
     public static IReadOnlyList<string> ReservedNamespaces { get; } =
     [
         "ipc", "session", "outputs", "windows", "workspaces", "idle", "lock", "keyboard", "input", "seat",
-        "capture", "process", "clipboard", "approval",
+        "capture", "process", "clipboard", "approval", "devices",
     ];
 }

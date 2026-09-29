@@ -9,6 +9,26 @@ namespace Basin.Tests;
 public sealed class DegradationTests
 {
     [Fact]
+    public void Devices_set_on_a_headless_run_is_unsupported_per_key_and_the_client_survives()
+    {
+        using var configurator = new Basin.Seat.Backends.InputConfigurator();
+        using var rig = new IpcTestRig((services, _) => services.UseDefault<IInputDeviceConfiguration>(configurator));
+        var binder = new Basin.Seat.Backends.SeatBinder(
+            rig.Host.Seat, rig.Host.Layout, new LayoutPointer(rig.Host.Layout), new Basin.Desktop.CursorController(rig.Host.Layout));
+        configurator.Attach(rig.Host.Seat, binder, backend: null);
+        var peer = rig.Connect();
+
+        var reply = System.Text.Json.JsonDocument.Parse(
+            peer.Call("""{"method":"devices/set","params":{"type":"touchpad","settings":{"tap":true,"natural_scroll":true}}}""")).RootElement;
+        var results = reply.GetProperty("result").GetProperty("results").EnumerateArray().ToList();
+        Assert.Equal(2, results.Count);
+        Assert.All(results, r => Assert.Equal("unsupported", r.GetProperty("result").GetString()));
+
+        var devices = System.Text.Json.JsonDocument.Parse(peer.Call("""{"method":"devices/list"}""")).RootElement;
+        Assert.Equal(0, devices.GetProperty("result").GetProperty("devices").GetArrayLength());
+    }
+
+    [Fact]
     public void A_colour_manager_that_cannot_convert_refuses_to_freeze()
     {
         using var host = new CompositorTestHost();

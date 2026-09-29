@@ -50,7 +50,6 @@ internal sealed partial class TinyComp
         input.DeviceAdded += device =>
         {
             _report.Line($"INPUT + {device.Name}");
-            ConfigureTouchpad(device);
         };
         input.DeviceRemoved += device => _report.Line($"INPUT - {device.Name}");
         _touchBinder!.Key += (time, key, pressed) =>
@@ -121,17 +120,40 @@ internal sealed partial class TinyComp
         };
     }
 
-    private static void ConfigureTouchpad(Basin.Backend.Libinput.InputDevice device)
-    {
-        var config = device.Config;
-        if (config.Tap.FingerCount > 0)
-        {
-            config.Tap.Enabled = true;
-        }
+    private List<string>? _inputRejections;
 
-        if (config.Click.Methods.HasFlag(Libinput.LibinputClickMethod.Clickfinger))
+    private void AttachInputConfigurator()
+    {
+        _inputConfigurator.Rejected += outcome =>
         {
-            config.Click.Method = Libinput.LibinputClickMethod.Clickfinger;
+            var rule = outcome.Rule < _inputConfigurator.Rules.Count
+                ? Basin.Config.InputConfig.Describe(_inputConfigurator.Rules[outcome.Rule])
+                : "?";
+            var result = outcome.Result.ToString().ToLowerInvariant();
+            var key = InputSettingNames.Key(outcome.Setting);
+            if (_inputRejections is { } collecting)
+            {
+                collecting.Add($"{key}={result}");
+                return;
+            }
+
+            _report.Line($"INPUT-RULE {result} {key} {rule} device={outcome.DeviceName ?? "none"}");
+        };
+        _inputConfigurator.Apply(_config.InputRules);
+        _inputConfigurator.Attach(_seat, _touchBinder!, _input?.Configuration);
+    }
+
+    private string ApplyInputRules(IReadOnlyList<InputRule> rules)
+    {
+        _inputRejections = [];
+        try
+        {
+            _inputConfigurator.Apply(rules);
+            return _inputRejections.Count == 0 ? string.Empty : " input-rejected=" + string.Join(',', _inputRejections.Distinct());
+        }
+        finally
+        {
+            _inputRejections = null;
         }
     }
 

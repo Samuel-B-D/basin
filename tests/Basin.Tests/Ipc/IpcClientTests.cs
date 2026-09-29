@@ -30,6 +30,42 @@ public sealed class IpcClientTests
     }
 
     [Fact]
+    public void Device_wrappers_list_get_set_and_reset()
+    {
+        var (directory, path) = SocketPath();
+        try
+        {
+            var devices = new FakeInputDeviceConfiguration();
+            var touchpad = devices.AddTouchpad();
+            using var rig = new IpcTestRig(services => services.Use<IInputDeviceConfiguration>(devices), path: path, listen: true);
+            rig.Server.Start();
+            using var client = Pump(rig, BasinIpcClient.ConnectAsync(path, Token));
+
+            var listed = Pump(rig, client.ListDevicesAsync(Token));
+            Assert.Equal("touchpad", Assert.Single(listed).Type);
+
+            var set = Pump(rig, client.SetDeviceAsync(touchpad, new Dictionary<string, string> { ["tap"] = "true", ["accel_speed"] = "0.5" }, Token));
+            Assert.All(set, outcome => Assert.Equal("ok", outcome.Result));
+            Assert.Equal(0.5, devices.Current(touchpad, InputSetting.AccelSpeed)[0]);
+
+            var typed = Pump(rig, client.SetDevicesOfTypeAsync("touchpad", new Dictionary<string, string> { ["natural_scroll"] = "enabled" }, Token));
+            Assert.Equal("ok", Assert.Single(typed).Result);
+
+            var settings = Pump(rig, client.GetDeviceAsync(touchpad, Token));
+            var tap = settings.Settings.ToArray().Single(s => s.Key == "tap");
+            Assert.Equal("true", tap.Current);
+
+            var reset = Pump(rig, client.ResetDeviceAsync(touchpad, ["tap"], Token));
+            Assert.Equal("ok", Assert.Single(reset).Result);
+            Assert.False(devices.Current(touchpad, InputSetting.Tap).IsOn);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void Typed_calls_pipeline_and_report_errors()
     {
         var (directory, path) = SocketPath();

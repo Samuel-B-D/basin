@@ -18,6 +18,8 @@ internal sealed class SettingsContext
 
     public Func<string, IReadOnlyList<string>>? ShaderParameters { get; init; }
 
+    public Basin.Capabilities.IInputDeviceConfiguration? Input { get; init; }
+
     public string? ConfigPath { get; init; }
 
     public Action? Close { get; init; }

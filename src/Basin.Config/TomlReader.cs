@@ -59,6 +59,10 @@ public sealed class TomlReader
 
     public TomlTable? Free(string key) => Take(key) as TomlTable;
 
+    public object? Raw(string key) => Take(key);
+
+    public string Where(string key) => _prefix + key;
+
     public TomlTableArray? FreeArray(string key) => Take(key) as TomlTableArray;
 
     public bool Flag(string key, bool fallback)

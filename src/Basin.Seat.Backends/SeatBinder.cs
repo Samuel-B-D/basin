@@ -42,6 +42,12 @@ public sealed class SeatBinder
 
     public Func<bool>? PointerFrozen { get; set; }
 
+    public Func<InputDevice, double>? ScrollFactorFor { get; set; }
+
+    public Func<InputDevice, string?>? OutputNameFor { get; set; }
+
+    internal InputConfigurator? Configurator { get; set; }
+
     public event Action<InputDevice>? DeviceAdded;
 
     public event Action<InputDevice>? DeviceRemoved;
@@ -116,7 +122,7 @@ public sealed class SeatBinder
 
         input.Key += (device, timeMs, key, pressed) =>
         {
-            _seat.Keyboard.Activate(KeyboardFor?.Invoke(device));
+            ActivateKeyboard(device);
             Key?.Invoke(timeMs, key, pressed);
         };
         input.PointerMotion += (_, timeMs, dx, dy, unacceleratedDx, unacceleratedDy) =>
@@ -141,7 +147,8 @@ public sealed class SeatBinder
             Motion?.Invoke(timeMs, _pointer.X - previousX, _pointer.Y - previousY, null, null);
         };
         input.PointerButton += (_, timeMs, button, pressed) => Button?.Invoke(timeMs, button, pressed);
-        input.PointerScroll += (_, timeMs, axis) => Axis?.Invoke(timeMs, axis);
+        input.PointerScroll += (device, timeMs, axis) =>
+            DeliverAxis(timeMs, axis, ScrollFactorFor is { } factorFor ? factorFor(device) : 1.0);
 
         WireLibinputTouch(input);
 
@@ -280,11 +287,28 @@ public sealed class SeatBinder
         return int.TryParse(text, out var size) && size > 0 ? size : 24;
     }
 
+    public void ActivateKeyboard(InputDevice device) => _seat.Keyboard.Activate(KeyboardFor?.Invoke(device));
+
+    public PointerAxis Scale(InputDevice device, PointerAxis axis) =>
+        Scaled(axis, ScrollFactorFor is { } factorFor ? factorFor(device) : 1.0);
+
+    internal void DeliverAxis(uint timeMs, PointerAxis axis, double factor) => Axis?.Invoke(timeMs, Scaled(axis, factor));
+
+    private static PointerAxis Scaled(PointerAxis axis, double factor) =>
+        factor == 1.0
+            ? axis
+            : axis with
+            {
+                Value = axis.Value * factor,
+                Value120 = (int)Math.Round(axis.Value120 * factor),
+            };
+
     public IOutput? OutputFor(InputDevice device)
     {
         ArgumentNullException.ThrowIfNull(device);
 
-        if (device.OutputName is not { } name)
+        var name = OutputNameFor?.Invoke(device) is { Length: > 0 } mapped ? mapped : device.OutputName;
+        if (name is null)
         {
             return null;
         }
@@ -368,7 +392,13 @@ public sealed class SeatBinder
         _seat.SetCapability(SeatCapability.Keyboard, true);
         if (AdoptParentKeymap)
         {
-            keyboard.Keymap += bytes => _seat.Keyboard.SetKeymapFromBuffer(bytes);
+            keyboard.Keymap += bytes =>
+            {
+                if (Configurator?.NamesSeatKeymap != true)
+                {
+                    _seat.Keyboard.SetKeymapFromBuffer(bytes);
+                }
+            };
         }
 
         keyboard.Key += (timeMs, key, pressed) =>

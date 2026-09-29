@@ -36,6 +36,14 @@ internal static class IpcEvents
             bus.DeclareLibrary(IpcEventNames.WorkspaceChanged, new IpcWorkspaceEvents(server, describe, workspaces));
         }
 
+        if (describe.Find<IInputDeviceConfiguration>() is { } devices)
+        {
+            var source = new IpcDeviceEvents(server, devices);
+            bus.DeclareLibrary(IpcEventNames.DeviceAdded, source);
+            bus.DeclareLibrary(IpcEventNames.DeviceRemoved, source);
+            bus.DeclareLibrary(IpcEventNames.DeviceChanged, source);
+        }
+
         if (describe.Find<ILockState>() is { } locked)
         {
             IpcLockObserver? observer = null;

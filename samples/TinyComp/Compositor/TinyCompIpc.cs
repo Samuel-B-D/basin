@@ -97,6 +97,70 @@ internal sealed partial class TinyComp
             }
         });
 
+        _report.Register(methods, "tinycomp/input", "input {key} {value} [{type}]", (ref IpcParams p, IpcReply reply) =>
+        {
+            var key = p.GetString("key");
+            var text = p.GetString("value");
+            var typeWord = p.TryGetString("type", out var named) ? named : null;
+            if (p.Failed)
+            {
+                return;
+            }
+
+            if (!InputSettingNames.TryParseKey(key, out var setting) || !InputSettingNames.TryParse(setting, text, out var value))
+            {
+                reply.Error(IpcErrorCodes.InvalidParams, $"'{key} {text}' is not an input setting and a value it takes");
+                return;
+            }
+
+            InputDeviceType? type = null;
+            if (typeWord is not null)
+            {
+                if (!InputSettingNames.TryParseType(typeWord, out var parsed))
+                {
+                    reply.Error(IpcErrorCodes.InvalidParams, $"unknown device type '{typeWord}'");
+                    return;
+                }
+
+                type = parsed;
+            }
+
+            var devices = new InputDeviceInfo[32];
+            var count = _inputConfigurator.Enumerate(devices);
+            while (count < 0)
+            {
+                devices = new InputDeviceInfo[devices.Length * 2];
+                count = _inputConfigurator.Enumerate(devices);
+            }
+
+            var applied = 0;
+            var refused = 0;
+            for (var i = 0; i < count; i++)
+            {
+                var device = devices[i];
+                if (type is { } wanted && !new InputMatch(Type: wanted == InputDeviceType.Keyboard ? null : wanted, AnyKeyboard: wanted == InputDeviceType.Keyboard).Matches(device))
+                {
+                    continue;
+                }
+
+                if (!_inputConfigurator.Support(device.Id, setting).Supported)
+                {
+                    continue;
+                }
+
+                if (_inputConfigurator.Set(device.Id, setting, value) == InputSettingResult.Success)
+                {
+                    applied++;
+                }
+                else
+                {
+                    refused++;
+                }
+            }
+
+            _report.Line($"INPUT {InputSettingNames.Key(setting)}={InputSettingNames.Format(setting, value)} applied={applied} refused={refused}");
+        });
+
         _report.Register(methods, "tinycomp/where", "where", () =>
         {
             foreach (var window in _windows)

@@ -127,6 +127,22 @@ internal sealed class Controller(string? socketPath, bool raw, bool viaFd, bool 
                 return ErrorReply;
             case "clipboard" when rest is [] or ["primary"]:
                 return await GenericAsync(client, IpcMethodNames.ClipboardRead, rest.Length == 1 ? ["kind=primary"] : []).ConfigureAwait(false);
+            case "devices" when !raw:
+                PrintDevices(await client.ListDevicesAsync().ConfigureAwait(false));
+                return Success;
+            case "devices":
+                return await GenericAsync(client, IpcMethodNames.DevicesList, rest).ConfigureAwait(false);
+            case "device" when rest.Length == 1 && !raw:
+                PrintDevice(await client.GetDeviceAsync(Id(rest[0])).ConfigureAwait(false));
+                return Success;
+            case "device" when rest.Length == 1:
+                return await GenericAsync(client, IpcMethodNames.DevicesGet, [$"device={rest[0]}"]).ConfigureAwait(false);
+            case "device" when rest.Length == 2 && rest[1] == "reset":
+                return PrintOutcomes(await client.ResetDeviceAsync(Id(rest[0])).ConfigureAwait(false));
+            case "device" when rest.Length > 2 && rest[1] == "reset":
+                return PrintOutcomes(await client.ResetDeviceAsync(Id(rest[0]), rest[2..]).ConfigureAwait(false));
+            case "device" when rest.Length > 1:
+                return PrintOutcomes(await client.SetDeviceAsync(Id(rest[0]), Settings(rest[1..])).ConfigureAwait(false));
             case "quit":
                 await client.QuitAsync().ConfigureAwait(false);
                 return Success;
@@ -210,6 +226,56 @@ internal sealed class Controller(string? socketPath, bool raw, bool viaFd, bool 
         catch (OperationCanceledException) when (cancel.IsCancellationRequested)
         {
         }
+    }
+
+    private static Dictionary<string, string> Settings(string[] pairs)
+    {
+        var settings = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var pair in pairs)
+        {
+            var equals = pair.IndexOf('=', StringComparison.Ordinal);
+            if (equals <= 0)
+            {
+                throw new FormatException($"'{pair}' is not key=value");
+            }
+
+            settings[pair[..equals]] = pair[(equals + 1)..];
+        }
+
+        return settings;
+    }
+
+    private static void PrintDevices(IReadOnlyList<IpcDevice> devices)
+    {
+        foreach (var device in devices)
+        {
+            var rules = device.Rules.IsEmpty ? string.Empty : $" rules={string.Join(',', device.Rules.ToArray())}";
+            var output = device.Output is { } name ? $" output={name}" : string.Empty;
+            Console.WriteLine(
+                $"{device.Id.ToString(CultureInfo.InvariantCulture)} {device.Type} {device.Vendor:x4}:{device.Product:x4} {device.Sysname ?? "-"} \"{device.Name}\"{output}{rules}");
+        }
+    }
+
+    private static void PrintDevice(IpcDeviceSettings device)
+    {
+        Console.WriteLine($"{device.Device.ToString(CultureInfo.InvariantCulture)} \"{device.Name}\"");
+        foreach (var setting in device.Settings.Span)
+        {
+            var values = setting.Values.IsEmpty ? string.Empty : $" [{string.Join(' ', setting.Values.ToArray())}]";
+            Console.WriteLine($"  {setting.Key} = {setting.Current} ({setting.Source}, default {setting.Default}){values}");
+        }
+    }
+
+    private static int PrintOutcomes(IReadOnlyList<IpcDeviceOutcome> outcomes)
+    {
+        var failed = false;
+        foreach (var outcome in outcomes)
+        {
+            Console.WriteLine($"{outcome.Device.ToString(CultureInfo.InvariantCulture)} {outcome.Key} {outcome.Result}");
+            failed |= outcome.Result != "ok";
+        }
+
+        return failed ? ErrorReply : Success;
     }
 
     private static byte[] Params(string[] pairs)

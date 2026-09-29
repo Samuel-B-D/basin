@@ -17,11 +17,23 @@ public sealed class InputDevice
         HasSwitch = native.HasCapability(LibinputDeviceCapability.Switch);
         HasTabletTool = native.HasCapability(LibinputDeviceCapability.TabletTool);
         HasTabletPad = native.HasCapability(LibinputDeviceCapability.TabletPad);
+        Sysname = native.Sysname;
+        Vendor = native.IdVendor;
+        Product = native.IdProduct;
+        Bus = native.IdBustype;
     }
 
     internal LibinputDevice Native { get; }
 
     public string Name { get; }
+
+    public string Sysname { get; }
+
+    public uint Vendor { get; }
+
+    public uint Product { get; }
+
+    public uint Bus { get; }
 
     public bool HasKeyboard { get; }
 

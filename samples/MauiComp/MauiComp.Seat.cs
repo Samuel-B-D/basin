@@ -13,7 +13,12 @@ internal sealed partial class MauiComp
             ChromeClick = OnChromeClick,
             ChromeCursor = ChromeCursorAt,
             Grabbing = () => IsGrabbing,
+            Configurator = _inputConfigurator,
         };
+        _inputConfigurator.Rejected += outcome =>
+            _log.Warn($"[input] {InputSettingNamesKey(outcome)} on {outcome.DeviceName ?? "every device"}: {outcome.Result}");
+        _inputConfigurator.Apply(_config.InputRules);
+        _inputConfigurator.Attach(Seat, _seat.Binder, _input?.Configuration);
         _seat.PointerMoved = (x, y) =>
         {
             if (IsGrabbing)
@@ -22,6 +27,9 @@ internal sealed partial class MauiComp
             }
         };
     }
+
+    private static string InputSettingNamesKey(Basin.Capabilities.InputRuleOutcome outcome) =>
+        Basin.Capabilities.InputSettingNames.Key(outcome.Setting);
 
     private bool OnButton(uint time, uint button, bool pressed)
     {

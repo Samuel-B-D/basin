@@ -27,6 +27,7 @@ internal sealed partial class Dam : IDisposable
     private readonly OutputDriver _outputs;
     private readonly CompositorRunLoop _loop;
     private readonly DamSeat _damSeat;
+    private readonly Basin.Seat.Backends.InputConfigurator _inputConfigurator = new();
     private readonly Basin.XWayland.XWaylandServer? _xServer;
     private PrimaryClient? _client;
 
@@ -110,6 +111,7 @@ internal sealed partial class Dam : IDisposable
             _services.Install(new LinuxDmabufModule(_renderer.DmabufTextureFormats, renderDevice.DevicePath, captureFormats: _renderer.DmabufRenderFormats));
         }
 
+        _services.UseDefault<Basin.Capabilities.IInputDeviceConfiguration>(_inputConfigurator);
         _services.Freeze();
 
         Seat = _services.Require<Basin.Seat.Seat>();
@@ -178,6 +180,7 @@ internal sealed partial class Dam : IDisposable
             options.AllowVtSwitch,
             Stop,
             log);
+        _damSeat.AttachConfigurator(_inputConfigurator);
 
         _outputs.CreateInitialOutputs();
         WireColor();
@@ -262,6 +265,7 @@ internal sealed partial class Dam : IDisposable
         _client?.Dispose();
         _outputs.Dispose();
         _scene.Root.Destroy();
+        _inputConfigurator.Dispose();
         _damSeat.Dispose();
         _services.Dispose();
         _deviceAllocator?.Dispose();

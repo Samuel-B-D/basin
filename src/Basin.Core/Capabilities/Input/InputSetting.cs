@@ -20,8 +20,6 @@ public enum InputSetting
 
     AccelSpeed,
 
-    AccelConfig,
-
     NaturalScroll,
 
     LeftHanded,
@@ -44,5 +42,21 @@ public enum InputSetting
 
     Rotation,
 
-    KeyRepeat,
+    ScrollFactor,
+
+    MapToOutput,
+
+    KeymapRules,
+
+    KeymapModel,
+
+    KeymapLayout,
+
+    KeymapVariant,
+
+    KeymapOptions,
+
+    RepeatRate,
+
+    RepeatDelay,
 }

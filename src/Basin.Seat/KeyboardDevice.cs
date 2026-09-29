@@ -27,9 +27,29 @@ public sealed class KeyboardDevice : Capabilities.IInjectedKeyboard
 
     internal (uint? Num, uint? Caps, uint? Scroll, uint? Compose, uint? Kana) LedIndices { get; set; }
 
+    internal (int Rate, int Delay)? Repeat { get; private set; }
+
     public object? Tag { get; set; }
 
     public bool SetKeymap(ReadOnlySpan<byte> keymapText) => _owner.SetDeviceKeymap(this, keymapText);
+
+    public bool SetKeymap(in Capabilities.KeymapNames names) => _owner.SetDeviceKeymap(this, names);
+
+    public void ClearKeymap() => _owner.ClearDeviceKeymap(this);
+
+    public void SetRepeatInfo(int rate, int delay)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(rate);
+        ArgumentOutOfRangeException.ThrowIfNegative(delay);
+        Repeat = (rate, delay);
+        _owner.RefreshRepeat();
+    }
+
+    public void ClearRepeatInfo()
+    {
+        Repeat = null;
+        _owner.RefreshRepeat();
+    }
 
     public void Dispose() => _owner.RemoveDevice(this);
 

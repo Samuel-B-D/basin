@@ -165,6 +165,41 @@ ctm           = true         # hyprland_ctm_control_v1
 # [shortcuts]
 # "org.example.app:toggle" = "Super+Shift+P"
 
+# Input devices: [input] for every device, [input.<type>] per type
+# (keyboard, pointer, touchpad, touch, tablet_tool, tablet_pad, switch),
+# [[input.device]] per device.
+[input.touchpad]
+tap            = true           # tap to click
+click_method   = "clickfinger"  # none | button_areas | clickfinger
+# natural_scroll = false
+# scroll_method  = "two_finger" # none | two_finger | edge | on_button_down
+# dwt            = true         # disable while typing
+# drag           = true         # tap and drag
+# drag_lock      = "disabled"   # disabled | enabled | enabled_sticky
+# tap_button_map = "lrm"        # lrm | lmr
+# middle_emulation = false
+
+# [input.pointer]
+# accel_profile  = "adaptive"   # none | flat | adaptive | custom
+# accel_speed    = 0.0          # -1 to 1
+# scroll_factor  = 1.0
+# natural_scroll = false
+# left_handed    = false
+
+# [input.keyboard]
+# layout       = "us,de"
+# variant      = ""
+# model        = ""
+# options      = "grp:alt_shift_toggle"
+# rules        = ""
+# repeat_rate  = 25             # per second
+# repeat_delay = 400            # milliseconds
+
+# [[input.device]]
+# name          = "Logitech*"   # glob; or sysname, vendor, product, output
+# accel_profile = "flat"
+# map_to_output = "DP-2"
+
 # Key bindings, Mod+Mod+Key with an xkb keysym name.
 [bindings]
 "Alt+Escape"      = "quit"

@@ -191,6 +191,7 @@ internal sealed partial class TinyComp
         Capture = _chordCapture,
         Font = font,
         ShaderParameters = ShaderParameterNames,
+        Input = _inputConfigurator,
         Close = () => CloseSettings(),
         Save = () => SaveSettings(overwrite: false),
         Overwrite = () => SaveSettings(overwrite: true),

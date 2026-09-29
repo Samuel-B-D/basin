@@ -70,6 +70,8 @@ internal sealed class MauiCompSeat : IDisposable
         }
     }
 
+    public Basin.Seat.Backends.InputConfigurator? Configurator { get; set; }
+
     public Func<uint, uint, bool, bool>? KeyHook { get; set; }
 
     public Func<uint, uint, bool, bool>? ButtonHook { get; set; }
@@ -95,6 +97,8 @@ internal sealed class MauiCompSeat : IDisposable
     public double PointerY => _y;
 
     public Basin.Seat.Backends.SeatInjector Injector => _injector;
+
+    public Basin.Seat.Backends.SeatBinder Binder => _binder;
 
     public void CenterPointer() => _injector.Center();
 
@@ -132,8 +136,19 @@ internal sealed class MauiCompSeat : IDisposable
 
     private void WireParentKeyboard(WaylandKeyboardDevice keyboard)
     {
-        keyboard.Keymap += bytes => _seat.Keyboard.SetKeymapFromBuffer(bytes);
-        keyboard.Key += (time, key, pressed) => OnKey(time, key, pressed);
+        keyboard.Keymap += bytes =>
+        {
+            if (Configurator?.NamesSeatKeymap != true)
+            {
+                _seat.Keyboard.SetKeymapFromBuffer(bytes);
+            }
+        };
+        keyboard.RepeatInfo += (rate, delay) => Configurator?.AdoptRepeatInfo(rate, delay);
+        keyboard.Key += (time, key, pressed) =>
+        {
+            _seat.Keyboard.Activate(null);
+            OnKey(time, key, pressed);
+        };
         keyboard.Modifiers += (depressed, latched, locked, group) =>
         {
             _router.Modifiers(depressed, latched, locked, group);
@@ -146,19 +161,23 @@ internal sealed class MauiCompSeat : IDisposable
     {
         input.DeviceAdded += device => BasinReport.Line($"INPUT + {device.Name}");
         input.DeviceRemoved += device => BasinReport.Line($"INPUT - {device.Name}");
-        input.Key += (_, time, key, pressed) => OnKey(time, key, pressed);
+        input.Key += (device, time, key, pressed) =>
+        {
+            _binder.ActivateKeyboard(device);
+            OnKey(time, key, pressed);
+        };
         input.PointerButton += (_, time, button, pressed) => OnButton(time, button, pressed);
         input.PointerMotion += (_, time, dx, dy, _, _) =>
         {
             _pointer.Motion(dx, dy);
             MoveCursor(time);
         };
-        input.PointerMotionAbsolute += (_, time, nx, ny) =>
+        input.PointerMotionAbsolute += (device, time, nx, ny) =>
         {
-            _pointer.MotionAbsolute(null, nx, ny);
+            _pointer.MotionAbsolute(_binder.OutputFor(device), nx, ny);
             MoveCursor(time);
         };
-        input.PointerScroll += (_, time, axis) => OnAxis(time, axis);
+        input.PointerScroll += (device, time, axis) => OnAxis(time, _binder.Scale(device, axis));
     }
 
     private void MoveCursor(uint time)

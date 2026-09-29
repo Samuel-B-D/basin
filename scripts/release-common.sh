@@ -50,15 +50,22 @@ program_binary() {
     fi
 }
 
+has_project() {
+    local candidates=("$1"/*.csproj)
+    [ -f "${candidates[0]}" ]
+}
+
 resolve_program() {
     local wanted=$1 lower base directory project
-    if [ -d "$root/${wanted%/}" ]; then
+    if [ -d "$root/${wanted%/}" ] && has_project "$root/${wanted%/}"; then
         printf '%s' "${wanted%/}"
         return 0
     fi
 
     lower=$(printf '%s' "$wanted" | tr '[:upper:]' '[:lower:]')
     for directory in "$root"/apps/*/ "$root"/samples/*/; do
+        # a directory left with only bin/ and obj/ after a project moved is not a program
+        has_project "${directory%/}" || continue
         project=$(printf '%s' "${directory#"$root"/}" | sed 's:/$::')
         base=$(basename "$directory" | tr '[:upper:]' '[:lower:]')
         if [ "$base" = "$lower" ] || [ "$(program_name "$project")" = "$lower" ]; then

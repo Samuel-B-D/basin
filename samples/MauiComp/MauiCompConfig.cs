@@ -19,6 +19,8 @@ internal sealed class MauiCompConfig
 
     public bool BlurTitlebars { get; set; }
 
+    public IReadOnlyList<Basin.Capabilities.InputRule> InputRules { get; private set; } = [];
+
     public HashSet<string> FromFile { get; } = [];
 
     public HashSet<string> FromFlags { get; } = [];
@@ -118,6 +120,11 @@ internal sealed class MauiCompConfig
             BlurStartMenu = blur.Flag("start_menu", BlurStartMenu);
             BlurSwitcher = blur.Flag("switcher", BlurSwitcher);
             BlurTitlebars = blur.Flag("titlebars", BlurTitlebars);
+        }
+
+        if (reader.Section("input") is { } input)
+        {
+            InputRules = InputConfig.Read(input, reader.Log);
         }
 
         reader.ReportUnknown();

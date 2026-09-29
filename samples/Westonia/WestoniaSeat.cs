@@ -100,6 +100,10 @@ internal sealed class WestoniaSeat : IDisposable, Basin.Seat.ITouchChrome
 
     public UISurfaceRouter Router => _router;
 
+    public Basin.Seat.Backends.SeatBinder Binder => _binder;
+
+    public Basin.Seat.Backends.InputConfigurator? Configurator { get; set; }
+
     public double PointerX => _x;
 
     public double PointerY => _y;
@@ -145,8 +149,18 @@ internal sealed class WestoniaSeat : IDisposable, Basin.Seat.ITouchChrome
 
     private void WireParentKeyboard(WaylandKeyboardDevice keyboard)
     {
-        keyboard.Keymap += bytes => _seat.Keyboard.SetKeymapFromBuffer(bytes);
-        keyboard.Key += (time, key, pressed) => OnKey(time, key, pressed);
+        keyboard.Keymap += bytes =>
+        {
+            if (Configurator?.NamesSeatKeymap != true)
+            {
+                _seat.Keyboard.SetKeymapFromBuffer(bytes);
+            }
+        };
+        keyboard.Key += (time, key, pressed) =>
+        {
+            _seat.Keyboard.Activate(null);
+            OnKey(time, key, pressed);
+        };
         keyboard.Modifiers += (depressed, latched, locked, group) =>
             OnModifiers(depressed, latched, locked, group);
         keyboard.Leave += () => _seat.Keyboard.NotifyClearFocus();
@@ -156,19 +170,23 @@ internal sealed class WestoniaSeat : IDisposable, Basin.Seat.ITouchChrome
     {
         input.DeviceAdded += device => BasinReport.Line($"INPUT + {device.Name}");
         input.DeviceRemoved += device => BasinReport.Line($"INPUT - {device.Name}");
-        input.Key += (_, time, key, pressed) => OnKey(time, key, pressed);
+        input.Key += (device, time, key, pressed) =>
+        {
+            _binder.ActivateKeyboard(device);
+            OnKey(time, key, pressed);
+        };
         input.PointerButton += (_, time, button, pressed) => OnButton(time, button, pressed);
         input.PointerMotion += (_, time, dx, dy, _, _) =>
         {
             _pointer.Motion(dx, dy);
             MoveCursor(time);
         };
-        input.PointerMotionAbsolute += (_, time, nx, ny) =>
+        input.PointerMotionAbsolute += (device, time, nx, ny) =>
         {
-            _pointer.MotionAbsolute(null, nx, ny);
+            _pointer.MotionAbsolute(_binder.OutputFor(device), nx, ny);
             MoveCursor(time);
         };
-        input.PointerScroll += (_, time, axis) => OnAxis(time, axis);
+        input.PointerScroll += (device, time, axis) => OnAxis(time, _binder.Scale(device, axis));
     }
 
     bool Basin.Seat.ITouchChrome.TryPress(int id, uint timeMs, double x, double y) =>

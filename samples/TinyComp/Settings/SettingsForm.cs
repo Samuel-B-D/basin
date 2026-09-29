@@ -11,7 +11,7 @@ namespace TinyComp;
 internal sealed class SettingsForm
 {
     private static readonly string[] SectionPrefixes =
-        ["compositor.", "frame.", "color.", "effects.", "canvas.", "overview.", "hypr.", "bindings.", "rule#", "output.", "settings."];
+        ["compositor.", "frame.", "color.", "effects.", "canvas.", "overview.", "hypr.", "input.", "bindings.", "rule#", "output.", "settings."];
 
     private static readonly IReadOnlyList<string> InheritOnOff = ["(inherit)", "on", "off"];
 
@@ -24,6 +24,7 @@ internal sealed class SettingsForm
     private double _themeSize;
     private int _dirtyVersion = -1;
     private int _output;
+    private int _inputTarget;
     private string? _confirmReset;
 
     public SettingsForm(SettingsDraft draft, SettingsContext context)
@@ -35,6 +36,12 @@ internal sealed class SettingsForm
     public SettingsDraft Draft => _draft;
 
     public int Section { get; set; }
+
+    public int InputTarget
+    {
+        get => _inputTarget;
+        set => _inputTarget = value;
+    }
 
     public void Build(Prowl.PaperUI.Paper paper)
     {
@@ -66,6 +73,9 @@ internal sealed class SettingsForm
                             break;
                         case SettingsCatalog.Outputs:
                             OutputsSection(paper, theme);
+                            break;
+                        case SettingsCatalog.Input:
+                            InputSection(paper, theme);
                             break;
                         default:
                             CatalogSection(paper, theme, section);
@@ -121,6 +131,7 @@ internal sealed class SettingsForm
         SettingsCatalog.Bindings => "Every row goes, and the built-in bindings apply again. Nothing is saved until Save.",
         SettingsCatalog.Rules => "Every rule goes. Nothing is saved until Save.",
         SettingsCatalog.Outputs => "Every per-output setting goes, for connected and absent outputs alike. Nothing is saved until Save.",
+        SettingsCatalog.Input => "Every [input] table and every [[input.device]] entry goes, and each device returns to its libinput default. Values set at run time stay. Nothing is saved until Save.",
         SettingsCatalog.Hypr => "The flags go back to their defaults and every global shortcut row goes. Nothing is saved until Save.",
         SettingsCatalog.Effects => "Every effect goes back to its default and the preset chain goes. Nothing is saved until Save.",
         _ => "Every setting here goes back to its default. Nothing is saved until Save.",
@@ -144,6 +155,17 @@ internal sealed class SettingsForm
                     break;
                 case SettingsCatalog.Effects:
                     RemoveTables(document, "effects.shader");
+                    break;
+                case SettingsCatalog.Input:
+                    RemoveTables(document, Basin.Config.InputConfig.DeviceTable);
+                    foreach (var header in document.TableNames())
+                    {
+                        if (header is ["input", ..])
+                        {
+                            RemoveAll(document, string.Join('.', header));
+                        }
+                    }
+
                     break;
                 case SettingsCatalog.Outputs:
                     foreach (var header in document.TableNames())
@@ -654,6 +676,162 @@ internal sealed class SettingsForm
                 var inherited = _draft.Document.RawValue("overview", key.Key) ?? key.Default ?? "automatic";
                 SettingsWidgets.TextRow(
                     paper, theme, "overview-" + key.Key, key.Label, OutputSlot(overviewTable, key.Key, SettingKind.Literal), inherited);
+            }
+        }
+
+        paper.PopID();
+    }
+
+    private static readonly Basin.Capabilities.InputSetting[] TouchpadKeys =
+    [
+        Basin.Capabilities.InputSetting.Tap, Basin.Capabilities.InputSetting.TapButtonMap, Basin.Capabilities.InputSetting.Drag,
+        Basin.Capabilities.InputSetting.DragLock, Basin.Capabilities.InputSetting.ThreeFingerDrag,
+        Basin.Capabilities.InputSetting.NaturalScroll, Basin.Capabilities.InputSetting.ClickMethod,
+        Basin.Capabilities.InputSetting.ClickfingerButtonMap, Basin.Capabilities.InputSetting.ScrollMethod,
+        Basin.Capabilities.InputSetting.DisableWhileTyping, Basin.Capabilities.InputSetting.AccelProfile,
+        Basin.Capabilities.InputSetting.AccelSpeed, Basin.Capabilities.InputSetting.LeftHanded,
+        Basin.Capabilities.InputSetting.MiddleEmulation, Basin.Capabilities.InputSetting.ScrollFactor,
+        Basin.Capabilities.InputSetting.SendEvents,
+    ];
+
+    private static readonly Basin.Capabilities.InputSetting[] PointerKeys =
+    [
+        Basin.Capabilities.InputSetting.AccelProfile, Basin.Capabilities.InputSetting.AccelSpeed,
+        Basin.Capabilities.InputSetting.NaturalScroll, Basin.Capabilities.InputSetting.LeftHanded,
+        Basin.Capabilities.InputSetting.MiddleEmulation, Basin.Capabilities.InputSetting.ScrollMethod,
+        Basin.Capabilities.InputSetting.ScrollButton, Basin.Capabilities.InputSetting.ScrollButtonLock,
+        Basin.Capabilities.InputSetting.DisableWhileTrackpointing, Basin.Capabilities.InputSetting.ScrollFactor,
+        Basin.Capabilities.InputSetting.Rotation, Basin.Capabilities.InputSetting.MapToOutput,
+    ];
+
+    private static readonly Basin.Capabilities.InputSetting[] KeyboardKeys =
+    [
+        Basin.Capabilities.InputSetting.KeymapLayout, Basin.Capabilities.InputSetting.KeymapVariant,
+        Basin.Capabilities.InputSetting.KeymapModel, Basin.Capabilities.InputSetting.KeymapOptions,
+        Basin.Capabilities.InputSetting.KeymapRules, Basin.Capabilities.InputSetting.RepeatRate,
+        Basin.Capabilities.InputSetting.RepeatDelay,
+    ];
+
+    private void InputSection(Prowl.PaperUI.Paper paper, SettingsTheme theme)
+    {
+        var devices = new List<Basin.Capabilities.InputDeviceInfo>();
+        if (_context.Input is { } input)
+        {
+            var span = new Basin.Capabilities.InputDeviceInfo[32];
+            var count = input.Enumerate(span);
+            while (count < 0)
+            {
+                span = new Basin.Capabilities.InputDeviceInfo[span.Length * 2];
+                count = input.Enumerate(span);
+            }
+
+            for (var i = 0; i < count; i++)
+            {
+                if (devices.FindIndex(d => d.Name == span[i].Name) < 0)
+                {
+                    devices.Add(span[i]);
+                }
+            }
+        }
+
+        string[] types = ["All touchpads", "All pointers", "All keyboards"];
+        var labels = new List<string>(types);
+        foreach (var device in devices)
+        {
+            labels.Add(device.Name);
+        }
+
+        _inputTarget = Math.Clamp(_inputTarget, 0, labels.Count - 1);
+        using (paper.Row("targets").Width(paper.Stretch()).Height(UnitValue.Auto).Gap(6).PaddingBottom(6).Enter())
+        {
+            for (var i = 0; i < labels.Count; i++)
+            {
+                var index = i;
+                paper.PushID(i);
+                SettingsWidgets.Button(paper, theme, "target", labels[i], () => _inputTarget = index, primary: i == _inputTarget);
+                paper.PopID();
+            }
+        }
+
+        Basin.Capabilities.InputMatch match;
+        Basin.Capabilities.InputDeviceInfo? chosen = null;
+        IEnumerable<Basin.Capabilities.InputSetting> keys;
+        switch (_inputTarget)
+        {
+            case 0:
+                match = new Basin.Capabilities.InputMatch(Type: Basin.Capabilities.InputDeviceType.Touchpad);
+                keys = TouchpadKeys;
+                break;
+            case 1:
+                match = new Basin.Capabilities.InputMatch(Type: Basin.Capabilities.InputDeviceType.Pointer);
+                keys = PointerKeys;
+                break;
+            case 2:
+                match = new Basin.Capabilities.InputMatch(AnyKeyboard: true);
+                keys = KeyboardKeys;
+                break;
+            default:
+                chosen = devices[_inputTarget - types.Length];
+                match = new Basin.Capabilities.InputMatch(NameGlob: chosen.Value.Name);
+                keys = Basin.Capabilities.InputSettingNames.Settings.ToArray();
+                break;
+        }
+
+        if (_context.Input is null)
+        {
+            SettingsWidgets.Note(paper, theme, "no-input", "This session has no input configuration. Values still save to the file.", theme.Warning);
+        }
+        else if (chosen is null && devices.Count == 0)
+        {
+            SettingsWidgets.Note(paper, theme, "no-devices", "No input devices are present. Values still save to the file.");
+        }
+
+        var target = labels[_inputTarget];
+        paper.PushID(target);
+        foreach (var setting in keys)
+        {
+            var support = chosen is { } one && _context.Input is { } live
+                ? live.Support(one.Id, setting)
+                : new Basin.Capabilities.InputSettingSupport(true, uint.MaxValue, uint.MaxValue);
+            if (!support.Supported)
+            {
+                continue;
+            }
+
+            string? badge = null;
+            var current = string.Empty;
+            if (chosen is { } device && _context.Input is { } configuration)
+            {
+                if (configuration is Basin.Capabilities.IInputSettingSources sources)
+                {
+                    badge = Basin.Capabilities.InputSettingNames.LayerName(sources.SourceOf(device.Id, setting));
+                }
+
+                if (configuration.TryGet(device.Id, setting, out var now))
+                {
+                    current = Basin.Capabilities.InputSettingNames.Format(setting, now);
+                }
+            }
+
+            var slot = new InputSlot(_draft, match, setting, badge, current);
+            var key = Basin.Capabilities.InputSettingNames.Key(setting);
+            var label = key.Replace('_', ' ');
+            if (slot.IsChoice)
+            {
+                var choices = new List<string> { InputSlot.Default };
+                foreach (var word in Basin.Capabilities.InputSettingNames.Words(setting))
+                {
+                    if (Basin.Capabilities.InputSettingNames.IsSupportedWord(setting, word, support))
+                    {
+                        choices.Add(word);
+                    }
+                }
+
+                SettingsWidgets.EnumRow(paper, theme, key, label, slot, choices);
+            }
+            else
+            {
+                SettingsWidgets.TextRow(paper, theme, key, label, slot, current.Length > 0 ? current : "default");
             }
         }
 

@@ -161,6 +161,12 @@ public sealed class RiverInputManager : IDisposable
 
     internal RiverWindowManager Manager => _manager;
 
+    internal RiverInputDeviceV1Resource? ResourceFor(object handle, WlClient client) =>
+        _devices.Find(d => ReferenceEquals(d.Handle, handle))?.Resource is { IsDestroyed: false } resource &&
+        ReferenceEquals(resource.Client, client)
+            ? resource
+            : null;
+
     private void Announce(RiverInputDevice device)
     {
         if (_resource is not { IsDestroyed: false } manager)

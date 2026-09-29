@@ -169,6 +169,13 @@ internal sealed class DamSeat :
 
     public void CenterCursor() => _injector.Center();
 
+    internal void AttachConfigurator(InputConfigurator configurator)
+    {
+        configurator.Rejected += outcome =>
+            _log.Warn($"input: {InputSettingNames.Key(outcome.Setting)} on {outcome.DeviceName ?? "every device"}: {outcome.Result}");
+        configurator.Attach(_seat, _binder, _libinput?.Configuration);
+    }
+
     private void WireLibinput()
     {
         var libinput = new LibinputBackend(_host.Loop, _host.Session!);

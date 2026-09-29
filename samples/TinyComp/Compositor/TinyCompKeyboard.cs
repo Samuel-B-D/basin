@@ -21,8 +21,14 @@ internal sealed partial class TinyComp
 {
     private void WireKeyboard(WaylandKeyboardDevice keyboard)
     {
-        keyboard.Keymap += bytes => _seat.Keyboard.SetKeymapFromBuffer(bytes);
-        keyboard.RepeatInfo += (rate, delay) => _seat.Keyboard.SetRepeatInfo(rate, delay);
+        keyboard.Keymap += bytes =>
+        {
+            if (!_inputConfigurator.NamesSeatKeymap)
+            {
+                _seat.Keyboard.SetKeymapFromBuffer(bytes);
+            }
+        };
+        keyboard.RepeatInfo += (rate, delay) => _inputConfigurator.AdoptRepeatInfo(rate, delay);
         keyboard.Modifiers += (d, l, k, g) =>
         {
             _seat.Keyboard.Activate(null);

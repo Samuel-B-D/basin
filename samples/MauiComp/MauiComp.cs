@@ -35,6 +35,7 @@ internal sealed partial class MauiComp : IDisposable
     private readonly UISurfaceIndex _shellSurfaces = new();
     private readonly CursorController _cursor;
     private readonly Basin.Backend.Libinput.LibinputBackend? _input;
+    private readonly Basin.Seat.Backends.InputConfigurator _inputConfigurator = new();
     private readonly UIDriver _uiDriver;
     private readonly ShellAnimations _animations;
     private readonly List<Process> _spawned = [];
@@ -107,6 +108,7 @@ internal sealed partial class MauiComp : IDisposable
             _services.Install(new LinuxDmabufModule(_renderer.DmabufTextureFormats, renderDevice.DevicePath, captureFormats: _renderer.DmabufRenderFormats));
         }
 
+        _services.UseDefault<Basin.Capabilities.IInputDeviceConfiguration>(_inputConfigurator);
         _services.Freeze();
 
         _layers = new ShellLayers(_scene.Root);
@@ -346,6 +348,7 @@ internal sealed partial class MauiComp : IDisposable
         _switcher?.Dispose();
         DisposeWindows();
         _animations.Dispose();
+        _inputConfigurator.Dispose();
         _seat?.Dispose();
         _uiDriver.Dispose();
         _screens.Dispose();

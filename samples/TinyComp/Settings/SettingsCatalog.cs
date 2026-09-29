@@ -9,13 +9,14 @@ internal static class SettingsCatalog
     public const string Canvas = "Canvas";
     public const string Overview = "Overview";
     public const string Hypr = "Hypr";
+    public const string Input = "Input";
     public const string Bindings = "Bindings";
     public const string Rules = "Rules";
     public const string Outputs = "Outputs";
     public const string Panel = "Panel";
 
     public static IReadOnlyList<string> Sections { get; } =
-        [Compositor, Frames, Color, Effects, Canvas, Overview, Hypr, Bindings, Rules, Outputs, Panel];
+        [Compositor, Frames, Color, Effects, Canvas, Overview, Hypr, Input, Bindings, Rules, Outputs, Panel];
 
     public static IReadOnlyList<string> Restarts { get; } =
     [

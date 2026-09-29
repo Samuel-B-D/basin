@@ -152,6 +152,21 @@ internal sealed class Config
 
     public IReadOnlyList<Rule> Rules { get; private set; } = [];
 
+    public static IReadOnlyList<InputRule> DefaultInputRules { get; } =
+    [
+        new InputRule
+        {
+            Match = new InputMatch(Type: InputDeviceType.Touchpad),
+            Settings =
+            [
+                (InputSetting.Tap, InputSettingValue.Flag(true)),
+                (InputSetting.ClickMethod, InputSettingValue.Of(InputClickMethod.Clickfinger)),
+            ],
+        },
+    ];
+
+    public IReadOnlyList<InputRule> InputRules { get; private set; } = DefaultInputRules;
+
     public IReadOnlyDictionary<string, OutputSetting> OutputSettings { get; private set; } =
         new Dictionary<string, OutputSetting>(StringComparer.Ordinal);
 
@@ -603,6 +618,11 @@ internal sealed class Config
         if (reader.Free("bindings") is { } bindings)
         {
             Bindings = MergeBindings(bindings, log);
+        }
+
+        if (reader.Section("input") is { } input)
+        {
+            InputRules = InputConfig.Read(input, log);
         }
 
         if (reader.FreeArray("rule") is { } rules)

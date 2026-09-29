@@ -32,6 +32,45 @@ public sealed class SettingsPanelTests
     };
 
     [Fact]
+    public void Input_rows_write_a_type_table_and_a_named_device_entry_and_saving_keeps_the_rest()
+    {
+        using var file = new SeededFile();
+        var draft = SettingsDraft.Open(file.Path);
+        var touchpadTap = new InputSlot(draft, new InputMatch(Type: InputDeviceType.Touchpad), InputSetting.Tap, badge: null);
+        Assert.Equal("true", touchpadTap.Value);
+
+        var natural = new InputSlot(draft, new InputMatch(Type: InputDeviceType.Touchpad), InputSetting.NaturalScroll, badge: null);
+        Assert.Equal(InputSlot.Default, natural.Value);
+        natural.Value = "true";
+        Assert.True(natural.IsDirty);
+
+        var mouse = new InputMatch(NameGlob: "Logitech G502");
+        var speed = new InputSlot(draft, mouse, InputSetting.AccelSpeed, badge: "runtime", current: "0");
+        speed.Value = "-0.25";
+        Assert.Equal("-0.25", speed.Value);
+        Assert.Equal("now 0", speed.Hint);
+        speed.Value = "fast";
+        Assert.NotNull(speed.Error);
+
+        touchpadTap.Value = InputSlot.Default;
+        Assert.Null(draft.SaveBlocked);
+        Assert.Null(draft.Save(overwrite: false));
+
+        var saved = File.ReadAllText(file.Path);
+        Assert.Contains("# natural_scroll = false", saved, StringComparison.Ordinal);
+        Assert.Contains("click_method   = \"clickfinger\"", saved, StringComparison.Ordinal);
+        Assert.Contains("[[input.device]]", saved, StringComparison.Ordinal);
+        var loaded = TinyComp.Config.Parse(saved, BasinLog.For("test"), out var fatal);
+        Assert.Null(fatal);
+        var touchpad = loaded.InputRules.Single(r => r.Match.Type == InputDeviceType.Touchpad);
+        Assert.False(touchpad.Names(InputSetting.Tap, out _));
+        Assert.True(touchpad.Names(InputSetting.NaturalScroll, out var on) && on.IsOn);
+        var device = loaded.InputRules.Single(r => r.Match.NameGlob == "Logitech G502");
+        Assert.True(device.Names(InputSetting.AccelSpeed, out var value));
+        Assert.Equal(-0.25, value[0]);
+    }
+
+    [Fact]
     public void Setting_a_default_the_file_lacks_writes_nothing()
     {
         using var file = new SeededFile();
@@ -209,6 +248,46 @@ public sealed class SettingsPanelTests
         }
 
         Golden.AssertMatches(rgba!, buffer.Width, buffer.Height, golden, tolerance: 6);
+        frame.Dispose();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    public void The_input_section_draws_a_type_target_and_a_device_target(int target)
+    {
+        CompositorTestHost.SkipUnlessRunnable("gl");
+        using var file = new SeededFile();
+        using var rig = PaperSettingsTests.Rig.Open("gl", "gl", Width, Height);
+        var devices = new FakeInputDeviceConfiguration();
+        devices.AddTouchpad();
+        devices.AddMouse();
+        devices.Set(2, InputSetting.AccelSpeed, InputSettingValue.Number(-0.5));
+        var context = Context();
+        var form = new SettingsForm(SettingsDraft.Open(file.Path), new SettingsContext
+        {
+            Renderers = context.Renderers,
+            MetacityThemes = context.MetacityThemes,
+            FromFlags = context.FromFlags,
+            Outputs = context.Outputs,
+            Capture = context.Capture,
+            Font = context.Font,
+            Input = devices,
+        })
+        {
+            Section = SettingsCatalog.Sections.ToList().IndexOf(SettingsCatalog.Input),
+            InputTarget = target,
+        };
+        rig.Surface.Build = form.Build;
+        rig.Settle();
+
+        Assert.True(rig.Surface.TryAcquire(out var frame));
+        Assert.True(BufferCapture.TryReadRgba(frame.Buffer!, rig.Host.Renderer, out var rgba));
+        if (Environment.GetEnvironmentVariable("BASIN_PAPER_DUMP") is { Length: > 0 } dump)
+        {
+            File.WriteAllBytes($"{dump}-{target}.png", PngCodec.Encode(rgba!, frame.Buffer!.Width, frame.Buffer.Height));
+        }
+
         frame.Dispose();
     }
 

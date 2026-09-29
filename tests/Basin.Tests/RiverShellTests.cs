@@ -1551,70 +1551,121 @@ public class RiverShellTests
     }
 
     [Fact]
+    public void A_bound_manager_learns_support_default_and_current_and_hears_a_change()
+    {
+        using var fixture = new RiverFixture();
+        var configuration = new FakeInputDeviceConfiguration();
+        var touchpad = configuration.AddTouchpad();
+        configuration.Set(touchpad, Capabilities.InputSetting.NaturalScroll, Capabilities.InputSettingValue.Flag(true));
+        fixture.Server.LibinputConfig.Configuration = configuration;
+
+        var registry = fixture.Client.Display.GetRegistry();
+        uint name = 0;
+        uint version = 0;
+        registry.Global += (_, e) =>
+        {
+            if (e.Interface == "river_libinput_config_v1")
+            {
+                (name, version) = (e.Name, e.Version);
+            }
+        };
+        fixture.Settle();
+        Assert.NotEqual(0u, name);
+
+        var events = new List<string>();
+        Wm.Protocol.RiverLibinputDeviceV1? device = null;
+        var config = registry.Bind<Wm.Protocol.RiverLibinputConfigV1>(name, version);
+        config.LibinputDevice += (_, e) =>
+        {
+            device = e.Id;
+            device.TapSupport += (_, t) => events.Add($"tap_support {t.FingerCount}");
+            device.TapDefault += (_, t) => events.Add($"tap_default {(uint)t.State}");
+            device.TapCurrent += (_, t) => events.Add($"tap_current {(uint)t.State}");
+            device.NaturalScrollSupport += (_, n) => events.Add($"natural_scroll_support {n.Supported}");
+            device.NaturalScrollDefault += (_, n) => events.Add($"natural_scroll_default {(uint)n.State}");
+            device.NaturalScrollCurrent += (_, n) => events.Add($"natural_scroll_current {(uint)n.State}");
+            device.RotationSupport += (_, r) => events.Add($"rotation_support {r.Supported}");
+            device.AccelSpeedCurrent += (_, a) => events.Add($"accel_speed_current {BitConverter.ToDouble(a.Speed!, 0)}");
+            device.Done += (_, _) => events.Add("done");
+        };
+        fixture.Settle();
+
+        Assert.NotNull(device);
+        Assert.Equal(
+            ["tap_support 3", "tap_default 0", "tap_current 0", "accel_speed_current 0", "natural_scroll_support 1",
+             "natural_scroll_default 0", "natural_scroll_current 1", "rotation_support 0", "done"],
+            events);
+
+        events.Clear();
+        configuration.Set(touchpad, Capabilities.InputSetting.Tap, Capabilities.InputSettingValue.Flag(true));
+        fixture.Settle();
+        Assert.Equal(["tap_current 1", "done"], events);
+
+        config.Dispose();
+        registry.Dispose();
+        fixture.Server.LibinputConfig.RemoveDevice(touchpad);
+        fixture.Settle();
+    }
+
+    [Fact]
+    public void A_libinput_device_names_its_input_device_for_the_same_client()
+    {
+        using var fixture = new RiverFixture();
+        var configuration = new FakeInputDeviceConfiguration();
+        var touchpad = configuration.AddTouchpad();
+        var handle = new object();
+        fixture.Server.InputManager.AddDevice(handle, "touchpad", InputDeviceType.Pointer);
+        fixture.Server.LibinputConfig.InputDeviceFor = id => id == touchpad ? handle : null;
+        fixture.Server.LibinputConfig.Configuration = configuration;
+
+        var registry = fixture.Client.Display.GetRegistry();
+        var globals = new Dictionary<string, (uint Name, uint Version)>();
+        registry.Global += (_, e) => globals[e.Interface] = (e.Name, e.Version);
+        fixture.Settle();
+
+        Wm.Protocol.RiverInputDeviceV1? inputDevice = null;
+        var input = registry.Bind<Wm.Protocol.RiverInputManagerV1>(
+            globals["river_input_manager_v1"].Name, globals["river_input_manager_v1"].Version);
+        input.InputDevice += (_, e) => inputDevice = e.Id;
+        fixture.Settle();
+        Assert.NotNull(inputDevice);
+
+        Wm.Protocol.RiverInputDeviceV1? linked = null;
+        var config = registry.Bind<Wm.Protocol.RiverLibinputConfigV1>(
+            globals["river_libinput_config_v1"].Name, globals["river_libinput_config_v1"].Version);
+        config.LibinputDevice += (_, e) => e.Id.InputDevice += (_, d) => linked = d.Device;
+        fixture.Settle();
+
+        Assert.Same(inputDevice, linked);
+
+        config.Dispose();
+        input.Dispose();
+        registry.Dispose();
+        fixture.Settle();
+    }
+
+    [Fact]
     public void Every_libinput_setting_is_answered_even_when_unimplemented()
     {
         using var fixture = new RiverFixture();
 
         Assert.Null(fixture.Server.LibinputConfig.Configuration);
 
-        var configuration = new PartialInputConfiguration();
+        var configuration = new FakeInputDeviceConfiguration();
+        var touchpad = configuration.AddTouchpad();
         fixture.Server.LibinputConfig.Configuration = configuration;
         fixture.Settle();
 
         Assert.Equal(
             Capabilities.InputSettingResult.Success,
-            configuration.Set(1, Capabilities.InputSetting.Tap, new Capabilities.InputSettingValue(1)));
+            configuration.Set(touchpad, Capabilities.InputSetting.Tap, Capabilities.InputSettingValue.Flag(true)));
         Assert.Equal(
             Capabilities.InputSettingResult.Unsupported,
-            configuration.Set(1, Capabilities.InputSetting.Rotation, new Capabilities.InputSettingValue(90)));
-        Assert.Equal(
-            [Capabilities.InputSetting.Tap, Capabilities.InputSetting.Rotation],
-            configuration.Seen);
+            configuration.Set(touchpad, Capabilities.InputSetting.Rotation, Capabilities.InputSettingValue.Of(90u)));
+        Assert.Equal(Capabilities.InputSetting.Tap, Assert.Single(configuration.Writes).Setting);
 
-        fixture.Server.LibinputConfig.RemoveDevice(1);
+        fixture.Server.LibinputConfig.RemoveDevice(touchpad);
         fixture.Settle();
-    }
-
-    private sealed class PartialInputConfiguration : Capabilities.IInputDeviceConfiguration
-    {
-        public event Action<Capabilities.InputDeviceInfo>? DeviceAdded
-        {
-            add { }
-            remove { }
-        }
-
-        public event Action<ulong>? DeviceRemoved
-        {
-            add { }
-            remove { }
-        }
-
-        public List<Capabilities.InputSetting> Seen { get; } = [];
-
-        public int Enumerate(Span<Capabilities.InputDeviceInfo> devices)
-        {
-            if (devices.Length < 1)
-            {
-                return -1;
-            }
-
-            devices[0] = new Capabilities.InputDeviceInfo(1, "touchpad", Capabilities.InputDeviceCapability.Pointer, null);
-            return 1;
-        }
-
-        public bool TryGet(ulong deviceId, Capabilities.InputSetting setting, out Capabilities.InputSettingValue value)
-        {
-            value = default;
-            return false;
-        }
-
-        public Capabilities.InputSettingResult Set(ulong deviceId, Capabilities.InputSetting setting, in Capabilities.InputSettingValue value)
-        {
-            Seen.Add(setting);
-            return setting == Capabilities.InputSetting.Tap
-                ? Capabilities.InputSettingResult.Success
-                : Capabilities.InputSettingResult.Unsupported;
-        }
     }
 
     private const uint WKey = 17;

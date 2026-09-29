@@ -27,6 +27,9 @@ internal static class IpcFullRig
                 services.Use<IInputSink>(new RecordingInputSink());
                 services.Use<IScreenCapture>(new SceneScreenCapture(host.Scene, host.Layout) { Renderer = host.Renderer });
                 services.Use<ISelectionStore>(selection);
+                var devices = new FakeInputDeviceConfiguration();
+                devices.AddTouchpad();
+                services.Use<IInputDeviceConfiguration>(devices);
             },
             new IpcSessionInfo { Compositor = "full", Quit = () => { } },
             path,

@@ -21,6 +21,8 @@ public sealed class SeatKeyboard : Capabilities.IActiveKeymap, Capabilities.IKey
     private (uint Depressed, uint Latched, uint Locked, uint Group) _modifiers;
     private int _repeatRate = 25;
     private int _repeatDelay = 400;
+    private KeyboardDevice? _repeatDevice;
+    private (int Rate, int Delay) _sentRepeat = (25, 400);
     private XkbContext? _composeContext;
     private XkbComposeState? _compose;
     private bool _composeLoaded;
@@ -47,7 +49,9 @@ public sealed class SeatKeyboard : Capabilities.IActiveKeymap, Capabilities.IKey
 
     public (uint Depressed, uint Latched, uint Locked, uint Group) ModifierState => _modifiers;
 
-    public (int Rate, int Delay) RepeatInfo => (_repeatRate, _repeatDelay);
+    public (int Rate, int Delay) RepeatInfo => _sentRepeat;
+
+    public (int Rate, int Delay) SeatRepeatInfo => (_repeatRate, _repeatDelay);
 
     public IReadOnlyList<uint> PressedKeys => _pressedKeys;
 
@@ -116,7 +120,18 @@ public sealed class SeatKeyboard : Capabilities.IActiveKeymap, Capabilities.IKey
     public void Activate(Capabilities.IInjectedKeyboard? keyboard)
     {
         var device = keyboard as KeyboardDevice;
-        if (device is null || device.File is null || !_devices.Contains(device))
+        if (device is not null && !_devices.Contains(device))
+        {
+            device = null;
+        }
+
+        if (!ReferenceEquals(_repeatDevice, device))
+        {
+            _repeatDevice = device;
+            RefreshRepeat();
+        }
+
+        if (device is null || device.File is null)
         {
             device = _default;
         }
@@ -136,15 +151,7 @@ public sealed class SeatKeyboard : Capabilities.IActiveKeymap, Capabilities.IKey
             AllocationScope.Pause();
             try
             {
-                AllocationScope.Pause();
-        try
-        {
-            ModifiersChanged?.Invoke();
-        }
-        finally
-        {
-            AllocationScope.Resume();
-        }
+                ModifiersChanged?.Invoke();
             }
             finally
             {
@@ -175,11 +182,83 @@ public sealed class SeatKeyboard : Capabilities.IActiveKeymap, Capabilities.IKey
         return true;
     }
 
+    internal bool SetDeviceKeymap(KeyboardDevice device, in KeymapNames names)
+    {
+        if (device.IsDefault)
+        {
+            var before = _default.File;
+            SetKeymap(names);
+            return !ReferenceEquals(before, _default.File);
+        }
+
+        if (device.OwnSource is not { } source || !source.TryCompile(names, out var keymap))
+        {
+            return false;
+        }
+
+        ApplyDeviceKeymap(device, keymap, source.LastCompiled);
+        return true;
+    }
+
+    internal void ClearDeviceKeymap(KeyboardDevice device)
+    {
+        if (device.IsDefault || device.File is null)
+        {
+            return;
+        }
+
+        var wasActive = ReferenceEquals(_active, device);
+        var oldState = device.State;
+        var oldFile = device.File;
+        device.State = null;
+        device.File = null;
+        device.Compiled = null;
+        device.Modifiers = default;
+        device.LedIndices = default;
+        if (wasActive)
+        {
+            _active = _default;
+            if (_default.File is { } file && !ReferenceEquals(file, _broadcast))
+            {
+                BroadcastKeymap(file);
+            }
+
+            DeliverModifiers(_default.Modifiers);
+        }
+
+        oldState?.Dispose();
+        oldFile?.Dispose();
+    }
+
+    internal void RefreshRepeat()
+    {
+        var repeat = _repeatDevice?.Repeat ?? (_repeatRate, _repeatDelay);
+        if (repeat == _sentRepeat)
+        {
+            return;
+        }
+
+        _sentRepeat = repeat;
+        ForEachKeyboard(static (keyboard, state) =>
+        {
+            if (keyboard.Version >= 4)
+            {
+                keyboard.SendRepeatInfo(state._sentRepeat.Rate, state._sentRepeat.Delay);
+            }
+        });
+    }
+
     internal void RemoveDevice(KeyboardDevice device)
     {
         if (device.IsDefault || !_devices.Remove(device))
         {
             return;
+        }
+
+        if (ReferenceEquals(_repeatDevice, device))
+        {
+            _repeatDevice = null;
+            RefreshRepeat();
         }
 
         if (ReferenceEquals(_active, device))
@@ -200,13 +279,17 @@ public sealed class SeatKeyboard : Capabilities.IActiveKeymap, Capabilities.IKey
     {
         _repeatRate = rate;
         _repeatDelay = delay;
-        ForEachKeyboard(static (keyboard, state) =>
+        if (_repeatDevice?.Repeat is null)
         {
-            if (keyboard.Version >= 4)
+            _sentRepeat = (rate, delay);
+            ForEachKeyboard(static (keyboard, state) =>
             {
-                keyboard.SendRepeatInfo(state._repeatRate, state._repeatDelay);
-            }
-        });
+                if (keyboard.Version >= 4)
+                {
+                    keyboard.SendRepeatInfo(state._sentRepeat.Rate, state._sentRepeat.Delay);
+                }
+            });
+        }
     }
 
     public void NotifyEnter(Surface? surface) => Grab.Enter(surface, CollectPressed());
@@ -532,7 +615,7 @@ public sealed class SeatKeyboard : Capabilities.IActiveKeymap, Capabilities.IKey
 
         if (keyboard.Version >= 4)
         {
-            keyboard.SendRepeatInfo(_repeatRate, _repeatDelay);
+            keyboard.SendRepeatInfo(_sentRepeat.Rate, _sentRepeat.Delay);
         }
     }
 
@@ -561,22 +644,14 @@ public sealed class SeatKeyboard : Capabilities.IActiveKeymap, Capabilities.IKey
             {
                 Grab.Modifiers();
                 AllocationScope.Pause();
-            try
-            {
-                AllocationScope.Pause();
-        try
-        {
-            ModifiersChanged?.Invoke();
-        }
-        finally
-        {
-            AllocationScope.Resume();
-        }
-            }
-            finally
-            {
-                AllocationScope.Resume();
-            }
+                try
+                {
+                    ModifiersChanged?.Invoke();
+                }
+                finally
+                {
+                    AllocationScope.Resume();
+                }
             }
         }
 
@@ -603,15 +678,7 @@ public sealed class SeatKeyboard : Capabilities.IActiveKeymap, Capabilities.IKey
             AllocationScope.Pause();
             try
             {
-                AllocationScope.Pause();
-        try
-        {
-            ModifiersChanged?.Invoke();
-        }
-        finally
-        {
-            AllocationScope.Resume();
-        }
+                ModifiersChanged?.Invoke();
             }
             finally
             {

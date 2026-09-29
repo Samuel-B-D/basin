@@ -104,6 +104,29 @@ internal sealed partial class TinyComp
 
     private bool PhysicsOn => _config.Physics.Enable;
 
+    private IGrabTarget? FastestAwakeBody(OutputView view, out double speed)
+    {
+        speed = 0.0;
+        IGrabTarget? fastest = null;
+        foreach (var (window, binding) in _physicsBindings)
+        {
+            if (!binding.Body.IsAwake || !ReferenceEquals(ViewOfWindow(window), view))
+            {
+                continue;
+            }
+
+            var (vx, vy) = binding.Body.Velocity;
+            var bodySpeed = Math.Sqrt((vx * vx) + (vy * vy));
+            if (fastest is null || bodySpeed > speed)
+            {
+                fastest = window;
+                speed = bodySpeed;
+            }
+        }
+
+        return fastest;
+    }
+
     private void ApplyPhysicsSettings()
     {
         _physicsRulesStale = true;

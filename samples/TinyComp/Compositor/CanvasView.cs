@@ -1,3 +1,4 @@
+using Basin;
 using Basin.Effects;
 using Basin.Scene;
 
@@ -38,7 +39,49 @@ internal sealed class CanvasView
 
     public CanvasGridSource? GridSource { get; set; }
 
+    public SceneMesh? GridGlow { get; set; }
+
+    public GridGlowSlot Glow { get; } = new(GridGlowShader.UniformCount);
+
+    public void NotifyGrid()
+    {
+        Grid?.NotifyMeshChanged();
+        GridGlow?.NotifyMeshChanged();
+        SyncGlow();
+    }
+
+    public void SyncGlow()
+    {
+        if (!Glow.Live || GridSource is not { } source)
+        {
+            return;
+        }
+
+        GridGlowShader.Pack(source, Glow.Node!.Bounds, Glow.Values);
+        Glow.Apply();
+    }
+
+    public void DropGrid()
+    {
+        Grid?.Destroy();
+        Grid = null;
+        GridGlow?.Destroy();
+        GridGlow = null;
+        Glow.DropNode();
+        GridSource = null;
+    }
+
+    public void DisposeGlow(List<IPixelShader> owned)
+    {
+        DropGrid();
+        Glow.Dispose(owned);
+    }
+
     public GridRevealState Reveal { get; } = new();
+
+    public GridLightFeed Lights { get; } = new();
+
+    public GridPinch Pinch { get; } = new();
 
     public CanvasSetting Settings { get; set; } = CanvasSetting.Defaults;
 

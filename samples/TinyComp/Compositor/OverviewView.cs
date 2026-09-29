@@ -1,3 +1,4 @@
+using Basin;
 using Basin.Effects;
 using Basin.Scene;
 using Basin.Seat;
@@ -86,6 +87,21 @@ internal sealed class OverviewView
     public SceneMesh? WallMesh { get; set; }
 
     public SceneMesh? StepMesh { get; set; }
+
+    public SceneMesh? StepGlowMesh { get; set; }
+
+    public GridGlowSlot StepGlow { get; } = new(GridStepGlowShader.UniformCount);
+
+    public void NotifyStepGrid()
+    {
+        StepMesh?.NotifyMeshChanged();
+        StepGlowMesh?.NotifyMeshChanged();
+        if (StepGlow.Live)
+        {
+            GridStepGlowShader.Pack(StepSource, StepGlow.Node!.Bounds, StepGlow.Values);
+            StepGlow.Apply();
+        }
+    }
 
     public GridRevealState StepReveal { get; } = new();
 }

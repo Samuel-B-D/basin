@@ -17,6 +17,11 @@ public sealed class CanvasStepSource : IMeshSource
     private GridReveal _reveal = GridReveal.Full;
     private GridRevealMask _mask;
     private int _lineVertices = 6;
+    private GridTone _tone;
+    private bool _segments;
+    private int _factor = 1;
+    private bool _toned;
+    private HaloPart? _glow;
 
     public CanvasStepMap? Map { get; set; }
 
@@ -48,6 +53,10 @@ public sealed class CanvasStepSource : IMeshSource
         set => _reveal = value;
     }
 
+    public GridLights Lights { get; set; } = new();
+
+    public GridEffects Effects { get; set; } = GridEffects.None;
+
     public bool Lines { get; set; } = true;
 
     public bool ShelfLines { get; set; } = true;
@@ -56,11 +65,26 @@ public sealed class CanvasStepSource : IMeshSource
 
     public bool DesktopLines { get; set; } = true;
 
-    public int VertexCount(in Box bounds) => Walk(bounds, [], write: false);
+    public IMeshSource Glow => _glow ??= new HaloPart(this);
 
-    public void WriteVertices(in Box bounds, Span<MeshVertex> into) => _ = Walk(bounds, into, write: true);
+    public int VertexCount(in Box bounds) => Walk(bounds, [], write: false, halo: false);
 
-    private int Walk(in Box bounds, Span<MeshVertex> into, bool write)
+    public void WriteVertices(in Box bounds, Span<MeshVertex> into) => _ = Walk(bounds, into, write: true, halo: false);
+
+    private sealed class HaloPart(CanvasStepSource grid) : IMeshSource
+    {
+        public int VertexCount(in Box bounds) => grid.Effects.DrawsHalo ? grid.Walk(bounds, [], write: false, halo: true) : 0;
+
+        public void WriteVertices(in Box bounds, Span<MeshVertex> into)
+        {
+            if (grid.Effects.DrawsHalo)
+            {
+                _ = grid.Walk(bounds, into, write: true, halo: true);
+            }
+        }
+    }
+
+    private int Walk(in Box bounds, Span<MeshVertex> into, bool write, bool halo)
     {
         if (Map is not { } map || bounds.IsEmpty || map.IsIdentity)
         {
@@ -70,6 +94,12 @@ public sealed class CanvasStepSource : IMeshSource
         var count = 0;
         _mask = write ? GridRevealMask.Of(_reveal, bounds) : default;
         _lineVertices = GridRevealMask.ClipsFor(_reveal) ? GridRevealMask.LineVertices : 6;
+        var effects = Effects;
+        _segments = effects.Density || Lights.IsLit;
+        _factor = halo ? 2 : 1;
+        _tone = GridTone.Of(Color, _alpha, write ? _mask.Scale : 1f, Lights, effects);
+        _tone.HaloPart = halo;
+        _toned = halo || _tone.Segments;
         var lines = Lines && _alpha > 0f;
         if (lines)
         {
@@ -96,7 +126,7 @@ public sealed class CanvasStepSource : IMeshSource
 
         foreach (var side in Order)
         {
-            if (map.WallWidth(side) > 0 && (map.Shelves & side) != 0)
+            if (!halo && map.WallWidth(side) > 0 && (map.Shelves & side) != 0)
             {
                 BaseLine(map, side, into, ref count, write);
             }
@@ -131,16 +161,18 @@ public sealed class CanvasStepSource : IMeshSource
     private void WallLines(CanvasStepMap map, CanvasStepSides side, Span<MeshVertex> into, ref int count, bool write, in RenderColor color)
     {
         CanvasStepSurfaceSource.Corners(map, side, out var inner0, out var inner1, out var outer0, out var outer1);
+        var wallDensity = _tone.DensityOf(map.WallWidth(side) / (Quarters.Length + 1));
         foreach (var quarter in Quarters)
         {
+            var from = map.Bend(side, Lerp(inner0, outer0, quarter).X, Lerp(inner0, outer0, quarter).Y, quarter);
+            var to = map.Bend(side, Lerp(inner1, outer1, quarter).X, Lerp(inner1, outer1, quarter).Y, quarter);
+            var pieces = Pieces(from, to);
             if (write)
             {
-                var from = Lerp(inner0, outer0, quarter);
-                var to = Lerp(inner1, outer1, quarter);
-                Line(into, count, from, to, color);
+                Line(into, count, from, to, color, pieces, wallDensity, wallDensity);
             }
 
-            count += _lineVertices;
+            count += pieces * _lineVertices * _factor;
         }
 
         var horizontal = side is CanvasStepSides.Top or CanvasStepSides.Bottom;
@@ -152,6 +184,10 @@ public sealed class CanvasStepSource : IMeshSource
         var step = (long)_cellSize * stride;
         var first = Ceiling((long)Math.Ceiling(center + ((start - center) / map.Zoom)), step);
         var last = Floor((long)Math.Floor(center + ((end - center) / map.Zoom)), step);
+        var innerLength = Distance(inner0, inner1);
+        var fan = innerLength > 0 ? Distance(outer0, outer1) / innerLength : 1.0;
+        var innerDensity = _tone.DensityOf(step * map.Zoom);
+        var outerDensity = _tone.DensityOf(step * map.Zoom * fan);
         for (var canvas = first; canvas <= last; canvas += step)
         {
             var screen = Math.Round(center + ((canvas - center) * map.Zoom));
@@ -160,15 +196,16 @@ public sealed class CanvasStepSource : IMeshSource
                 continue;
             }
 
+            var t = (screen - start) / (end - start);
+            var from = horizontal ? (screen, inner0.Y) : (inner0.X, screen);
+            var to = Lerp(outer0, outer1, t);
+            var pieces = map.Bulges ? GridTone.Pieces(Distance(from, to), segments: true) : Pieces(from, to);
             if (write)
             {
-                var t = (screen - start) / (end - start);
-                var from = horizontal ? (screen, inner0.Y) : (inner0.X, screen);
-                var to = Lerp(outer0, outer1, t);
-                Line(into, count, from, to, color);
+                Line(into, count, from, to, color, pieces, innerDensity, outerDensity, map.Bulges ? side : CanvasStepSides.None);
             }
 
-            count += _lineVertices;
+            count += pieces * _lineVertices * _factor;
         }
     }
 
@@ -211,6 +248,9 @@ public sealed class CanvasStepSource : IMeshSource
 
         var scale = map.ScaleOf(plane);
         var step = (long)_cellSize * Stride(scale);
+        var density = _tone.DensityOf(step * scale);
+        var columnPieces = GridTone.Pieces(area.Height, _segments);
+        var rowPieces = GridTone.Pieces(area.Width, _segments);
         var firstX = Ceiling((long)Math.Ceiling(map.CenterX + ((area.X - map.CenterX) / scale)), step);
         var lastX = Floor((long)Math.Floor(map.CenterX + ((area.Right - map.CenterX) / scale)), step);
         for (var canvas = firstX; canvas <= lastX; canvas += step)
@@ -223,10 +263,10 @@ public sealed class CanvasStepSource : IMeshSource
 
             if (write)
             {
-                Column(into, count, x, area.Y, area.Bottom, color);
+                Column(into, count, x, area.Y, area.Bottom, color, columnPieces, density);
             }
 
-            count += _lineVertices;
+            count += columnPieces * _lineVertices * _factor;
         }
 
         var firstY = Ceiling((long)Math.Ceiling(map.CenterY + ((area.Y - map.CenterY) / scale)), step);
@@ -241,10 +281,10 @@ public sealed class CanvasStepSource : IMeshSource
 
             if (write)
             {
-                Row(into, count, area.X, area.Right, y, color);
+                Row(into, count, area.X, area.Right, y, color, rowPieces, density);
             }
 
-            count += _lineVertices;
+            count += rowPieces * _lineVertices * _factor;
         }
     }
 
@@ -274,8 +314,24 @@ public sealed class CanvasStepSource : IMeshSource
     private static (double X, double Y) Lerp((double X, double Y) from, (double X, double Y) to, double t) =>
         (from.X + ((to.X - from.X) * t), from.Y + ((to.Y - from.Y) * t));
 
-    private void Column(Span<MeshVertex> into, int at, double x, double top, double bottom, in RenderColor color)
+    private int Pieces((double X, double Y) from, (double X, double Y) to) =>
+        GridTone.Pieces(Distance(from, to), _segments);
+
+    private static double Distance((double X, double Y) from, (double X, double Y) to)
     {
+        var dx = to.X - from.X;
+        var dy = to.Y - from.Y;
+        return Math.Sqrt((dx * dx) + (dy * dy));
+    }
+
+    private void Column(Span<MeshVertex> into, int at, double x, double top, double bottom, in RenderColor color, int pieces, float density)
+    {
+        if (_toned)
+        {
+            Toned(into, at, (x, top), (x, bottom), 1, 0, vertical: true, pieces, density, density);
+            return;
+        }
+
         if (!_mask.Clips)
         {
             Quad(into.Slice(at, 6), x, top, x + 1, bottom, color);
@@ -285,8 +341,14 @@ public sealed class CanvasStepSource : IMeshSource
         _mask.WriteLine(into.Slice(at, _lineVertices), ((float)x, (float)top), ((float)x, (float)bottom), 1, 0, vertical: true, color);
     }
 
-    private void Row(Span<MeshVertex> into, int at, double left, double right, double y, in RenderColor color)
+    private void Row(Span<MeshVertex> into, int at, double left, double right, double y, in RenderColor color, int pieces, float density)
     {
+        if (_toned)
+        {
+            Toned(into, at, (left, y), (right, y), 0, 1, vertical: false, pieces, density, density);
+            return;
+        }
+
         if (!_mask.Clips)
         {
             Quad(into.Slice(at, 6), left, y, right, y + 1, color);
@@ -296,18 +358,49 @@ public sealed class CanvasStepSource : IMeshSource
         _mask.WriteLine(into.Slice(at, _lineVertices), ((float)left, (float)y), ((float)right, (float)y), 0, 1, vertical: false, color);
     }
 
-    private void Line(Span<MeshVertex> into, int at, (double X, double Y) from, (double X, double Y) to, in RenderColor color)
+    private void Line(
+        Span<MeshVertex> into, int at, (double X, double Y) from, (double X, double Y) to, in RenderColor color,
+        int pieces, float fromDensity, float toDensity, CanvasStepSides bend = CanvasStepSides.None)
     {
+        var horizontal = Math.Abs(to.X - from.X) >= Math.Abs(to.Y - from.Y);
+        if (_toned || bend != CanvasStepSides.None)
+        {
+            Toned(into, at, from, to, horizontal ? 0 : 1, horizontal ? 1 : 0, vertical: !horizontal, pieces, fromDensity, toDensity, bend);
+            return;
+        }
+
         if (!_mask.Clips)
         {
             Segment(into.Slice(at, 6), from, to, color);
             return;
         }
 
-        var horizontal = Math.Abs(to.X - from.X) >= Math.Abs(to.Y - from.Y);
         _mask.WriteLine(
             into.Slice(at, _lineVertices), ((float)from.X, (float)from.Y), ((float)to.X, (float)to.Y),
             horizontal ? 0 : 1, horizontal ? 1 : 0, vertical: !horizontal, color);
+    }
+
+    private void Toned(
+        Span<MeshVertex> into, int at, (double X, double Y) from, (double X, double Y) to, float nx, float ny, bool vertical,
+        int pieces, float fromDensity, float toDensity, CanvasStepSides bend = CanvasStepSides.None)
+    {
+        pieces = Math.Max(1, pieces);
+        var write = at;
+        var previous = ((float)from.X, (float)from.Y);
+        for (var i = 1; i <= pieces; i++)
+        {
+            var t = (double)i / pieces;
+            var next = i == pieces ? ((float)to.X, (float)to.Y) : ((float)(from.X + ((to.X - from.X) * t)), (float)(from.Y + ((to.Y - from.Y) * t)));
+            if (bend != CanvasStepSides.None && Map is { } map)
+            {
+                var (bentX, bentY) = map.Bend(bend, next.Item1, next.Item2, t);
+                next = ((float)bentX, (float)bentY);
+            }
+            var start = fromDensity + ((toDensity - fromDensity) * (float)((i - 1.0) / pieces));
+            var stop = fromDensity + ((toDensity - fromDensity) * (float)t);
+            write += GridQuad.Write(into[write..], _mask, clipLine: true, previous, next, nx, ny, vertical, _tone, start, stop);
+            previous = next;
+        }
     }
 
     private static void Segment(Span<MeshVertex> into, (double X, double Y) from, (double X, double Y) to, in RenderColor color)

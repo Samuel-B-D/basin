@@ -853,9 +853,215 @@ public sealed class GoldenTests
         renderer, 0.5, "overview-step-textured-half", fourSides: false,
         Basin.Effects.CanvasTexturePreset.Stone, Basin.Effects.CanvasTexturePreset.Wood);
 
+    [Theory]
+    [MemberData(nameof(Renderers))]
+    public void Golden_overview_step_grid_highlight(string renderer) => CanvasOverviewStep(
+        renderer, 1.0, "overview-step-grid-highlight", fourSides: true, grid: StepLights);
+
+    [Theory]
+    [MemberData(nameof(Renderers))]
+    public void Golden_overview_step_grid_glow(string renderer) => CanvasOverviewStep(
+        renderer, 1.0, "overview-step-grid-glow", fourSides: true, grid: StepGlow, glowShader: true);
+
+    private static void StepGlow(Basin.Effects.CanvasStepSource source)
+    {
+        StepLights(source);
+        source.Effects = source.Effects with { Glow = 0.5f, GlowRadius = 3f, GlowPath = Basin.Effects.GridGlowPath.Shader };
+    }
+
+    [Theory]
+    [MemberData(nameof(Renderers))]
+    public void Golden_overview_step_grid_halo(string renderer) => CanvasOverviewStep(
+        renderer, 1.0, "overview-step-grid-halo", fourSides: true, grid: StepHalo);
+
+    private static void StepHalo(Basin.Effects.CanvasStepSource source)
+    {
+        StepLights(source);
+        source.Effects = source.Effects with { Glow = 0.4f, GlowRadius = 3f, GlowPath = Basin.Effects.GridGlowPath.Halo };
+    }
+
+    [Theory]
+    [MemberData(nameof(Renderers))]
+    public void Golden_canvas_grid_halo(string renderer) => CanvasGridEffects(renderer, "canvas-grid-halo", lit: true, density: true, halo: true);
+
+    private static void StepLights(Basin.Effects.CanvasStepSource source)
+    {
+        var lights = new Basin.Effects.GridLights { Radius = 30f };
+        lights.Set(0, new Box(64, 58, 34, 22), 1f);
+        lights.SetPointer(128, 30, 0.7f);
+        source.Lights = lights;
+        source.Effects = Basin.Effects.GridEffects.None with { Density = true, DensitySpacing = 10f };
+    }
+
+    [Theory]
+    [MemberData(nameof(Renderers))]
+    public void Golden_canvas_grid_highlight(string renderer) => CanvasGridEffects(renderer, "canvas-grid-highlight", lit: true, density: false);
+
+    [Theory]
+    [MemberData(nameof(Renderers))]
+    public void Golden_canvas_grid_density(string renderer) => CanvasGridEffects(renderer, "canvas-grid-density", lit: false, density: true);
+
+    [Theory]
+    [MemberData(nameof(Renderers))]
+    public void Golden_canvas_grid_glow(string renderer)
+    {
+        SkipWithoutGpu(renderer);
+        using var host = new CompositorTestHost(renderer: renderer);
+        var bounds = new Box(0, 0, 160, 120);
+        var grid = GridGlowShaderTests.Scene(lit: true, Basin.Effects.GridReveal.Full);
+        using var shader = GlowGrid(host, grid, bounds, out var suffix);
+        host.RenderFrame();
+        Golden.AssertMatches(host, GoldenName("canvas-grid-glow" + suffix, renderer));
+    }
+
+    [Theory]
+    [MemberData(nameof(Renderers))]
+    public void Golden_canvas_scale_grid_glow(string renderer)
+    {
+        SkipWithoutGpu(renderer);
+        using var host = new CompositorTestHost(renderer: renderer);
+        var bounds = new Box(0, 0, 160, 120);
+        var left = new Basin.Effects.CanvasWarp();
+        left.Layout(24, -1, 24, 80, 0.2, 0.25, 60);
+        var right = new Basin.Effects.CanvasWarp(1);
+        right.Layout(136, 1, 24, 80, 0.2, 0.25, 60);
+        var top = new Basin.Effects.CanvasWarp();
+        top.Layout(18, -1, 18, 60, 0.2, 0.25, 80);
+        var map = new Basin.Effects.CanvasWarpTransform { Left = left, Right = right, Top = top };
+        var scale = new Basin.Effects.CanvasScale { MinScale = 0.5 };
+        var parked = new Box(0, 44, 36, 26);
+        parked = parked with { X = scale.ParkTarget(map, right, parked) };
+        var placement = scale.PlacementFor(map, parked);
+        var drawn = scale.DrawnBox(placement, parked);
+        var lights = new Basin.Effects.GridLights { Radius = 28f };
+        lights.Set(0, drawn, 1f);
+        lights.SetPointer(50, 70, 0.6f);
+        var grid = new Basin.Effects.CanvasGridSource
+        {
+            Left = left,
+            Right = right,
+            Top = top,
+            CellSize = 16,
+            Color = new RenderColor(0.16f, 0.21f, 0.75f, 1f),
+            Lights = lights,
+            Effects = Basin.Effects.GridEffects.None with { Glow = 0.6f, GlowRadius = 3f, GlowPath = Basin.Effects.GridGlowPath.Shader },
+        };
+        using var shader = GlowGrid(host, grid, bounds, out var suffix);
+        var window = new Basin.Scene.SceneTree(host.Scene.Root);
+        window.SetPosition(parked.X, parked.Y);
+        var node = new Basin.Scene.SceneTransform(window) { Matrix = LocalPlacement(placement, parked.X, parked.Y) };
+        _ = new Basin.Scene.SceneRect(node, parked.Width, parked.Height, new RenderColor(0.2f, 0.3f, 0.6f, 1f));
+        host.RenderFrame();
+        Golden.AssertMatches(host, GoldenName("canvas-scale-grid-glow" + suffix, renderer));
+    }
+
+    [Theory]
+    [MemberData(nameof(Renderers))]
+    public void Golden_canvas_grid_pinch(string renderer)
+    {
+        SkipWithoutGpu(renderer);
+        using var host = new CompositorTestHost(renderer: renderer);
+        var left = new Basin.Effects.CanvasWarp();
+        left.Layout(24, -1, 24, 80, 0.2, 0.25, 60);
+        Assert.True(left.SetCenter(34));
+        Assert.True(left.SetSlope(0.25 + 0.9));
+        var right = new Basin.Effects.CanvasWarp(1);
+        right.Layout(136, 1, 24, 80, 0.2, 0.25, 60);
+        _ = CanvasGrid(host, left, right);
+        var window = new Basin.Scene.SceneTree(host.Scene.Root);
+        window.SetPosition(left.FarEdge + 20, 22);
+        var node = new Basin.Scene.SceneTransform(window);
+        _ = new Basin.Scene.SceneRect(node, 50, 26, new RenderColor(0.2f, 0.6f, 0.35f, 1f));
+        node.Deformer = new Basin.Effects.CanvasWarpTransform { Left = left, Right = right, SceneX = window.X, SceneY = window.Y, CellSize = 8 };
+        host.RenderFrame();
+        Golden.AssertMatches(host, GoldenName("canvas-grid-pinch", renderer));
+    }
+
+    [Theory]
+    [MemberData(nameof(Renderers))]
+    public void Golden_overview_step_grid_pinch(string renderer) => CanvasOverviewStep(
+        renderer, 1.0, "overview-step-grid-pinch", fourSides: true,
+        Basin.Effects.CanvasTexturePreset.Brick, Basin.Effects.CanvasTexturePreset.Noise, bulge: StepBulge);
+
+    private static void StepBulge(Basin.Effects.CanvasStepMap map)
+    {
+        map.Bulges = true;
+        _ = map.SetBulge(Basin.Effects.CanvasStepSides.Left, map.CenterY - 25, 0.7);
+        _ = map.SetBulge(Basin.Effects.CanvasStepSides.Top, map.CenterX + 30, 0.5);
+    }
+
+    private static IPixelShader? GlowGrid(CompositorTestHost host, Basin.Effects.CanvasGridSource grid, in Box bounds, out string suffix)
+    {
+        _ = new Basin.Scene.SceneMesh(host.Scene.Root) { Bounds = bounds, Source = grid };
+        var shader = host.Renderer.CompilePixelShader(Basin.Effects.GridGlowShader.Source, Basin.Effects.GridGlowShader.Uniforms);
+        if (shader is null)
+        {
+            grid.Effects = grid.Effects with { GlowPath = Basin.Effects.GridGlowPath.Halo };
+            _ = new Basin.Scene.SceneMesh(host.Scene.Root) { Bounds = bounds, Source = grid.Glow, Blend = RenderBlend.Additive };
+            suffix = "-fallback";
+            return null;
+        }
+
+        var values = new PixelShaderUniformValue[Basin.Effects.GridGlowShader.UniformCount];
+        Basin.Effects.GridGlowShader.Pack(grid, bounds, values);
+        shader.SetUniforms(values);
+        _ = new Basin.Scene.SceneShader(host.Scene.Root) { Shader = shader, Bounds = bounds };
+        suffix = string.Empty;
+        return shader;
+    }
+
+    private static void CanvasGridEffects(string renderer, string name, bool lit, bool density, bool halo = false)
+    {
+        SkipWithoutGpu(renderer);
+        using var host = new CompositorTestHost(renderer: renderer);
+        var left = new Basin.Effects.CanvasWarp();
+        left.Layout(24, -1, 24, 80, 0.12, -0.4, 60);
+        var right = new Basin.Effects.CanvasWarp(1);
+        right.Layout(136, 1, 24, 80, 0.12, 0.4, 60);
+        var top = new Basin.Effects.CanvasWarp();
+        top.Layout(18, -1, 18, 60, 0.15, 0.25, 80);
+        var lights = new Basin.Effects.GridLights { Radius = 30f };
+        if (lit)
+        {
+            lights.Set(0, new Box(60, 44, 34, 26), 1f);
+            lights.Set(1, new Box(110, 80, 30, 24), 0.35f);
+            lights.SetPointer(20, 100, 0.8f);
+        }
+
+        var grid = new Basin.Effects.CanvasGridSource
+        {
+            Left = left,
+            Right = right,
+            Top = top,
+            CellSize = 8,
+                Alpha = 0.7f,
+                Color = new RenderColor(0.16f, 0.21f, 0.75f, 1f),
+                Lights = lights,
+            Effects = Basin.Effects.GridEffects.None with
+            {
+                Density = density,
+                DensitySpacing = 8f,
+                DensityFloor = 0.15f,
+                Glow = halo ? 0.35f : 0f,
+                GlowRadius = 2f,
+                GlowPath = Basin.Effects.GridGlowPath.Halo,
+            },
+        };
+        _ = new Basin.Scene.SceneMesh(host.Scene.Root) { Bounds = new Box(0, 0, 160, 120), Source = grid };
+        if (halo)
+        {
+            _ = new Basin.Scene.SceneMesh(host.Scene.Root) { Bounds = new Box(0, 0, 160, 120), Source = grid.Glow, Blend = RenderBlend.Additive };
+        }
+
+        host.RenderFrame();
+        Golden.AssertMatches(host, GoldenName(name, renderer));
+    }
+
     private static void CanvasOverviewStep(
         string renderer, double progress, string name, bool fourSides,
-        Basin.Effects.CanvasTexturePreset? wallTexture = null, Basin.Effects.CanvasTexturePreset? floorTexture = null)
+        Basin.Effects.CanvasTexturePreset? wallTexture = null, Basin.Effects.CanvasTexturePreset? floorTexture = null,
+        Action<Basin.Effects.CanvasStepSource>? grid = null, bool glowShader = false,
+        Action<Basin.Effects.CanvasStepMap>? bulge = null)
     {
         SkipWithoutGpu(renderer);
         using var host = new CompositorTestHost(renderer: renderer);
@@ -876,6 +1082,7 @@ public sealed class GoldenTests
 
         var map = new Basin.Effects.CanvasStepMap();
         _ = TinyComp.OverviewLayout.LayoutStep(map, output, output, full, progress, scale, shelfScale);
+        bulge?.Invoke(map);
         var zoom = map.Zoom;
         var wallpaper = new Basin.Scene.SceneTransform(host.Scene.Root)
         {
@@ -904,19 +1111,38 @@ public sealed class GoldenTests
         wallMesh.SetSpriteBuffer(wallBuffer);
         wallBuffer?.Destroy();
         floorBuffer?.Destroy();
-        _ = new Basin.Scene.SceneMesh(host.Scene.Root)
+        var stepGrid = new Basin.Effects.CanvasStepSource
         {
-            Bounds = output,
-            Source = new Basin.Effects.CanvasStepSource
-            {
-                Map = map,
-                Walls = walls,
-                CellSize = 16,
-                MinLineSpacing = 4,
-                Alpha = (float)progress,
-                Color = new RenderColor(0.16f, 0.21f, 0.75f, 1f),
-            },
+            Map = map,
+            Walls = walls,
+            CellSize = 16,
+            MinLineSpacing = 4,
+            Alpha = (float)progress,
+            Color = new RenderColor(0.16f, 0.21f, 0.75f, 1f),
         };
+        grid?.Invoke(stepGrid);
+        _ = new Basin.Scene.SceneMesh(host.Scene.Root) { Bounds = output, Source = stepGrid };
+        using var stepShader = glowShader
+            ? host.Renderer.CompilePixelShader(Basin.Effects.GridStepGlowShader.Source, Basin.Effects.GridStepGlowShader.Uniforms)
+            : null;
+        if (glowShader && stepShader is null)
+        {
+            stepGrid.Effects = stepGrid.Effects with { GlowPath = Basin.Effects.GridGlowPath.Halo };
+            name += "-fallback";
+        }
+
+        if (stepShader is not null)
+        {
+            var values = new PixelShaderUniformValue[Basin.Effects.GridStepGlowShader.UniformCount];
+            Basin.Effects.GridStepGlowShader.Pack(stepGrid, output, values);
+            stepShader.SetUniforms(values);
+            _ = new Basin.Scene.SceneShader(host.Scene.Root) { Shader = stepShader, Bounds = output };
+        }
+
+        if (stepGrid.Effects.DrawsHalo)
+        {
+            _ = new Basin.Scene.SceneMesh(host.Scene.Root) { Bounds = output, Source = stepGrid.Glow, Blend = RenderBlend.Additive };
+        }
 
         var surface = host.Client.Compositor.CreateSurface();
         var buffer = host.Client.CreateBuffer(36, 24, Fill.Gradient(36, 24));

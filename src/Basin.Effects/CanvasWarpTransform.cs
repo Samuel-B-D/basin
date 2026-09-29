@@ -125,6 +125,9 @@ public sealed class CanvasWarpTransform : IInvertibleMeshTransform
     public double FanAt(double canvasX) =>
         SideAt(canvasX) is { } side ? RowFan(side, side.FanAt(canvasX), side.DepthAt(canvasX)) : 1.0;
 
+    public double ColumnFanAt(double canvasY) =>
+        EndAt(canvasY) is { } end ? ColumnFan(end, end.FanAt(canvasY), end.DepthAt(canvasY)) : 1.0;
+
     public double FanAtScreen(double screenX) =>
         SideAtScreen(screenX) is { } side ? RowFan(side, side.FanAtScreen(screenX), side.DepthAtScreen(screenX)) : 1.0;
 

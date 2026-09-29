@@ -164,6 +164,10 @@ internal sealed partial class TinyComp
         _cursor.MoveTo(x, y);
         _post.SetCursor(x, y, (long)time * 1_000_000);
         _feedback?.OnMotion(x, y, (long)time * 1_000_000, EffectTick());
+        if (_gridPointerLight)
+        {
+            ScheduleEffectRepaint();
+        }
         if (TraceEnabled)
         {
             Trace($"motion {x:F1},{y:F1} mode={_mode}");

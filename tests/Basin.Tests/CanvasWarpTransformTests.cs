@@ -382,6 +382,54 @@ public sealed class CanvasWarpTransformTests
         Assert.Equal(400 + ((60 - 400) * 1.1), transform.ToScreenY(-300, 60), 6);
     }
 
+    [Theory]
+    [InlineData(5, 0.0)]
+    [InlineData(6, 0.0)]
+    [InlineData(9, 0.0)]
+    [InlineData(10, 0.0)]
+    [InlineData(5, 1.0)]
+    [InlineData(6, 1.0)]
+    [InlineData(9, 1.0)]
+    [InlineData(10, 1.0)]
+    public void The_corner_ring_stays_joined_with_both_centers_moved(int mask, double radius)
+    {
+        var transform = Sides(mask, 0, 0);
+        transform.CornerRadius = radius;
+        var side = (mask & 1) != 0 ? transform.Left! : transform.Right!;
+        var end = (mask & 4) != 0 ? transform.Top! : transform.Bottom!;
+        Assert.True(side.SetCenter(side.Center + (end.Direction * 230)));
+        Assert.True(end.SetCenter(end.Center + (side.Direction * 310)));
+        foreach (var t in new[] { 0.1, 0.4, 0.7, 0.95 })
+        {
+            var x = side.Seam + (side.Direction * t * side.Extension);
+            var y = end.Seam + (end.Direction * t * end.Extension);
+            var alongSide = transform.ToScreenPoint(x, end.Seam - (end.Direction * 0.0001));
+            var intoCorner = transform.ToScreenPoint(x, end.Seam + (end.Direction * 0.001));
+            Assert.True(
+                Math.Abs(alongSide.X - intoCorner.X) < 0.05 && Math.Abs(alongSide.Y - intoCorner.Y) < 0.05,
+                $"mask {mask} radius {radius}: the side row meets the corner at {t}: {alongSide} against {intoCorner}");
+            var alongEnd = transform.ToScreenPoint(side.Seam - (side.Direction * 0.0001), y);
+            var intoCornerEnd = transform.ToScreenPoint(side.Seam + (side.Direction * 0.001), y);
+            Assert.True(
+                Math.Abs(alongEnd.X - intoCornerEnd.X) < 0.05 && Math.Abs(alongEnd.Y - intoCornerEnd.Y) < 0.05,
+                $"mask {mask} radius {radius}: the end column meets the corner at {t}: {alongEnd} against {intoCornerEnd}");
+        }
+
+        foreach (var ux in new[] { 0.1, 0.35, 0.6 })
+        {
+            foreach (var uy in new[] { 0.1, 0.35, 0.6 })
+            {
+                var x = side.Seam + (side.Direction * ux * side.Extension);
+                var y = end.Seam + (end.Direction * uy * end.Extension);
+                var (screenX, screenY) = transform.ToScreenPoint(x, y);
+                var (backX, backY) = transform.ToCanvasPoint(screenX, screenY);
+                Assert.True(
+                    Math.Abs(backX - x) < 0.5 && Math.Abs(backY - y) < 0.5,
+                    $"mask {mask} radius {radius}: ({x:F1},{y:F1}) -> ({screenX:F2},{screenY:F2}) -> ({backX:F2},{backY:F2})");
+            }
+        }
+    }
+
     public static TheoryData<double> CornerRadii() => new() { 0.0, 0.3, Math.Sqrt(2) / (1 + Math.Sqrt(2)), 0.75, 1.0 };
 
     [Theory]

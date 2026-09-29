@@ -221,9 +221,8 @@ internal sealed partial class TinyComp
         _outputColor?.Remove(view.Global);
         _cursor.RemoveOutput(view.Output);
         DropWorkspacesOf(view);
-        view.Canvas.Grid?.Destroy();
-        view.Canvas.Grid = null;
-        view.Canvas.GridSource = null;
+        view.Canvas.DisposeGlow(_glowShaders);
+        OverviewOf(view).StepGlow.Dispose(_glowShaders);
         LeaveStep(view);
     }
 
@@ -303,6 +302,8 @@ internal sealed partial class TinyComp
         running |= StepGridReveals(tick);
         running |= StepTilts(tick);
         running |= StepPhysics(tick);
+        running |= StepGridPinches(tick);
+        running |= StepGridLights(tick);
         if (running)
         {
             for (var i = 0; i < Views.Count; i++)

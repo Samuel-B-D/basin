@@ -116,32 +116,32 @@ internal sealed partial class TinyComp
             var bottom = ShelfScaleFor(view, CanvasSide.Bottom, settings, wasTerrace && bottomActive);
             changed = canvas.Left.LayoutTerrace(
                 usable.X + shelf + zone, -1, leftActive ? zone : 0, shelf, left, CanvasWarp.TerraceExponent,
-                settings.SlopeValue, centerY);
+                PinchedSlope(canvas, CanvasSide.Left, settings.SlopeValue), PinchedCenter(canvas, CanvasSide.Left, centerY));
             changed |= canvas.Right.LayoutTerrace(
                 usable.Right - shelf - zone, 1, rightActive ? zone : 0, shelf, right, CanvasWarp.TerraceExponent,
-                settings.SlopeValue, centerY);
+                PinchedSlope(canvas, CanvasSide.Right, settings.SlopeValue), PinchedCenter(canvas, CanvasSide.Right, centerY));
             changed |= canvas.Top.LayoutTerrace(
                 usable.Y + shelfY + zoneY, -1, topActive ? zoneY : 0, shelfY, top, CanvasWarp.TerraceExponent,
-                settings.SlopeValue, centerX);
+                PinchedSlope(canvas, CanvasSide.Top, settings.SlopeValue), PinchedCenter(canvas, CanvasSide.Top, centerX));
             changed |= canvas.Bottom.LayoutTerrace(
                 usable.Bottom - shelfY - zoneY, 1, bottomActive ? zoneY : 0, shelfY, bottom, CanvasWarp.TerraceExponent,
-                settings.SlopeValue, centerX);
+                PinchedSlope(canvas, CanvasSide.Bottom, settings.SlopeValue), PinchedCenter(canvas, CanvasSide.Bottom, centerX));
         }
         else
         {
             ClearShelves(view);
             changed = canvas.Left.Layout(
                 usable.X + zone, -1, leftActive ? zone : 0, leftActive ? extension : 0, settings.EdgeScaleValue,
-                settings.SlopeValue, centerY);
+                PinchedSlope(canvas, CanvasSide.Left, settings.SlopeValue), PinchedCenter(canvas, CanvasSide.Left, centerY));
             changed |= canvas.Right.Layout(
                 usable.Right - zone, 1, rightActive ? zone : 0, rightActive ? extension : 0, settings.EdgeScaleValue,
-                settings.SlopeValue, centerY);
+                PinchedSlope(canvas, CanvasSide.Right, settings.SlopeValue), PinchedCenter(canvas, CanvasSide.Right, centerY));
             changed |= canvas.Top.Layout(
                 usable.Y + zoneY, -1, topActive ? zoneY : 0, topActive ? extensionY : 0, settings.EdgeScaleValue,
-                settings.SlopeValue, centerX);
+                PinchedSlope(canvas, CanvasSide.Top, settings.SlopeValue), PinchedCenter(canvas, CanvasSide.Top, centerX));
             changed |= canvas.Bottom.Layout(
                 usable.Bottom - zoneY, 1, bottomActive ? zoneY : 0, bottomActive ? extensionY : 0, settings.EdgeScaleValue,
-                settings.SlopeValue, centerX);
+                PinchedSlope(canvas, CanvasSide.Bottom, settings.SlopeValue), PinchedCenter(canvas, CanvasSide.Bottom, centerX));
         }
 
         var separable = terrace && settings.ShapeValue == ShelfShape.Flat;
@@ -189,7 +189,7 @@ internal sealed partial class TinyComp
         {
             ResolveShelfPins(view);
             ApplyCanvasToView(view);
-            canvas.Grid?.NotifyMeshChanged();
+            canvas.NotifyGrid();
             view.Scheduler?.ScheduleRepaint();
             return;
         }
@@ -206,16 +206,19 @@ internal sealed partial class TinyComp
             + $" shelf_shape={(canvas.Map.Separable ? "flat" : "square")} slope_window={settings.OnSlopeName}");
         KeepParkedInside(view, modeChanged);
         ApplyCanvasToView(view);
-        canvas.Grid?.NotifyMeshChanged();
+        canvas.NotifyGrid();
         view.Scheduler?.ScheduleRepaint();
     }
 
     private CanvasSetting SettingsFor(OutputView view)
     {
         var canvas = _config.CanvasFor(view.Output.Name, _log);
-        return (_canvasOverride ?? canvas.Enabled) || !_config.OverviewFor(view.Output.Name).Enabled
+        var settings = (_canvasOverride ?? canvas.Enabled) || !_config.OverviewFor(view.Output.Name).Enabled
             ? canvas
             : _config.OverviewCanvasFor(view.Output.Name, _log);
+        return _gridPreset is { } preset
+            ? new CanvasSetting { GridEffects = preset.Over(settings.GridEffectsValue) }.Over(settings)
+            : settings;
     }
 
     private void SetLayerArea(OutputView view, (bool Confine, int? Left, int? Top, int? Right, int? Bottom) area)
@@ -305,9 +308,7 @@ internal sealed partial class TinyComp
                 return false;
             }
 
-            canvas.Grid.Destroy();
-            canvas.Grid = null;
-            canvas.GridSource = null;
+            canvas.DropGrid();
             return true;
         }
 
@@ -343,14 +344,53 @@ internal sealed partial class TinyComp
         source.Color = color;
         source.Alpha = alpha;
         source.Reveal = reveal;
+        var glowSetting = settings.GridEffectsValue;
+        var glows = glowSetting.GlowValue > 0;
+        var wantsShader = glows && glowSetting.GlowPathValue is GridGlowPath.Auto or GridGlowPath.Shader;
+        var glowShader = wantsShader ? canvas.Glow.Compile(_renderer, GridGlowShader.Source, GridGlowShader.Uniforms, _glowShaders) : null;
+        var drawn = glowShader is not null ? GridGlowPath.Shader
+            : glowSetting.GlowPathValue is GridGlowPath.Auto or GridGlowPath.Halo ? GridGlowPath.Halo
+            : GridGlowPath.None;
+        canvas.Glow.State = !glows ? "none"
+            : drawn == GridGlowPath.Shader ? "shader"
+            : drawn == GridGlowPath.Halo ? "halo"
+            : glowSetting.GlowPathValue == GridGlowPath.Shader ? "unavailable"
+            : "none";
+        var effects = glowSetting.EffectsOn(drawn);
+        changed |= source.Effects != effects;
+        source.Effects = effects;
         if (canvas.Grid is null)
         {
             canvas.Grid = new SceneMesh(_backdrop) { Source = source, Bounds = box };
-            return true;
+            changed = true;
         }
 
         changed |= canvas.Grid.Bounds != box;
         canvas.Grid.Bounds = box;
+        if (effects.DrawsHalo != canvas.GridGlow is not null)
+        {
+            canvas.GridGlow?.Destroy();
+            canvas.GridGlow = effects.DrawsHalo
+                ? new SceneMesh(_backdrop) { Source = source.Glow, Bounds = box, Blend = RenderBlend.Additive }
+                : null;
+            changed = true;
+        }
+
+        if (canvas.GridGlow is { } glow)
+        {
+            changed |= glow.Bounds != box;
+            glow.Bounds = box;
+        }
+
+        if (drawn == GridGlowPath.Shader && glows)
+        {
+            changed |= canvas.Glow.Place(_backdrop, box);
+        }
+        else
+        {
+            changed |= canvas.Glow.DropNode();
+        }
+
         return changed;
     }
 
@@ -444,7 +484,7 @@ internal sealed partial class TinyComp
             {
                 source.Alpha = alpha;
                 source.Reveal = reveal;
-                grid.NotifyMeshChanged();
+                view.Canvas.NotifyGrid();
             }
         }
 
@@ -456,7 +496,7 @@ internal sealed partial class TinyComp
             {
                 overview.StepSource.Alpha = alpha;
                 overview.StepSource.Reveal = reveal;
-                mesh.NotifyMeshChanged();
+                overview.NotifyStepGrid();
             }
         }
     }

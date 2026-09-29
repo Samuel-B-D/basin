@@ -26,6 +26,8 @@
     <EmbeddedResource Include="shaders/ctm.frag.spv" LogicalName="ctm.frag.spv" />
     <EmbeddedResource Include="shaders/zoom.frag.spv" LogicalName="zoom.frag.spv" />
     <EmbeddedResource Include="shaders/dim.frag.spv" LogicalName="dim.frag.spv" />
+    <EmbeddedResource Include="shaders/grid_glow.frag.spv" LogicalName="grid_glow.frag.spv" />
+    <EmbeddedResource Include="shaders/grid_step_glow.frag.spv" LogicalName="grid_step_glow.frag.spv" />
     <EmbeddedResource Include="shaders/blur.vert.spv" LogicalName="blur.vert.spv" />
     <EmbeddedResource Include="shaders/blur_down.frag.spv" LogicalName="blur_down.frag.spv" />
     <EmbeddedResource Include="shaders/blur_up.frag.spv" LogicalName="blur_up.frag.spv" />

@@ -141,18 +141,18 @@ internal static class SkiaDraw
         var built = skiaShader.Realize(options.DstBox.Width, options.DstBox.Height);
         paint.BlendMode = SKBlendMode.SrcOver;
         paint.SetColor(new SKColorF(1f, 1f, 1f, Math.Clamp(options.Alpha, 0f, 1f)), null);
-        paint.Shader = built;
+        SkiaShaderNative.SetPaintShader(paint.Handle, built);
         try
         {
             DrawShaderRect(canvas, paint, options.DstBox, options.Clip, transformed: false, default);
         }
         finally
         {
-            paint.Shader = null;
+            SkiaShaderNative.SetPaintShader(paint.Handle, 0);
         }
     }
 
-    private static void DrawWithShader(SKCanvas canvas, SKPaint paint, SKImage image, in FBox src, in TextureRenderOptions options, SkiaColorTransform? transform)
+    private static unsafe void DrawWithShader(SKCanvas canvas, SKPaint paint, SKImage image, in FBox src, in TextureRenderOptions options, SkiaColorTransform? transform)
     {
         if (options.Shader is not SkiaPixelShader skiaShader)
         {
@@ -164,34 +164,40 @@ internal static class SkiaDraw
             throw new ArgumentException("shader does not sample a texture");
         }
 
-        var child = SkiaCensus.Track(image.ToShader(SKShaderTileMode.Clamp, SKShaderTileMode.Clamp, LinearSampling));
-        if (options.Lut is SkiaColorLut lut)
+        var sampling = LinearSampling;
+        var child = SkiaShaderNative.ImageShader(image.Handle, SKShaderTileMode.Clamp, SKShaderTileMode.Clamp, &sampling, null);
+        if (child == 0)
         {
-            var filtered = SkiaCensus.Track(child.WithColorFilter(lut.Filter));
-            SkiaCensus.Release(child);
-            child = filtered;
+            throw new InvalidOperationException("image refused to make a shader");
         }
-        else if (transform is not null)
+
+        var filter = options.Lut is SkiaColorLut lut ? lut.Filter : transform?.Filter;
+        if (filter is not null)
         {
-            var filtered = SkiaCensus.Track(child.WithColorFilter(transform.Filter));
-            SkiaCensus.Release(child);
+            var filtered = SkiaShaderNative.WithColorFilter(child, filter.Handle);
+            SkiaShaderNative.UnrefShader(child);
             child = filtered;
         }
 
-        SKShader? built = null;
+        nint built = 0;
         try
         {
-            built = SkiaCensus.Track(skiaShader.RealizeWithChild(options.DstBox.Width, options.DstBox.Height, child, src));
+            built = skiaShader.RealizeWithChild(options.DstBox.Width, options.DstBox.Height, child, src);
             paint.BlendMode = SKBlendMode.SrcOver;
             paint.SetColor(new SKColorF(1f, 1f, 1f, Math.Clamp(options.Alpha, 0f, 1f)), null);
-            paint.Shader = built;
+            SkiaShaderNative.SetPaintShader(paint.Handle, built);
             DrawShaderRect(canvas, paint, options.DstBox, options.Clip, !options.Transform.IsIdentity, ToMatrix(options.Transform));
         }
         finally
         {
-            paint.Shader = null;
-            SkiaCensus.Release(built);
-            SkiaCensus.Release(child);
+            SkiaShaderNative.SetPaintShader(paint.Handle, 0);
+            if (built != 0)
+            {
+                SkiaShaderNative.UnrefShader(built);
+            }
+
+            SkiaShaderNative.UnrefShader(child);
+            GC.KeepAlive(image);
         }
     }
 
@@ -232,7 +238,8 @@ internal static class SkiaDraw
     private static uint[] _colors = [];
 
     public static void Mesh(
-        SKCanvas canvas, SKPaint paint, ISkiaTexture? texture, ReadOnlySpan<MeshVertex> vertices, in MeshRenderOptions options)
+        SKCanvas canvas, SKPaint paint, ISkiaTexture? texture, ReadOnlySpan<MeshVertex> vertices, in MeshRenderOptions options,
+        SKColorFilter? additive = null)
     {
         if (vertices.Length == 0)
         {
@@ -259,11 +266,21 @@ internal static class SkiaDraw
                 _colors = new uint[vertices.Length];
             }
 
+            var adds = options.Blend == RenderBlend.Additive;
             for (var i = 0; i < vertices.Length; i++)
             {
                 var vertex = vertices[i];
                 _positions[i] = new SKPoint(vertex.X, vertex.Y);
                 _texCoords[i] = new SKPoint(vertex.U, vertex.V);
+                if (adds)
+                {
+                    _colors[i] = 0xFF000000u
+                        | (uint)(byte)((Math.Clamp(vertex.Color.R, 0f, 1f) * 255f) + 0.5f) << 16
+                        | (uint)(byte)((Math.Clamp(vertex.Color.G, 0f, 1f) * 255f) + 0.5f) << 8
+                        | (byte)((Math.Clamp(vertex.Color.B, 0f, 1f) * 255f) + 0.5f);
+                    continue;
+                }
+
                 var a = Math.Clamp(vertex.Color.A, 0f, 1f);
                 _colors[i] = a <= 0f
                     ? 0u
@@ -273,7 +290,12 @@ internal static class SkiaDraw
                         | (byte)((Math.Clamp(vertex.Color.B / a, 0f, 1f) * 255f) + 0.5f);
             }
 
-            paint.BlendMode = options.Blend == RenderBlend.Additive ? SKBlendMode.Plus : SKBlendMode.SrcOver;
+            paint.BlendMode = adds && additive is null ? SKBlendMode.Plus : SKBlendMode.SrcOver;
+            if (adds && additive is not null)
+            {
+                paint.ColorFilter = additive;
+            }
+
             paint.SetColor(new SKColorF(1f, 1f, 1f, 1f), null);
             if (image is not null)
             {
@@ -321,6 +343,7 @@ internal static class SkiaDraw
         finally
         {
             paint.Shader = null;
+            paint.ColorFilter = null;
             paint.BlendMode = SKBlendMode.SrcOver;
             texture?.Release();
         }

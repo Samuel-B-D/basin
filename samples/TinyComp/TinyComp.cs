@@ -1129,6 +1129,12 @@ internal sealed partial class TinyComp :
         }
 
         _cornerShaders.Clear();
+        foreach (var shader in _glowShaders)
+        {
+            shader.Dispose();
+        }
+
+        _glowShaders.Clear();
         _fireShader?.Dispose();
         _allocator?.Dispose();
         _seam?.Dispose();

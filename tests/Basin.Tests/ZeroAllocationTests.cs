@@ -289,6 +289,10 @@ public sealed class ZeroAllocationTests
     [Theory]
     [InlineData("gl")]
     [InlineData("vulkan")]
+    [InlineData("skia")]
+    [InlineData("skia-gl")]
+    [InlineData("skia-vulkan")]
+    [InlineData("skia-graphite")]
     public void Animated_shader_uniforms_allocate_nothing_over_1000_frames(string renderer)
     {
         CompositorTestHost.SkipUnlessRunnable(renderer);
@@ -310,6 +314,45 @@ public sealed class ZeroAllocationTests
             values[1] = 20f + (i % 20);
             shader!.SetUniforms(values);
             node.NotifyShaderChanged();
+            Frame(host);
+        });
+        node.Destroy();
+    }
+
+    [Theory]
+    [InlineData("gl")]
+    [InlineData("vulkan")]
+    [InlineData("skia")]
+    [InlineData("skia-gl")]
+    [InlineData("skia-vulkan")]
+    [InlineData("skia-graphite")]
+    public void Animated_texture_shader_uniforms_allocate_nothing_over_1000_frames(string renderer)
+    {
+        CompositorTestHost.SkipUnlessRunnable(renderer);
+        using var host = new CompositorTestHost(renderer: renderer);
+        using var shader = host.Renderer.CompilePixelShader(PixelShaderTests.SplitSource, PixelShaderTests.SplitUniforms);
+        Assert.NotNull(shader);
+
+        var source = new MemoryBuffer(64, 48, DrmFormat.Argb8888);
+        Assert.True(source.BeginDataAccess(BufferDataAccess.Write, out var view));
+        Fill.Gradient(64, 48)(view.Data, view.Stride);
+        source.EndDataAccess();
+        using var sourceGuard = new DeferDestroy(source);
+        var node = new Scene.SceneBuffer(host.Scene.Root) { DestinationWidth = 64, DestinationHeight = 48, TextureShader = shader };
+        node.SetBuffer(source);
+        var values = new PixelShaderUniformValue[] { 0.5f };
+        for (var i = 0; i < 20; i++)
+        {
+            shader!.SetUniforms(values);
+            node.SetPosition(i % 2, 0);
+            Frame(host);
+        }
+
+        NothingAllocated(1000, i =>
+        {
+            values[0] = (i % 20) / 20f;
+            shader!.SetUniforms(values);
+            node.SetPosition(i % 2, 0);
             Frame(host);
         });
         node.Destroy();
@@ -747,7 +790,19 @@ public sealed class ZeroAllocationTests
     public void A_textured_step_overview_toggled_every_30_frames_allocates_nothing_over_1000_frames(string renderer) =>
         OverviewStep(renderer, toggle: true, textured: true);
 
-    private static void OverviewStep(string renderer, bool toggle, bool textured = false)
+    [Theory]
+    [InlineData("pixman")]
+    [InlineData("gl")]
+    [InlineData("vulkan")]
+    [InlineData("skia")]
+    [InlineData("skia-gl")]
+    [InlineData("skia-vulkan")]
+    [InlineData("skia-graphite")]
+    [InlineData("impeller")]
+    public void A_light_moving_over_a_step_overview_allocates_nothing_over_1000_frames(string renderer) =>
+        OverviewStep(renderer, toggle: false, textured: true, lights: true);
+
+    private static void OverviewStep(string renderer, bool toggle, bool textured = false, bool lights = false)
     {
         CompositorTestHost.SkipUnlessRunnable(renderer);
         using var host = new CompositorTestHost(renderer: renderer);
@@ -799,8 +854,23 @@ public sealed class ZeroAllocationTests
             windows[w] = (tree, node);
         }
 
+        var glow = new Basin.Effects.GridLights { Radius = 30f };
+        var halo = lights ? new Scene.SceneMesh(host.Scene.Root) { Bounds = output, Source = source.Glow, Blend = RenderBlend.Additive } : null;
+        if (lights)
+        {
+            source.Effects = Basin.Effects.GridEffects.None with { Density = true, Glow = 0.5f };
+        }
+
         void Frame(int i)
         {
+            if (lights)
+            {
+                glow.Set(0, new Box(10 + (i % 140), 30, 30, 24), 1f);
+                glow.SetPointer(150 - (i % 140), 90, 0.5f);
+                source.Lights = glow;
+                halo!.NotifyMeshChanged();
+            }
+
             var progress = toggle ? Math.Abs(((i % 60) / 30.0) - 1.0) : 1.0;
             _ = TinyComp.OverviewLayout.LayoutStep(map, output, output, full, progress, 0.6, 0.3);
             source.Alpha = (float)progress;
@@ -833,6 +903,7 @@ public sealed class ZeroAllocationTests
         }
 
         NothingAllocated(1000, Frame);
+        halo?.Destroy();
         mesh.Destroy();
         wallMesh.Destroy();
         floorMesh.Destroy();
@@ -843,6 +914,140 @@ public sealed class ZeroAllocationTests
             contents[w].Destroy();
             pixels[w].Destroy();
         }
+    }
+
+    [Theory]
+    [InlineData("gl")]
+    [InlineData("vulkan")]
+    [InlineData("skia")]
+    [InlineData("skia-gl")]
+    [InlineData("skia-vulkan")]
+    [InlineData("skia-graphite")]
+    public void A_light_moving_under_the_step_glow_shader_allocates_nothing_over_1000_frames(string renderer)
+    {
+        CompositorTestHost.SkipUnlessRunnable(renderer);
+        using var host = new CompositorTestHost(renderer: renderer);
+        using var shader = host.Renderer.CompilePixelShader(Basin.Effects.GridStepGlowShader.Source, Basin.Effects.GridStepGlowShader.Uniforms);
+        Assert.NotNull(shader);
+        var bounds = new Box(0, 0, 160, 120);
+        var source = GridGlowShaderTests.StepScene(Basin.Effects.CanvasStepSides.All, lit: true);
+        var grid = new Scene.SceneMesh(host.Scene.Root) { Bounds = bounds, Source = source };
+        var glow = new Scene.SceneShader(host.Scene.Root) { Shader = shader, Bounds = bounds };
+        var values = new PixelShaderUniformValue[Basin.Effects.GridStepGlowShader.UniformCount];
+        var lights = new Basin.Effects.GridLights { Radius = 30f };
+
+        void Move(int i)
+        {
+            lights.Set(0, new Box(i % 160, 40, 30, 24), 1f);
+            lights.SetPointer(160 - (i % 160), 20 + (i % 80), 0.6f);
+            source.Lights = lights;
+            Basin.Effects.GridStepGlowShader.Pack(source, bounds, values);
+            shader!.SetUniforms(values);
+            glow.NotifyShaderChanged();
+            grid.NotifyMeshChanged();
+            host.CommitFrame();
+        }
+
+        for (var i = 0; i < 160; i++)
+        {
+            Move(i);
+        }
+
+        NothingAllocated(1000, Move);
+        glow.Destroy();
+        grid.Destroy();
+    }
+
+    [Theory]
+    [InlineData("gl")]
+    [InlineData("vulkan")]
+    [InlineData("skia")]
+    [InlineData("skia-gl")]
+    [InlineData("skia-vulkan")]
+    [InlineData("skia-graphite")]
+    public void A_light_moving_under_the_glow_shader_allocates_nothing_over_1000_frames(string renderer)
+    {
+        CompositorTestHost.SkipUnlessRunnable(renderer);
+        using var host = new CompositorTestHost(renderer: renderer);
+        using var shader = host.Renderer.CompilePixelShader(Basin.Effects.GridGlowShader.Source, Basin.Effects.GridGlowShader.Uniforms);
+        Assert.NotNull(shader);
+        var bounds = new Box(0, 0, 160, 120);
+        var source = GridGlowShaderTests.Scene(lit: true, Basin.Effects.GridReveal.Full);
+        var grid = new Scene.SceneMesh(host.Scene.Root) { Bounds = bounds, Source = source };
+        var glow = new Scene.SceneShader(host.Scene.Root) { Shader = shader, Bounds = bounds };
+        var values = new PixelShaderUniformValue[Basin.Effects.GridGlowShader.UniformCount];
+        var lights = new Basin.Effects.GridLights { Radius = 30f };
+
+        void Move(int i)
+        {
+            lights.Set(0, new Box(i % 160, 40, 30, 24), 1f);
+            lights.SetPointer(160 - (i % 160), 20 + (i % 80), 0.6f);
+            source.Lights = lights;
+            Basin.Effects.GridGlowShader.Pack(source, bounds, values);
+            shader!.SetUniforms(values);
+            glow.NotifyShaderChanged();
+            grid.NotifyMeshChanged();
+            host.CommitFrame();
+        }
+
+        for (var i = 0; i < 160; i++)
+        {
+            Move(i);
+        }
+
+        NothingAllocated(1000, Move);
+        glow.Destroy();
+        grid.Destroy();
+    }
+
+    [Theory]
+    [InlineData("pixman")]
+    [InlineData("gl")]
+    [InlineData("vulkan")]
+    [InlineData("skia")]
+    [InlineData("skia-gl")]
+    [InlineData("skia-vulkan")]
+    [InlineData("skia-graphite")]
+    [InlineData("impeller")]
+    public void A_light_moving_across_a_warped_zone_allocates_nothing_over_1000_frames(string renderer)
+    {
+        CompositorTestHost.SkipUnlessRunnable(renderer);
+        using var host = new CompositorTestHost(renderer: renderer);
+
+        var left = new Basin.Effects.CanvasWarp();
+        left.Layout(24, -1, 24, 80, 0.2, 0.25, 60);
+        var right = new Basin.Effects.CanvasWarp(1);
+        right.Layout(136, 1, 24, 80, 0.2, 0.25, 60);
+        var source = new Basin.Effects.CanvasGridSource
+        {
+            Left = left,
+            Right = right,
+            CellSize = 16,
+            Effects = Basin.Effects.GridEffects.None with { Density = true, Glow = 0.5f, GlowPath = Basin.Effects.GridGlowPath.Halo },
+        };
+        var grid = new Scene.SceneMesh(host.Scene.Root) { Bounds = new Box(0, 0, 160, 120), Source = source };
+        var glow = new Scene.SceneMesh(host.Scene.Root) { Bounds = new Box(0, 0, 160, 120), Source = source.Glow, Blend = RenderBlend.Additive };
+        var lights = new Basin.Effects.GridLights { Radius = 30f };
+
+        void Move(int i)
+        {
+            lights.Set(0, new Box(i % 160, 40, 30, 24), 1f);
+            lights.Set(1, new Box(100, 70, 30, 24), 0.3f);
+            lights.SetPointer(160 - (i % 160), 20 + (i % 80), 0.6f);
+            source.Lights = lights;
+            grid.NotifyMeshChanged();
+            glow.NotifyMeshChanged();
+            host.CommitFrame();
+        }
+
+        for (var i = 0; i < 160; i++)
+        {
+            Move(i);
+        }
+
+        NothingAllocated(1000, Move);
+        glow.Destroy();
+        grid.Destroy();
     }
 
     [Theory]
@@ -949,6 +1154,52 @@ public sealed class ZeroAllocationTests
         }
 
         NothingAllocated(1000, Slide);
+        grid.Destroy();
+    }
+
+    [Theory]
+    [InlineData("pixman")]
+    [InlineData("gl")]
+    [InlineData("vulkan")]
+    [InlineData("skia")]
+    [InlineData("skia-gl")]
+    [InlineData("skia-vulkan")]
+    [InlineData("skia-graphite")]
+    [InlineData("impeller")]
+    public void A_zone_center_moved_every_frame_allocates_nothing_over_1000_frames(string renderer)
+    {
+        CompositorTestHost.SkipUnlessRunnable(renderer);
+        using var host = new CompositorTestHost(renderer: renderer);
+
+        var left = new Basin.Effects.CanvasWarp();
+        left.Layout(24, -1, 24, 80, 0.2, 0.3, 60);
+        var grid = new Scene.SceneMesh(host.Scene.Root)
+        {
+            Bounds = new Box(0, 0, 160, 120),
+            Source = new Basin.Effects.CanvasGridSource { Left = left, CellSize = 16 },
+        };
+
+        var window = new Scene.SceneTree(host.Scene.Root);
+        var node = new Scene.SceneTransform(window);
+        _ = new Scene.SceneRect(node, 40, 30, new RenderColor(0.2f, 0.3f, 0.6f, 1f));
+        window.SetPosition(left.FarEdge + 10, 40);
+        var transform = new Basin.Effects.CanvasWarpTransform { Left = left, CellSize = 8, SceneX = left.FarEdge + 10, SceneY = 40 };
+        node.Deformer = transform;
+
+        void Pinch(int i)
+        {
+            left.Layout(24, -1, 24, 80, 0.2, 0.3 + ((i % 7) * 0.1), 30 + (i % 50));
+            node.NotifyDeformed();
+            grid.NotifyMeshChanged();
+            host.CommitFrame();
+        }
+
+        for (var i = 0; i < 120; i++)
+        {
+            Pinch(i);
+        }
+
+        NothingAllocated(1000, Pinch);
         grid.Destroy();
     }
 

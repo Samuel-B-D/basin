@@ -24,6 +24,120 @@ public sealed class CanvasStepMap
 
     public bool IsIdentity => Zoom == 1.0 && ShelfScale == 1.0;
 
+    public const double MaxBulge = 0.7;
+
+    private const int BendIterations = 8;
+
+    private readonly double[] _bulgeCenter = new double[4];
+    private readonly double[] _bulgeDepth = new double[4];
+
+    public bool Bulges { get; set; }
+
+    public bool SetBulge(CanvasStepSides side, double center, double depth)
+    {
+        var index = BulgeIndex(side);
+        depth = double.IsFinite(depth) ? Math.Clamp(depth, 0.0, MaxBulge) : 0.0;
+        if (index < 0 || (_bulgeCenter[index] == center && _bulgeDepth[index] == depth))
+        {
+            return false;
+        }
+
+        _bulgeCenter[index] = center;
+        _bulgeDepth[index] = depth;
+        return true;
+    }
+
+    public double BulgeCenter(CanvasStepSides side) => BulgeIndex(side) is >= 0 and var index ? _bulgeCenter[index] : 0.0;
+
+    public double BulgeDepth(CanvasStepSides side) => BulgeIndex(side) is >= 0 and var index ? _bulgeDepth[index] : 0.0;
+
+    public double BulgeAt(CanvasStepSides side, double t)
+    {
+        t = Math.Clamp(t, 0.0, 1.0);
+        return BulgeDepth(side) * 4.0 * t * (1.0 - t);
+    }
+
+    public (double Start, double Length) WallSpan(CanvasStepSides side, double t)
+    {
+        var vertical = side is CanvasStepSides.Left or CanvasStepSides.Right;
+        var innerStart = vertical ? Outline.Y : Outline.X;
+        var innerLength = vertical ? Outline.Height : Outline.Width;
+        var outerStart = vertical ? Inner.Y : Inner.X;
+        var outerLength = vertical ? Inner.Height : Inner.Width;
+        return (innerStart + ((outerStart - innerStart) * t), innerLength + ((outerLength - innerLength) * t));
+    }
+
+    public (double X, double Y) Bend(CanvasStepSides side, double x, double y, double t)
+    {
+        var k = BulgeAt(side, t);
+        if (k == 0)
+        {
+            return (x, y);
+        }
+
+        var (start, length) = WallSpan(side, t);
+        var center = BulgeCenter(side);
+        return side is CanvasStepSides.Left or CanvasStepSides.Right
+            ? (x, BendAlong(y, k, center, start, length))
+            : (BendAlong(x, k, center, start, length), y);
+    }
+
+    public (double X, double Y) Unbend(CanvasStepSides side, double x, double y, double t)
+    {
+        var k = BulgeAt(side, t);
+        if (k == 0)
+        {
+            return (x, y);
+        }
+
+        var (start, length) = WallSpan(side, t);
+        var center = BulgeCenter(side);
+        return side is CanvasStepSides.Left or CanvasStepSides.Right
+            ? (x, UnbendAlong(y, k, center, start, length))
+            : (UnbendAlong(x, k, center, start, length), y);
+    }
+
+    private static double BendAlong(double value, double k, double center, double start, double length)
+    {
+        if (length <= 0)
+        {
+            return value;
+        }
+
+        var a = Math.Clamp((value - start) / length, 0.0, 1.0);
+        return value + (k * 4.0 * a * (1.0 - a) * (center - value));
+    }
+
+    private static double UnbendAlong(double bent, double k, double center, double start, double length)
+    {
+        if (length <= 0)
+        {
+            return bent;
+        }
+
+        var value = bent;
+        for (var i = 0; i < BendIterations; i++)
+        {
+            var a = Math.Clamp((value - start) / length, 0.0, 1.0);
+            var envelope = 4.0 * a * (1.0 - a);
+            var slope = 4.0 * (1.0 - (2.0 * a)) / length;
+            var f = value + (k * envelope * (center - value)) - bent;
+            var df = 1.0 + (k * ((slope * (center - value)) - envelope));
+            value -= f / df;
+        }
+
+        return value;
+    }
+
+    private static int BulgeIndex(CanvasStepSides side) => side switch
+    {
+        CanvasStepSides.Left => 0,
+        CanvasStepSides.Right => 1,
+        CanvasStepSides.Top => 2,
+        CanvasStepSides.Bottom => 3,
+        _ => -1,
+    };
+
     public bool Layout(
         double centerX, double centerY, double zoom, double shelfScale, in FBox outline, in FBox inner, in FBox outer, CanvasStepSides sides) =>
         Layout(centerX, centerY, zoom, shelfScale, outline, inner, outer, sides, sides);

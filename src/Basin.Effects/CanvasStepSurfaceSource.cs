@@ -171,6 +171,12 @@ public sealed class CanvasStepSurfaceSource : IMeshSource
 
     private void FlatWall(CanvasStepMap map, CanvasStepSides side, Span<MeshVertex> into, ref int count, bool write)
     {
+        if (map.Bulges)
+        {
+            BentFlatWall(map, side, into, ref count, write);
+            return;
+        }
+
         if (write)
         {
             Corners(map, side, out var inner0, out var inner1, out var outer0, out var outer1);
@@ -187,6 +193,65 @@ public sealed class CanvasStepSurfaceSource : IMeshSource
 
         count += 6;
     }
+
+    private const double BendWidth = 8.0;
+
+    private static int BendColumns(CanvasStepMap map, (double X, double Y) from, (double X, double Y) to, double share)
+    {
+        if (!map.Bulges)
+        {
+            return 1;
+        }
+
+        var dx = to.X - from.X;
+        var dy = to.Y - from.Y;
+        return Math.Max(1, (int)Math.Ceiling(Math.Sqrt((dx * dx) + (dy * dy)) * share / BendWidth));
+    }
+
+    private void BentFlatWall(CanvasStepMap map, CanvasStepSides side, Span<MeshVertex> into, ref int count, bool write)
+    {
+        Corners(map, side, out var inner0, out var inner1, out var outer0, out var outer1);
+        var columns = BendColumns(map, inner0, inner1, 1.0);
+        if (!write)
+        {
+            count += columns * ForeshortenRows * 6;
+            return;
+        }
+
+        var lit = WallColorOf(side);
+        var foot = BaseColorOf(side);
+        for (var column = 0; column < columns; column++)
+        {
+            var s0 = (double)column / columns;
+            var s1 = (double)(column + 1) / columns;
+            var top0 = Lerp(inner0, inner1, s0);
+            var top1 = Lerp(inner0, inner1, s1);
+            var base0 = Lerp(outer0, outer1, s0);
+            var base1 = Lerp(outer0, outer1, s1);
+            for (var row = 0; row < ForeshortenRows; row++)
+            {
+                var t0 = (double)row / ForeshortenRows;
+                var t1 = (double)(row + 1) / ForeshortenRows;
+                var colorTop = Lerp(lit, foot, t0);
+                var colorBottom = Lerp(lit, foot, t1);
+                var slice = into.Slice(count, 6);
+                var a = Vertex(Bent(map, side, Lerp(top0, base0, t0), t0), 0, 0, colorTop);
+                var b = Vertex(Bent(map, side, Lerp(top1, base1, t0), t0), 0, 0, colorTop);
+                var c = Vertex(Bent(map, side, Lerp(top1, base1, t1), t1), 0, 0, colorBottom);
+                var d = Vertex(Bent(map, side, Lerp(top0, base0, t1), t1), 0, 0, colorBottom);
+                slice[0] = a;
+                slice[1] = b;
+                slice[2] = d;
+                slice[3] = b;
+                slice[4] = c;
+                slice[5] = d;
+                count += 6;
+            }
+        }
+    }
+
+    private static (double X, double Y) Bent(CanvasStepMap map, CanvasStepSides side, (double X, double Y) point, double t) =>
+        map.Bend(side, point.X, point.Y, t);
 
     private void TexturedWall(CanvasStepMap map, CanvasStepSides side, Span<MeshVertex> into, ref int count, bool write)
     {
@@ -213,73 +278,91 @@ public sealed class CanvasStepSurfaceSource : IMeshSource
         var columnCount = (int)(Math.Ceiling(u1) - Math.Floor(u0));
         var crossings = (int)Math.Ceiling(depth) - 1;
         var rowCount = ForeshortenRows + crossings;
-        if (!write)
+        if (!write && !map.Bulges)
         {
             count += columnCount * rowCount * 6;
             return;
         }
 
-        var s0 = 0.0;
+        var tileS0 = 0.0;
         var column = Math.Floor(u0);
         for (var index = 0; index < columnCount; index++)
         {
-            var s1 = index == columnCount - 1 ? 1.0 : Math.Min(1.0, ((column + 1) - u0) / (u1 - u0));
-            var uStart = u0 + (s0 * (u1 - u0));
-            var uEnd = u0 + (s1 * (u1 - u0));
-            var left = (float)Math.Clamp((uStart - column) * _textureWidth, 0, _textureWidth);
-            var right = (float)Math.Clamp((uEnd - column) * _textureWidth, 0, _textureWidth);
-            var top0 = Lerp(inner0, inner1, s0);
-            var top1 = Lerp(inner0, inner1, s1);
-            var base0 = Lerp(outer0, outer1, s0);
-            var base1 = Lerp(outer0, outer1, s1);
-
-            var t0 = 0.0;
-            var uniform = 1;
-            var crossing = 1;
-            for (var row = 0; row < rowCount; row++)
+            var tileS1 = index == columnCount - 1 ? 1.0 : Math.Min(1.0, ((column + 1) - u0) / (u1 - u0));
+            var pieces = BendColumns(map, inner0, inner1, tileS1 - tileS0);
+            if (!write)
             {
-                var nextUniform = uniform <= ForeshortenRows ? uniform / (double)ForeshortenRows : double.PositiveInfinity;
-                var nextCrossing = crossing <= crossings ? Unforeshorten(crossing / depth, zoom, shelf) : double.PositiveInfinity;
-                double t1;
-                if (nextCrossing < nextUniform)
-                {
-                    t1 = nextCrossing;
-                    crossing++;
-                }
-                else
-                {
-                    t1 = nextUniform;
-                    uniform++;
-                    if (nextCrossing == nextUniform)
-                    {
-                        crossing++;
-                    }
-                }
-
-                t1 = Math.Min(1.0, t1);
-                var v0 = Foreshorten(t0, zoom, shelf) * depth;
-                var v1 = Foreshorten(t1, zoom, shelf) * depth;
-                var tile = Math.Floor((v0 + v1) / 2.0);
-                var top = (float)Math.Clamp((v0 - tile) * _textureHeight, 0, _textureHeight);
-                var bottom = (float)Math.Clamp((v1 - tile) * _textureHeight, 0, _textureHeight);
-                var colorTop = Lerp(lit, foot, t0);
-                var colorBottom = Lerp(lit, foot, t1);
-                var slice = into.Slice(count, 6);
-                var a = new MeshVertex((float)Lerp(top0, base0, t0).X, (float)Lerp(top0, base0, t0).Y, left, top, colorTop);
-                var b = new MeshVertex((float)Lerp(top1, base1, t0).X, (float)Lerp(top1, base1, t0).Y, right, top, colorTop);
-                var c = new MeshVertex((float)Lerp(top1, base1, t1).X, (float)Lerp(top1, base1, t1).Y, right, bottom, colorBottom);
-                var d = new MeshVertex((float)Lerp(top0, base0, t1).X, (float)Lerp(top0, base0, t1).Y, left, bottom, colorBottom);
-                slice[0] = a;
-                slice[1] = b;
-                slice[2] = d;
-                slice[3] = b;
-                slice[4] = c;
-                slice[5] = d;
-                count += 6;
-                t0 = t1;
+                count += pieces * rowCount * 6;
+                tileS0 = tileS1;
+                column++;
+                continue;
             }
 
-            s0 = s1;
+            for (var piece = 0; piece < pieces; piece++)
+            {
+                var s0 = tileS0 + ((tileS1 - tileS0) * piece / pieces);
+                var s1 = piece == pieces - 1 ? tileS1 : tileS0 + ((tileS1 - tileS0) * (piece + 1) / pieces);
+                var uStart = u0 + (s0 * (u1 - u0));
+                var uEnd = u0 + (s1 * (u1 - u0));
+                var left = (float)Math.Clamp((uStart - column) * _textureWidth, 0, _textureWidth);
+                var right = (float)Math.Clamp((uEnd - column) * _textureWidth, 0, _textureWidth);
+                var top0 = Lerp(inner0, inner1, s0);
+                var top1 = Lerp(inner0, inner1, s1);
+                var base0 = Lerp(outer0, outer1, s0);
+                var base1 = Lerp(outer0, outer1, s1);
+
+                var t0 = 0.0;
+                var uniform = 1;
+                var crossing = 1;
+                for (var row = 0; row < rowCount; row++)
+                {
+                    var nextUniform = uniform <= ForeshortenRows ? uniform / (double)ForeshortenRows : double.PositiveInfinity;
+                    var nextCrossing = crossing <= crossings ? Unforeshorten(crossing / depth, zoom, shelf) : double.PositiveInfinity;
+                    double t1;
+                    if (nextCrossing < nextUniform)
+                    {
+                        t1 = nextCrossing;
+                        crossing++;
+                    }
+                    else
+                    {
+                        t1 = nextUniform;
+                        uniform++;
+                        if (nextCrossing == nextUniform)
+                        {
+                            crossing++;
+                        }
+                    }
+
+                    t1 = Math.Min(1.0, t1);
+                    var v0 = Foreshorten(t0, zoom, shelf) * depth;
+                    var v1 = Foreshorten(t1, zoom, shelf) * depth;
+                    var tile = Math.Floor((v0 + v1) / 2.0);
+                    var top = (float)Math.Clamp((v0 - tile) * _textureHeight, 0, _textureHeight);
+                    var bottom = (float)Math.Clamp((v1 - tile) * _textureHeight, 0, _textureHeight);
+                    var colorTop = Lerp(lit, foot, t0);
+                    var colorBottom = Lerp(lit, foot, t1);
+                    var slice = into.Slice(count, 6);
+                    var pa = Bent(map, side, Lerp(top0, base0, t0), t0);
+                    var pb = Bent(map, side, Lerp(top1, base1, t0), t0);
+                    var pc = Bent(map, side, Lerp(top1, base1, t1), t1);
+                    var pd = Bent(map, side, Lerp(top0, base0, t1), t1);
+                    var a = new MeshVertex((float)pa.X, (float)pa.Y, left, top, colorTop);
+                    var b = new MeshVertex((float)pb.X, (float)pb.Y, right, top, colorTop);
+                    var c = new MeshVertex((float)pc.X, (float)pc.Y, right, bottom, colorBottom);
+                    var d = new MeshVertex((float)pd.X, (float)pd.Y, left, bottom, colorBottom);
+                    slice[0] = a;
+                    slice[1] = b;
+                    slice[2] = d;
+                    slice[3] = b;
+                    slice[4] = c;
+                    slice[5] = d;
+                    count += 6;
+                    t0 = t1;
+                }
+            }
+
+            tileS0 = tileS1;
             column++;
         }
     }

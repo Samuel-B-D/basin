@@ -26,6 +26,7 @@ internal sealed partial class TinyComp
         RegisterCommands(_ipc.Methods);
         RegisterOverviewCommands(_ipc.Methods);
         RegisterPhysicsCommands(_ipc.Methods);
+        RegisterGridEffectsCommands(_ipc.Methods);
         RegisterSettingsCommands(_ipc.Methods);
         DeclareOverviewEvents();
     }

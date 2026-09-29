@@ -304,6 +304,7 @@ internal sealed partial class TinyComp
             overview.Step, box, usable, overview.FullSides, overview.Value, scale, shelfScale,
             overview.CenterX, overview.CenterY, OverviewLayout.StepSidesOf(overview.Sides));
         canvas.Step = overview.Step;
+        changed |= PinchStepWalls(view);
         var meshChanged = LayoutStepMeshes(view, box);
         SyncLayerZoom(view, overview.Step.Zoom, centerX, centerY);
         if (!changed && !meshChanged)
@@ -327,7 +328,7 @@ internal sealed partial class TinyComp
             ApplyCanvasToView(view);
             overview.FloorMesh?.NotifyMeshChanged();
             overview.WallMesh?.NotifyMeshChanged();
-            overview.StepMesh?.NotifyMeshChanged();
+            overview.NotifyStepGrid();
         }
 
         view.Scheduler?.ScheduleRepaint();
@@ -352,10 +353,26 @@ internal sealed partial class TinyComp
         var shelfTexture = _shelfTexture.Buffer;
         var gridLines = overview.Settings.TextureGridValue || (shelfTexture is null && wallTexture is null);
         var desktopLines = gridLines && settings.DesktopGridValue;
+        var glowSetting = settings.GridEffectsValue;
+        var glows = glowSetting.GlowValue > 0 && lines;
+        var wantsShader = glows && glowSetting.GlowPathValue is GridGlowPath.Auto or GridGlowPath.Shader;
+        var stepShader = wantsShader
+            ? overview.StepGlow.Compile(_renderer, GridStepGlowShader.Source, GridStepGlowShader.Uniforms, _glowShaders)
+            : null;
+        var drawn = stepShader is not null ? GridGlowPath.Shader
+            : glowSetting.GlowPathValue is GridGlowPath.Auto or GridGlowPath.Halo ? GridGlowPath.Halo
+            : GridGlowPath.None;
+        overview.StepGlow.State = !glows ? "none"
+            : drawn == GridGlowPath.Shader ? "shader"
+            : drawn == GridGlowPath.Halo ? "halo"
+            : glowSetting.GlowPathValue == GridGlowPath.Shader ? "unavailable"
+            : "none";
+        var stepEffects = glowSetting.EffectsOn(drawn);
         var linesChanged = !ReferenceEquals(source.Map, overview.Step) || source.CellSize != settings.GridCellSize ||
             source.Color != color || !ReferenceEquals(source.Walls, walls) || source.Alpha != alpha || source.Reveal != reveal ||
             source.Lines != lines ||
-            source.ShelfLines != gridLines || source.WallGridLines != gridLines || source.DesktopLines != desktopLines;
+            source.ShelfLines != gridLines || source.WallGridLines != gridLines || source.DesktopLines != desktopLines ||
+            source.Effects != stepEffects;
         var wallsChanged = !ReferenceEquals(walls.Map, overview.Step) || walls.WallColor != wall ||
             walls.WallShade != overview.Settings.WallShadeValue || walls.TextureScale != texel ||
             walls.TextureWidth != (wallTexture?.Width ?? 0) || walls.TextureHeight != (wallTexture?.Height ?? 0);
@@ -371,6 +388,7 @@ internal sealed partial class TinyComp
         source.ShelfLines = gridLines;
         source.WallGridLines = gridLines;
         source.DesktopLines = desktopLines;
+        source.Effects = stepEffects;
         walls.Map = overview.Step;
         walls.WallColor = wall;
         walls.WallShade = overview.Settings.WallShadeValue;
@@ -391,8 +409,14 @@ internal sealed partial class TinyComp
             overview.WallMesh = new SceneMesh(_backdrop) { Source = walls, Bounds = box };
             overview.WallMesh.SetSpriteBuffer(wallTexture);
             overview.StepMesh = new SceneMesh(_backdrop) { Source = source, Bounds = box };
+            SyncStepGlow(overview, box);
+            PlaceStepGlow(overview, box, drawn == GridGlowPath.Shader && glows);
+            overview.NotifyStepGrid();
             return true;
         }
+
+        linesChanged |= SyncStepGlow(overview, box);
+        linesChanged |= PlaceStepGlow(overview, box, drawn == GridGlowPath.Shader && glows);
 
         var bounds = mesh.Bounds != box;
         mesh.Bounds = box;
@@ -418,10 +442,35 @@ internal sealed partial class TinyComp
 
         if (linesChanged || bounds)
         {
-            mesh.NotifyMeshChanged();
+            overview.NotifyStepGrid();
         }
 
         return linesChanged || wallsChanged || floorChanged || bounds;
+    }
+
+    private bool PlaceStepGlow(OverviewView overview, in Box box, bool shader) =>
+        shader ? overview.StepGlow.Place(_backdrop, box) : overview.StepGlow.DropNode();
+
+    private bool SyncStepGlow(OverviewView overview, in Box box)
+    {
+        var halo = overview.StepSource.Effects.DrawsHalo;
+        var changed = false;
+        if (halo != overview.StepGlowMesh is not null)
+        {
+            overview.StepGlowMesh?.Destroy();
+            overview.StepGlowMesh = halo
+                ? new SceneMesh(_backdrop) { Source = overview.StepSource.Glow, Bounds = box, Blend = RenderBlend.Additive }
+                : null;
+            changed = true;
+        }
+
+        if (overview.StepGlowMesh is { } glow && glow.Bounds != box)
+        {
+            glow.Bounds = box;
+            changed = true;
+        }
+
+        return changed;
     }
 
     private void LeaveStep(OutputView view)
@@ -430,6 +479,9 @@ internal sealed partial class TinyComp
         view.Canvas.Step = null;
         overview.StepMesh?.Destroy();
         overview.StepMesh = null;
+        overview.StepGlowMesh?.Destroy();
+        overview.StepGlowMesh = null;
+        overview.StepGlow.DropNode();
         overview.WallMesh?.Destroy();
         overview.WallMesh = null;
         overview.FloorMesh?.Destroy();

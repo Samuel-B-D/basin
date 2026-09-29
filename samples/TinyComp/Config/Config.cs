@@ -732,6 +732,12 @@ internal sealed class Config
     private void WarnOverviewAgainstCanvas(BasinLogger log)
     {
         WarnStepIgnoredKeys(log);
+        var stepPinch = Overview.TerraceValue.GridEffectsValue.PinchValue;
+        if (Overview.Enabled && StepsAnywhere && (stepPinch < 0 || stepPinch > Basin.Effects.CanvasStepMap.MaxBulge))
+        {
+            log.Warn($"[overview.grid_effects] pinch {stepPinch} is outside 0 to {Basin.Effects.CanvasStepMap.MaxBulge} on the step overview, clamping it there");
+        }
+
         if (Overview.Enabled && Overview.Textured && SlopeAnywhere)
         {
             log.Warn($"[overview] wall_texture and shelf_texture apply only to wall = \"step\"");
@@ -934,7 +940,7 @@ internal sealed class Config
                     or "grid_animation" or "grid_animation_ms" or "grid_easing" or "grid_linger_ms" or "wallpaper" or "animation_ms" or "sides" or "corner" or "corner_radius"
                     or "window" or "min_scale" or "scale_reach" or "shelf" or "shelf_scale" or "shelf_min_scale"
                     or "shelf_step" or "shelf_shape" or "slope_window"
-                    or "drag":
+                    or "drag" or "grid_effects":
                     (canvasKeys ??= [])[key] = value;
                     break;
                 case "overview" when value is bool overviewFlag:

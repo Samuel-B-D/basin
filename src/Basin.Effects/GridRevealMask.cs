@@ -152,6 +152,59 @@ internal struct GridRevealMask
         Piece(into.Slice(12, 6), start, end, core1, outer1, nx, ny, vertical, across, color);
     }
 
+    public readonly void WriteLine(
+        Span<MeshVertex> into, (float X, float Y) start, (float X, float Y) end, float nx, float ny, bool vertical,
+        in RenderColor startColor, in RenderColor endColor)
+    {
+        if (!Interval(start, end, vertical, out var outer0, out var core0, out var core1, out var outer1))
+        {
+            var hidden = new MeshVertex(start.X, start.Y, 0, 0, RenderColor.Transparent);
+            into[..LineVertices].Fill(hidden);
+            return;
+        }
+
+        var across = Across(start, end, vertical);
+        Piece(into[..6], start, end, outer0, core0, nx, ny, vertical, across, startColor, endColor);
+        Piece(into.Slice(6, 6), start, end, core0, core1, nx, ny, vertical, across, startColor, endColor);
+        Piece(into.Slice(12, 6), start, end, core1, outer1, nx, ny, vertical, across, startColor, endColor);
+    }
+
+    public readonly void WriteCell(
+        Span<MeshVertex> into,
+        (float X, float Y) topLeft,
+        (float X, float Y) topRight,
+        (float X, float Y) bottomRight,
+        (float X, float Y) bottomLeft,
+        bool vertical,
+        in RenderColor topLeftColor,
+        in RenderColor topRightColor,
+        in RenderColor bottomRightColor,
+        in RenderColor bottomLeftColor)
+    {
+        into[0] = Vertex(topLeft, vertical, double.NaN, topLeftColor);
+        into[1] = Vertex(topRight, vertical, double.NaN, topRightColor);
+        into[2] = Vertex(bottomLeft, vertical, double.NaN, bottomLeftColor);
+        into[3] = into[1];
+        into[4] = Vertex(bottomRight, vertical, double.NaN, bottomRightColor);
+        into[5] = into[2];
+    }
+
+    private readonly void Piece(
+        Span<MeshVertex> into, (float X, float Y) start, (float X, float Y) end, double from, double to,
+        float nx, float ny, bool vertical, double across, in RenderColor startColor, in RenderColor endColor)
+    {
+        var a = At(start, end, from);
+        var b = At(start, end, to);
+        var ca = GridTone.Mix(startColor, endColor, (float)from);
+        var cb = GridTone.Mix(startColor, endColor, (float)to);
+        into[0] = Vertex(a, vertical, across, ca);
+        into[1] = Vertex(b, vertical, across, cb);
+        into[2] = Vertex((a.X + nx, a.Y + ny), vertical, across, ca);
+        into[3] = into[1];
+        into[4] = Vertex((b.X + nx, b.Y + ny), vertical, across, cb);
+        into[5] = into[2];
+    }
+
     private readonly void Piece(
         Span<MeshVertex> into, (float X, float Y) start, (float X, float Y) end, double from, double to,
         float nx, float ny, bool vertical, double across, in RenderColor color)

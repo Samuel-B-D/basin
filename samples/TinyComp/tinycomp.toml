@@ -119,6 +119,37 @@ shelf_shape  = "square"      # terrace: square | flat
 slope_window = "bend"        # terrace: bend | flat
 drag         = "cursor"      # scale and terrace: cursor | grid
 
+# Grid effects on the canvas grid. [output."NAME".grid_effects] takes the same keys.
+[canvas.grid_effects]
+glow              = 0.0        # line glow strength, 0 to 1
+glow_radius       = 6.0        # glow width in screen pixels
+glow_path         = "auto"     # auto | shader | halo | none
+highlight_color   = "#e8ecff"  # color that lit lines move toward
+highlight_radius  = 160.0      # highlight reach in screen pixels
+highlight_glow    = 2.0        # extra glow near a lit source, 0 to 8
+highlight_dragged = 0.0        # the moved or thrown window, 0 to 1
+highlight_focused = 0.0        # the focused window, 0 to 1
+highlight_windows = 0.0        # every other window, 0 to 1
+highlight_pointer = 0.0        # the pointer over the backdrop, 0 to 1
+highlight_spring  = 300.0      # highlight spring constant
+highlight_damping = 1.0        # highlight damping ratio
+density           = false      # dim lines where the warp packs them
+density_spacing   = 12.0       # full alpha at this screen spacing
+density_floor     = 0.15       # lowest alpha of a packed line
+pinch             = 0.0        # extra fan slope toward a fast window
+pinch_reach       = 400.0      # distance from a seam where the pinch ends
+pinch_speed       = 600.0      # body speed in px/s that pinches
+pinch_spring      = 200.0      # pinch spring constant
+pinch_damping     = 1.1        # pinch damping ratio
+# The CurvedWindows look: set these keys, or send grid-effects curved.
+# glow = 0.45
+# highlight_dragged = 1.0
+# highlight_focused = 0.4
+# highlight_windows = 0.15
+# highlight_pointer = 0.3
+# density = true
+# pinch = -0.8
+
 # Overview. [output."NAME".overview] takes the same keys.
 [overview]
 enable        = true         # overview on or off
@@ -160,6 +191,29 @@ grid_easing       = "out-cubic" # drag grid: linear | out-cubic | in-out-cubic |
 grid_linger_ms    = 150         # drag grid: hold after the drop
 desktop_grid  = false        # grid on the zoomed desktop
 animation_ms  = 250          # open and close
+
+# Grid effects on the overview grid. [output."NAME".overview.grid_effects] takes the same keys.
+[overview.grid_effects]
+glow              = 0.0        # line glow strength, 0 to 1
+glow_radius       = 6.0        # glow width in screen pixels
+glow_path         = "auto"     # auto | shader | halo | none
+highlight_color   = "#e8ecff"  # color that lit lines move toward
+highlight_radius  = 160.0      # highlight reach in screen pixels
+highlight_glow    = 2.0        # extra glow near a lit source, 0 to 8
+highlight_dragged = 0.0        # the moved or thrown window, 0 to 1
+highlight_focused = 0.0        # the focused window, 0 to 1
+highlight_windows = 0.0        # every other window, 0 to 1
+highlight_pointer = 0.0        # the pointer over the backdrop, 0 to 1
+highlight_spring  = 300.0      # highlight spring constant
+highlight_damping = 1.0        # highlight damping ratio
+density           = false      # dim lines where the warp packs them
+density_spacing   = 12.0       # full alpha at this screen spacing
+density_floor     = 0.15       # lowest alpha of a packed line
+pinch             = 0.0        # extra fan slope toward a fast window
+pinch_reach       = 400.0      # distance from a seam where the pinch ends
+pinch_speed       = 600.0      # body speed in px/s that pinches
+pinch_spring      = 200.0      # pinch spring constant
+pinch_damping     = 1.1        # pinch damping ratio
 
 # Windows as rigid bodies: throw, collide, fall.
 [physics]

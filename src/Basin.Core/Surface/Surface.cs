@@ -557,12 +557,17 @@ public sealed class Surface
         _guardedShadows ??= [];
         if (!_guardedShadows.Contains(guarded))
         {
-            _guardedShadows.Add(guarded);
-            guarded.Destroyed += () => _guardedShadows.Remove(guarded);
-            guarded.MarkAllDirty();
+            TrackGuardedShadow(_guardedShadows, guarded);
         }
 
         guarded.SyncShadow();
+    }
+
+    private static void TrackGuardedShadow(List<ManagedShmBuffer> shadows, ManagedShmBuffer guarded)
+    {
+        shadows.Add(guarded);
+        guarded.Destroyed += () => shadows.Remove(guarded);
+        guarded.MarkAllDirty();
     }
 
     public Box CommittedDamageExtents()

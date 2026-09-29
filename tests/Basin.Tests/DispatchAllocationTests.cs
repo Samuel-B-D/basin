@@ -1000,6 +1000,70 @@ public sealed class DispatchAllocationTests
         Budgets.Check("server", "canvas-terrace-drag", DragRounds(Rounds));
     }
 
+    [Fact]
+    public void A_canvas_pinch_drag_stays_within_budget()
+    {
+        Budgets.Require();
+
+        using var host = new CompositorTestHost();
+        var left = new Basin.Effects.CanvasWarp();
+        left.Layout(24, -1, 24, 80, 0.2, 0.25, 60);
+        var right = new Basin.Effects.CanvasWarp(1);
+        right.Layout(136, 1, 24, 80, 0.2, 0.25, 60);
+        var map = new Basin.Effects.CanvasWarpTransform { Left = left, Right = right };
+        var lights = new Basin.Effects.GridLights { Radius = 30f };
+        var grid = new SceneMesh(host.Scene.Root)
+        {
+            Bounds = new Box(0, 0, 160, 120),
+            Source = new Basin.Effects.CanvasGridSource { Left = left, Right = right, CellSize = 16 },
+        };
+        var source = (Basin.Effects.CanvasGridSource)grid.Source!;
+        var window = new SceneTree(host.Scene.Root);
+        var node = new SceneTransform(window);
+        _ = new SceneRect(node, 60, 40, new RenderColor(0.2f, 0.3f, 0.6f, 1f));
+        var transform = new Basin.Effects.CanvasWarpTransform { Left = left, Right = right, CellSize = 8 };
+        var local = new Box(0, 0, 60, 40);
+
+        long DragRounds(int rounds)
+        {
+            var allocated = 0L;
+            for (var i = 0; i < rounds; i++)
+            {
+                var before = GC.GetAllocatedBytesForCurrentThread();
+                var cursorX = 110.0 - (i * 100.0 / rounds);
+                var (grabX, grabY) = map.ToCanvasPoint(cursorX, 40.5);
+                var box = new Box((int)Math.Round(grabX - 20), (int)Math.Round(grabY - 10), 60, 40);
+                left.Layout(24, -1, 24, 80, 0.2, 0.25 + (0.8 * i / rounds), box.Y + 20);
+                window.SetPosition(box.X, box.Y);
+                transform.SceneX = box.X;
+                transform.SceneY = box.Y;
+                if (transform.IsIdentityFor(local))
+                {
+                    node.Deformer = null;
+                }
+                else if (ReferenceEquals(node.Deformer, transform))
+                {
+                    node.NotifyDeformed();
+                }
+                else
+                {
+                    node.Deformer = transform;
+                }
+
+                lights.Set(0, box, 1f);
+                source.Lights = lights;
+                grid.NotifyMeshChanged();
+                host.CommitFrame();
+                allocated += GC.GetAllocatedBytesForCurrentThread() - before;
+            }
+
+            return allocated;
+        }
+
+        _ = DragRounds(Rounds);
+        Budgets.Check("server", "canvas-pinch-drag", DragRounds(Rounds));
+    }
+
     private sealed class OverviewRig
     {
         public const double Scale = 0.75;

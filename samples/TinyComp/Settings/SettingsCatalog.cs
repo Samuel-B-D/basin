@@ -238,6 +238,7 @@ internal static class SettingsCatalog
             new(Canvas, "canvas", "shelf_shape", "Shelf shape", SettingKind.Choice) { Default = "\"square\"", Choices = ["square", "flat"] },
             new(Canvas, "canvas", "slope_window", "Window on the slope", SettingKind.Choice) { Default = "\"bend\"", Choices = ["bend", "flat"] },
             new(Canvas, "canvas", "drag", "Drag", SettingKind.Choice) { Default = "\"cursor\"", Choices = ["cursor", "grid"] },
+            .. GridEffectRows(Canvas, "canvas.grid_effects"),
 
             new(Touch, "touch", "hide_cursor", "Hide cursor on touch", SettingKind.Flag) { Default = "true" },
             new(Touch, "touch", "titlebar_twist", "Twist with a finger on the titlebar", SettingKind.Flag) { Default = "true" },
@@ -316,6 +317,7 @@ internal static class SettingsCatalog
             new(Overview, "overview", "grid_linger_ms", "Grid linger (ms)", SettingKind.Integer) { Default = "150", Min = 0, Max = 5000 },
             new(Overview, "overview", "desktop_grid", "Grid on the desktop", SettingKind.Flag) { Default = "false" },
             new(Overview, "overview", "animation_ms", "Animation (ms)", SettingKind.Integer) { Default = "250", Min = 0, Max = 5000 },
+            .. GridEffectRows(Overview, "overview.grid_effects"),
 
             new(Hypr, "hypr", "enable", "hyprland-protocols", SettingKind.Flag) { Default = "true", Restart = true },
             new(Hypr, "hypr", "input_capture", "Input capture", SettingKind.Flag) { Default = "true", Restart = true },
@@ -325,6 +327,85 @@ internal static class SettingsCatalog
             new(Panel, "settings", "font_size", "Font size", SettingKind.Real) { Default = "14", Min = 10, Max = 24, Step = 1 },
         ];
     }
+
+    private static SettingKey[] GridEffectRows(string section, string table) =>
+    [
+        new(section, table, "glow", "Glow", SettingKind.Real) { Default = "0.0", Min = 0, Max = 1, Step = 0.05, Group = GridEffectsGroup },
+        new(section, table, "glow_radius", "Glow radius", SettingKind.Real)
+        {
+            Default = "6.0", Min = 1, Max = 64, Step = 1, Group = GridEffectsGroup,
+        },
+        new(section, table, "glow_path", "Glow path", SettingKind.Choice)
+        {
+            Default = "\"auto\"", Choices = ["auto", "shader", "halo", "none"], Group = GridEffectsGroup,
+            Note = "Auto draws the shader glow where the renderer compiles it and the halo elsewhere.",
+        },
+        new(section, table, "highlight_color", "Highlight color", SettingKind.Color) { Default = "\"#e8ecff\"", Group = GridEffectsGroup },
+        new(section, table, "highlight_radius", "Highlight radius", SettingKind.Real)
+        {
+            Default = "160.0", Min = 0, Max = 4096, Step = 10, Group = GridEffectsGroup,
+        },
+        new(section, table, "highlight_dragged", "Moved window", SettingKind.Real)
+        {
+            Default = "0.0", Min = 0, Max = 1, Step = 0.05, Group = GridEffectsGroup,
+        },
+        new(section, table, "highlight_focused", "Focused window", SettingKind.Real)
+        {
+            Default = "0.0", Min = 0, Max = 1, Step = 0.05, Group = GridEffectsGroup,
+        },
+        new(section, table, "highlight_windows", "Other windows", SettingKind.Real)
+        {
+            Default = "0.0", Min = 0, Max = 1, Step = 0.05, Group = GridEffectsGroup,
+        },
+        new(section, table, "highlight_pointer", "Pointer", SettingKind.Real)
+        {
+            Default = "0.0", Min = 0, Max = 1, Step = 0.05, Group = GridEffectsGroup,
+        },
+        new(section, table, "highlight_glow", "Glow near a source", SettingKind.Real)
+        {
+            Default = "2.0", Min = 0, Max = 8, Step = 0.25, Group = GridEffectsGroup,
+        },
+        new(section, table, "highlight_spring", "Highlight spring", SettingKind.Real)
+        {
+            Default = "300.0", Min = 1, Max = 5000, Step = 10, Group = GridEffectsGroup,
+        },
+        new(section, table, "highlight_damping", "Highlight damping", SettingKind.Real)
+        {
+            Default = "1.0", Min = 0.1, Max = 4, Step = 0.05, Group = GridEffectsGroup,
+        },
+        new(section, table, "pinch", "Pinch", SettingKind.Real)
+        {
+            Default = "0.0", Min = -0.9, Max = 4, Step = 0.05, Group = GridEffectsGroup,
+            Note = "Extra fan toward a moved or fast window. The step overview takes 0 to 0.7.",
+        },
+        new(section, table, "pinch_reach", "Pinch reach", SettingKind.Real)
+        {
+            Default = "400.0", Min = 0, Max = 4096, Step = 10, Group = GridEffectsGroup,
+        },
+        new(section, table, "pinch_speed", "Pinch speed", SettingKind.Real)
+        {
+            Default = "600.0", Min = 0, Max = 20000, Step = 50, Group = GridEffectsGroup,
+        },
+        new(section, table, "pinch_spring", "Pinch spring", SettingKind.Real)
+        {
+            Default = "200.0", Min = 1, Max = 5000, Step = 10, Group = GridEffectsGroup,
+        },
+        new(section, table, "pinch_damping", "Pinch damping", SettingKind.Real)
+        {
+            Default = "1.1", Min = 0.1, Max = 4, Step = 0.05, Group = GridEffectsGroup,
+        },
+        new(section, table, "density", "Dim packed lines", SettingKind.Flag) { Default = "false", Group = GridEffectsGroup },
+        new(section, table, "density_spacing", "Density spacing", SettingKind.Real)
+        {
+            Default = "12.0", Min = 1, Max = 256, Step = 1, Group = GridEffectsGroup,
+        },
+        new(section, table, "density_floor", "Density floor", SettingKind.Real)
+        {
+            Default = "0.15", Min = 0, Max = 1, Step = 0.05, Group = GridEffectsGroup,
+        },
+    ];
+
+    private const string GridEffectsGroup = "Grid effects";
 
     private static SettingKey Flag(string section, string table, string key, string label, string group) =>
         new(section, table, key, label, SettingKind.Flag) { Default = "false", Group = group };

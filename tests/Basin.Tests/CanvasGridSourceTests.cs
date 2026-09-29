@@ -113,7 +113,7 @@ public sealed class CanvasGridSourceTests
         Assert.Null(host.Scene.NodeAt(32, 10));
     }
 
-    private static CanvasGridSource FourSides(int mask)
+    internal static CanvasGridSource FourSides(int mask)
     {
         CanvasWarp? Warp(int bit, int seam, int direction, int zone, int extension, double center)
         {
@@ -585,7 +585,7 @@ public sealed class CanvasGridSourceTests
     private static readonly GridRevealStyle[] RevealStyles =
         [GridRevealStyle.None, GridRevealStyle.Fade, GridRevealStyle.Ripple, GridRevealStyle.Draw, GridRevealStyle.Sweep];
 
-    private static (CanvasGridSource Source, Box Bounds) RevealSource(int kind)
+    internal static (CanvasGridSource Source, Box Bounds) RevealSource(int kind)
     {
         switch (kind)
         {

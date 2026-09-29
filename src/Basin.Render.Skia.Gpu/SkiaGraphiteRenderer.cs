@@ -11,6 +11,9 @@ public sealed unsafe class SkiaGraphiteRenderer : IRenderer
     private readonly SKGraphiteVkBackendContext _backendContext;
     private readonly SKGraphiteContext _context;
     private readonly SKGraphiteRecorder _recorder;
+    private readonly SKRuntimeEffect _additiveEffect;
+
+    private const string AdditiveSksl = "half4 main(half4 color) { return half4(color.rgb, 0); }";
     private readonly SKGraphiteVkGetProcedureAddressDelegate _getProc;
     private readonly Dictionary<IBuffer, SkiaGraphiteTarget> _targets = [];
     private readonly SkiaGraphiteRenderPass _pass;
@@ -62,6 +65,9 @@ public sealed unsafe class SkiaGraphiteRenderer : IRenderer
         }
 
         _recorder = SkiaCensus.Track(recorder);
+        _additiveEffect = SkiaCensus.Track(SKRuntimeEffect.CreateColorFilter(AdditiveSksl, out var errors)
+            ?? throw new InvalidOperationException($"the additive filter failed to compile: {errors}"));
+        AdditiveFilter = SkiaCensus.Track(_additiveEffect.ToColorFilter());
         _paint = SkiaCensus.Track(new SKPaint());
         _pass = new SkiaGraphiteRenderPass(this, _paint);
         _sync = new SkiaVulkanSync(_device);
@@ -89,6 +95,8 @@ public sealed unsafe class SkiaGraphiteRenderer : IRenderer
     public SKGraphiteContext Context => _context;
 
     public SKGraphiteRecorder Recorder => _recorder;
+
+    internal SKColorFilter AdditiveFilter { get; }
 
     internal SkiaVulkanSync Sync => _sync;
 
@@ -215,6 +223,8 @@ public sealed unsafe class SkiaGraphiteRenderer : IRenderer
         ReleaseBackdropCopy();
         ColorTransforms.Dispose();
         SkiaCensus.Release(_paint);
+        SkiaCensus.Release(AdditiveFilter);
+        SkiaCensus.Release(_additiveEffect);
         SkiaCensus.Release(_recorder);
         _context.FreeGpuResources();
         SkiaCensus.Release(_context);

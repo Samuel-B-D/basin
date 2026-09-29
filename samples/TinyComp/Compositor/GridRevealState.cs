@@ -26,6 +26,8 @@ internal sealed class GridRevealState
 
     public bool Shown => Raw > 0 || Running;
 
+    public bool Held { get; set; }
+
     public void Show(double x, double y, CanvasSetting settings)
     {
         if (Raw <= 0)
@@ -84,7 +86,7 @@ internal sealed class GridRevealState
         _anchorPending = false;
         _lastNanos = nanos;
         var millis = Math.Clamp(delta / 1_000_000.0, 0.0, 250.0);
-        if (Lingering)
+        if (Lingering && !Held)
         {
             LingerMillis -= millis;
             if (LingerMillis <= 0)

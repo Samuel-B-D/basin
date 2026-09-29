@@ -140,6 +140,84 @@ public sealed class CanvasWarpTests
     }
 
     [Fact]
+    public void A_center_change_leaves_the_x_curve_alone_and_the_rows_round_trip()
+    {
+        var warp = new CanvasWarp();
+        Assert.True(warp.Layout(413, -1, 413, 1720, 0.2, slope: 0.4, center: 720));
+        var xs = new[] { 0.0, 37.5, 200.25, 412.0 };
+        var before = xs.Select(warp.ToCanvas).ToArray();
+
+        Assert.True(warp.SetCenter(300));
+        Assert.False(warp.SetCenter(300));
+        Assert.Equal(300, warp.Center, 9);
+        Assert.Equal(before, xs.Select(warp.ToCanvas).ToArray());
+        Assert.Equal(300, warp.ToScreenY(warp.FarEdge, 300), 9);
+        for (var x = 412; x >= warp.FarEdge; x -= 29)
+        {
+            var screenX = warp.ToScreen(x);
+            foreach (var y in new[] { 0.0, 300.0, 720.0, 1440.0 })
+            {
+                var back = warp.ToCanvasY(screenX, warp.ToScreenY(x, y));
+                Assert.True(Math.Abs(back - y) < 0.02, $"({x},{y}) -> {back}");
+            }
+        }
+
+        Assert.True(warp.Layout(413, -1, 413, 1720, 0.2, slope: 0.4, center: 900));
+        Assert.Equal(900, warp.Center, 9);
+        Assert.Equal(before, xs.Select(warp.ToCanvas).ToArray());
+        Assert.False(warp.Layout(413, -1, 413, 1720, 0.2, slope: 0.4, center: 900));
+    }
+
+    [Fact]
+    public void A_slope_change_keeps_both_floors()
+    {
+        var warp = new CanvasWarp();
+        Assert.True(warp.Layout(413, -1, 413, 1720, 0.2, slope: 0.4, center: 720));
+        Assert.True(warp.SetSlope(-5));
+        Assert.Equal(CanvasWarp.MinSlope, warp.Slope, 9);
+        Assert.False(warp.SetSlope(-7));
+        Assert.Equal(1.0 + CanvasWarp.MinSlope, warp.MinFan, 9);
+        Assert.True(warp.SetSlope(0.8));
+        Assert.Equal(1.8, warp.FanAt(warp.FarEdge), 9);
+        Assert.Equal(1.0, warp.MinFan, 9);
+
+        var terrace = new CanvasWarp();
+        Assert.True(terrace.LayoutTerrace(300, -1, 300, 40, 0.3, CanvasWarp.TerraceExponent, 0.5, 600));
+        var reference = new CanvasWarp();
+        Assert.True(reference.LayoutTerrace(300, -1, 300, 40, 0.3, CanvasWarp.TerraceExponent, -5, 600));
+        Assert.True(terrace.SetSlope(-5));
+        Assert.Equal(reference.Slope, terrace.Slope, 12);
+        Assert.True(terrace.Slope > CanvasWarp.MinSlope, $"the terrace floor {terrace.Slope} is above the plain floor");
+        Assert.True(terrace.MinFan >= CanvasWarp.MinTerraceFan - 1e-9);
+
+        var empty = new CanvasWarp();
+        Assert.False(empty.SetSlope(0.5));
+        Assert.Equal(0, empty.Slope, 12);
+    }
+
+    [Theory]
+    [InlineData(-0.5)]
+    [InlineData(0.0)]
+    [InlineData(0.7)]
+    [InlineData(2.5)]
+    public void A_terrace_SetSlope_gives_the_same_minimum_fan_as_a_full_layout(double slope)
+    {
+        var moved = new CanvasWarp();
+        Assert.True(moved.LayoutTerrace(300, -1, 300, 40, 0.3, CanvasWarp.TerraceExponent, 0.1, 600));
+        moved.SetSlope(slope);
+        var laid = new CanvasWarp();
+        Assert.True(laid.LayoutTerrace(300, -1, 300, 40, 0.3, CanvasWarp.TerraceExponent, slope, 600));
+        Assert.Equal(laid.Slope, moved.Slope, 12);
+        Assert.Equal(laid.MinFan, moved.MinFan, 12);
+        Assert.Equal(laid.Exponent, moved.Exponent, 12);
+        foreach (var x in new[] { 290.0, 200.0, 50.0, -100.0 })
+        {
+            Assert.Equal(laid.FanAt(x), moved.FanAt(x), 12);
+            Assert.Equal(laid.ToScreen(x), moved.ToScreen(x), 12);
+        }
+    }
+
+    [Fact]
     public void A_zero_zone_is_the_identity()
     {
         var warp = new CanvasWarp();

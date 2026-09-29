@@ -14,6 +14,7 @@ public sealed class CanvasWarp
     private bool _terrace;
     private int _shelfWidth;
     private double _minFan = 1.0;
+    private double _slopeFloor = MinSlope;
 
     public const double MinSlope = -0.9;
 
@@ -100,7 +101,6 @@ public sealed class CanvasWarp
         int seam, int direction, int zoneWidth, int extension, double edgeScale, double slope, double center, bool terrace, int shelfWidth)
     {
         direction = direction < 0 ? -1 : 1;
-        slope = Math.Max(MinSlope, slope);
         zoneWidth = Math.Max(0, zoneWidth);
         extension = Math.Max(zoneWidth, extension);
         if (zoneWidth <= 0 || extension <= 0)
@@ -116,20 +116,16 @@ public sealed class CanvasWarp
 
         if (zoneWidth <= 0)
         {
-            slope = 0.0;
             terrace = false;
             shelfWidth = 0;
         }
-        else if (terrace)
-        {
-            slope = Math.Max(slope, TerraceSlopeFloor(zoneWidth, edgeScale));
-        }
 
         if (seam == _seam && direction == _direction && zoneWidth == _zoneWidth &&
-            extension == _extension && edgeScale == _edgeScale && slope == _slope && center == _center &&
+            extension == _extension && edgeScale == _edgeScale &&
             terrace == _terrace && shelfWidth == _shelfWidth)
         {
-            return false;
+            var moved = SetSlope(slope);
+            return SetCenter(center) | moved;
         }
 
         _seam = seam;
@@ -137,15 +133,15 @@ public sealed class CanvasWarp
         _zoneWidth = zoneWidth;
         _extension = extension;
         _edgeScale = edgeScale;
-        _slope = slope;
         _center = center;
         _terrace = terrace;
         _shelfWidth = shelfWidth;
-        _minFan = terrace ? TerraceMinFan(zoneWidth, edgeScale, slope) : Math.Min(1.0, 1.0 + slope);
+        _slopeFloor = zoneWidth > 0 && terrace ? Math.Max(MinSlope, TerraceSlopeFloor(zoneWidth, edgeScale)) : MinSlope;
+        _slope = double.NaN;
+        SetSlope(slope);
         if (IsIdentity)
         {
             _exponent = 0;
-            _minFan = 1.0;
             return true;
         }
 
@@ -161,6 +157,38 @@ public sealed class CanvasWarp
         for (var i = 1; i < zoneWidth; i++)
         {
             _table[i] = Solve(i);
+        }
+
+        return true;
+    }
+
+    public bool SetCenter(double center)
+    {
+        if (center == _center)
+        {
+            return false;
+        }
+
+        _center = center;
+        return true;
+    }
+
+    public bool SetSlope(double slope)
+    {
+        slope = _zoneWidth <= 0 ? 0.0 : Math.Max(_slopeFloor, slope);
+        if (slope == _slope)
+        {
+            return false;
+        }
+
+        _slope = slope;
+        if (IsIdentity)
+        {
+            _minFan = 1.0;
+        }
+        else
+        {
+            _minFan = _terrace ? TerraceMinFan(_zoneWidth, _edgeScale, slope) : Math.Min(1.0, 1.0 + slope);
         }
 
         return true;

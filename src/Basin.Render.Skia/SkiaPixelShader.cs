@@ -1,4 +1,6 @@
+using System.Runtime.InteropServices;
 using System.Text;
+using Basin.Diagnostics;
 using SkiaSharp;
 
 namespace Basin.Render.Skia;
@@ -6,10 +8,12 @@ namespace Basin.Render.Skia;
 internal sealed class SkiaPixelShader : IPixelShader
 {
     private readonly SKRuntimeEffect _effect;
-    private readonly string[] _names;
     private readonly PixelShaderUniformType[] _types;
-    private readonly PixelShaderUniformValue[] _values;
-    private SKShader? _shader;
+    private readonly int[] _offsets;
+    private readonly int _sizeOffset;
+    private readonly int _srcOffset;
+    private readonly byte[] _block;
+    private nint _shader;
     private float _width = -1f;
     private float _height = -1f;
     private bool _dirty = true;
@@ -21,13 +25,15 @@ internal sealed class SkiaPixelShader : IPixelShader
     {
         _effect = effect;
         SamplesTexture = samplesTexture;
-        _names = new string[uniforms.Length];
         _types = new PixelShaderUniformType[uniforms.Length];
-        _values = new PixelShaderUniformValue[uniforms.Length];
+        _offsets = new int[uniforms.Length];
+        _block = new byte[effect.UniformSize];
+        _sizeOffset = OffsetOf(effect, "u_size");
+        _srcOffset = samplesTexture ? OffsetOf(effect, "u_src") : -1;
         for (var i = 0; i < uniforms.Length; i++)
         {
-            _names[i] = uniforms[i].Name;
             _types[i] = uniforms[i].Type;
+            _offsets[i] = OffsetOf(effect, uniforms[i].Name);
         }
     }
 
@@ -43,77 +49,116 @@ internal sealed class SkiaPixelShader : IPixelShader
     public void SetUniforms(ReadOnlySpan<PixelShaderUniformValue> values)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (values.Length != _values.Length)
+        if (values.Length != _types.Length)
         {
             throw new ArgumentException("value count must match the declared uniform count", nameof(values));
         }
 
-        values.CopyTo(_values);
+        for (var i = 0; i < values.Length; i++)
+        {
+            var value = values[i];
+            var at = _block.AsSpan(_offsets[i]);
+            switch (_types[i])
+            {
+                case PixelShaderUniformType.Float:
+                    Write(at, value.X);
+                    break;
+                case PixelShaderUniformType.Float2:
+                    Write(at, value.X, value.Y);
+                    break;
+                case PixelShaderUniformType.Float3:
+                    Write(at, value.X, value.Y);
+                    Write(at[8..], value.Z);
+                    break;
+                case PixelShaderUniformType.Float4:
+                    Write(at, value.X, value.Y);
+                    Write(at[8..], value.Z, value.W);
+                    break;
+            }
+        }
+
         _dirty = true;
     }
 
-    internal SKShader Realize(float width, float height)
+    internal nint Realize(float width, float height)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_shader is not null && !_dirty && _width == width && _height == height)
+        if (_shader != 0 && !_dirty && _width == width && _height == height)
         {
             return _shader;
         }
 
-        SkiaCensus.Release(_shader);
-        _shader = SkiaCensus.Track(Build(width, height, null, default));
+        var built = Build(width, height, 0, default);
+        if (_shader != 0)
+        {
+            SkiaShaderNative.UnrefShader(_shader);
+            BasinCounters.Untrack();
+        }
+
+        _shader = built;
+        BasinCounters.Track();
         _width = width;
         _height = height;
         _dirty = false;
         return _shader;
     }
 
-    internal SKShader RealizeWithChild(float width, float height, SKShader child, in FBox src)
+    internal nint RealizeWithChild(float width, float height, nint child, in FBox src)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         return Build(width, height, child, src);
     }
 
-    private SKShader Build(float width, float height, SKShader? child, in FBox src)
+    private unsafe nint Build(float width, float height, nint child, in FBox src)
     {
-        var uniforms = new SKRuntimeEffectUniforms(_effect) { { "u_size", new[] { width, height } } };
-        if (SamplesTexture)
+        Write(_block.AsSpan(_sizeOffset), width, height);
+        if (_srcOffset >= 0)
         {
-            uniforms.Add("u_src", new[] { (float)src.X, (float)src.Y, (float)src.Width, (float)src.Height });
+            Write(_block.AsSpan(_srcOffset), (float)src.X, (float)src.Y);
+            Write(_block.AsSpan(_srcOffset + 8), (float)src.Width, (float)src.Height);
         }
 
-        for (var i = 0; i < _values.Length; i++)
+        nint shader;
+        fixed (byte* block = _block)
         {
-            var value = _values[i];
-            switch (_types[i])
+            var data = SkiaShaderNative.CopyData(block, _block.Length);
+            try
             {
-                case PixelShaderUniformType.Float:
-                    uniforms.Add(_names[i], value.X);
-                    break;
-                case PixelShaderUniformType.Float2:
-                    uniforms.Add(_names[i], new[] { value.X, value.Y });
-                    break;
-                case PixelShaderUniformType.Float3:
-                    uniforms.Add(_names[i], new[] { value.X, value.Y, value.Z });
-                    break;
-                case PixelShaderUniformType.Float4:
-                    uniforms.Add(_names[i], new[] { value.X, value.Y, value.Z, value.W });
-                    break;
+                shader = child == 0
+                    ? SkiaShaderNative.MakeShader(_effect.Handle, data, null, 0, null)
+                    : SkiaShaderNative.MakeShader(_effect.Handle, data, &child, 1, null);
+            }
+            finally
+            {
+                SkiaShaderNative.UnrefData(data);
             }
         }
 
-        SKShader? shader;
-        if (child is null)
+        return shader != 0 ? shader : throw new InvalidOperationException("pixel shader rejected its uniforms or children");
+    }
+
+    private static void Write(Span<byte> at, float x) => MemoryMarshal.Write(at, in x);
+
+    private static void Write(Span<byte> at, float x, float y)
+    {
+        MemoryMarshal.Write(at, in x);
+        MemoryMarshal.Write(at[4..], in y);
+    }
+
+    private static unsafe int OffsetOf(SKRuntimeEffect effect, string name)
+    {
+        var names = effect.Uniforms;
+        for (var i = 0; i < names.Count; i++)
         {
-            shader = _effect.ToShader(uniforms);
-        }
-        else
-        {
-            var children = new SKRuntimeEffectChildren(_effect) { { "u_texture", child } };
-            shader = _effect.ToShader(uniforms, children);
+            if (names[i] == name)
+            {
+                SkiaShaderNative.Uniform uniform;
+                SkiaShaderNative.GetUniform(effect.Handle, i, &uniform);
+                return (int)uniform.Offset;
+            }
         }
 
-        return shader ?? throw new InvalidOperationException("pixel shader rejected its uniforms or children");
+        throw new InvalidOperationException($"pixel shader declares no uniform {name}");
     }
 
     public void Dispose()
@@ -124,8 +169,13 @@ internal sealed class SkiaPixelShader : IPixelShader
         }
 
         _disposed = true;
-        SkiaCensus.Release(_shader);
-        _shader = null;
+        if (_shader != 0)
+        {
+            SkiaShaderNative.UnrefShader(_shader);
+            BasinCounters.Untrack();
+            _shader = 0;
+        }
+
         SkiaCensus.Release(_effect);
     }
 

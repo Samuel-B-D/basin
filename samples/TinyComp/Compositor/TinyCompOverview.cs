@@ -160,7 +160,8 @@ internal sealed partial class TinyComp
             var fan = (side & CanvasSide.Horizontal) != 0 ? overview.CenterY : overview.CenterX;
             var fullWarp = FullWarpOf(overview, side);
             _ = fullWarp.LayoutTerrace(
-                outer, Direction(side), end.Zone, end.Shelf, end.EdgeScale, CanvasWarp.TerraceExponent, settings.SlopeValue, fan);
+                outer, Direction(side), end.Zone, end.Shelf, end.EdgeScale, CanvasWarp.TerraceExponent,
+                PinchedSlope(canvas, side, settings.SlopeValue), PinchedCenter(canvas, side, fan));
             overview.OuterCanvas[index] = fullWarp.IsIdentity ? double.NaN : fullWarp.ToCanvas(fullWarp.OuterEdge);
         }
 
@@ -220,7 +221,8 @@ internal sealed partial class TinyComp
             var now = OverviewLayout.At(full, overview.Value, outer, edge, center, Direction(side), scale, shelfScale);
             var fan = (side & CanvasSide.Horizontal) != 0 ? centerY : centerX;
             changed |= WarpOf(canvas, side).LayoutTerrace(
-                outer, Direction(side), now.Zone, now.Shelf, now.EdgeScale, CanvasWarp.TerraceExponent, settings.SlopeValue, fan);
+                outer, Direction(side), now.Zone, now.Shelf, now.EdgeScale, CanvasWarp.TerraceExponent,
+                PinchedSlope(canvas, side, settings.SlopeValue), PinchedCenter(canvas, side, fan));
         }
 
         var map = canvas.Map;
@@ -274,7 +276,7 @@ internal sealed partial class TinyComp
         }
 
         ApplyCanvasToView(view);
-        canvas.Grid?.NotifyMeshChanged();
+        canvas.NotifyGrid();
         view.Scheduler?.ScheduleRepaint();
     }
 

@@ -158,6 +158,108 @@ public sealed class TinyCompConfigTests : IDisposable
     }
 
     [Fact]
+    public void The_grid_effects_are_off_by_default_and_the_overview_keeps_its_own_table()
+    {
+        var log = BasinLog.For("t");
+        var defaults = TinyComp.Config.Parse(string.Empty, log, out _);
+        var none = defaults.CanvasFor("DP-1", log).GridEffectsValue;
+        Assert.False(none.Highlights);
+        Assert.False(none.DensityValue);
+        Assert.Equal(0xe8ecffffu, none.HighlightRgba);
+
+        var config = TinyComp.Config.Parse(
+            "[canvas]\ngrid = \"drag\"\n[canvas.grid_effects]\nhighlight_dragged = 1.0\nhighlight_radius = 90\ndensity = true\n"
+            + "[overview]\ngrid = \"always\"\n[overview.grid_effects]\nhighlight_pointer = 0.4\n"
+            + "[output.\"DP-2\"]\ngrid_effects = { density_floor = 0.3 }\n"
+            + "[output.\"DP-2\".overview.grid_effects]\nhighlight_focused = 0.5\n",
+            log,
+            out var fatal);
+        Assert.Null(fatal);
+        var canvas = config.CanvasFor("DP-1", log).GridEffectsValue;
+        Assert.Equal(1.0, canvas.HighlightDraggedValue);
+        Assert.Equal(90.0, canvas.HighlightRadiusValue);
+        Assert.True(canvas.DensityValue);
+        Assert.True(canvas.Highlights);
+        var overview = config.OverviewCanvasFor("DP-1", log).GridEffectsValue;
+        Assert.Equal(0.4, overview.HighlightPointerValue);
+        Assert.Equal(0.0, overview.HighlightDraggedValue);
+        Assert.False(overview.DensityValue);
+        var output = config.CanvasFor("DP-2", log).GridEffectsValue;
+        Assert.Equal(0.3, output.DensityFloorValue);
+        Assert.Equal(1.0, output.HighlightDraggedValue);
+        Assert.True(output.DensityValue);
+        var outputOverview = config.OverviewCanvasFor("DP-2", log).GridEffectsValue;
+        Assert.Equal(0.5, outputOverview.HighlightFocusedValue);
+        Assert.Equal(0.4, outputOverview.HighlightPointerValue);
+        Assert.DoesNotContain(_lines, line => line.Contains("grid_effects", StringComparison.Ordinal));
+    }
+
+    private static string ShippedToml([System.Runtime.CompilerServices.CallerFilePath] string path = "") =>
+        File.ReadAllText(Path.Combine(Path.GetDirectoryName(path)!, "..", "..", "samples", "TinyComp", "tinycomp.toml"));
+
+    [Fact]
+    public void The_shipped_curved_windows_block_is_the_preset_table()
+    {
+        var lines = ShippedToml().Split('\n');
+        var start = Array.FindIndex(lines, line => line.StartsWith("# The CurvedWindows look", StringComparison.Ordinal));
+        Assert.True(start >= 0, "the shipped file carries the preset block");
+        var keys = new System.Text.StringBuilder();
+        for (var i = start + 1; i < lines.Length && lines[i].StartsWith("# ", StringComparison.Ordinal); i++)
+        {
+            keys.AppendLine(lines[i][2..]);
+        }
+
+        var table = Tomlyn.Toml.ToModel(keys.ToString());
+        var shipped = TinyComp.GridEffectsSetting.Parse(table, "preset", BasinLog.For("t"));
+        var preset = TinyComp.GridEffectsPresets.Curved;
+        Assert.Equal(preset.Glow, shipped.Glow);
+        Assert.Equal(preset.HighlightDragged, shipped.HighlightDragged);
+        Assert.Equal(preset.HighlightFocused, shipped.HighlightFocused);
+        Assert.Equal(preset.HighlightWindows, shipped.HighlightWindows);
+        Assert.Equal(preset.HighlightPointer, shipped.HighlightPointer);
+        Assert.Equal(preset.Density, shipped.Density);
+        Assert.Equal(preset.Pinch, shipped.Pinch);
+        Assert.Equal(7, table.Count);
+    }
+
+    [Fact]
+    public void The_pinch_keys_parse_and_a_step_overview_outside_its_range_warns()
+    {
+        var log = BasinLog.For("t");
+        var config = TinyComp.Config.Parse(
+            "[canvas.grid_effects]\npinch = -0.5\npinch_reach = 250\npinch_speed = 90\npinch_spring = 400\npinch_damping = 0.8\n"
+            + "[overview]\nwall = \"step\"\n[overview.grid_effects]\npinch = 0.9\n",
+            log,
+            out _);
+        var canvas = config.CanvasFor("DP-1", log).GridEffectsValue;
+        Assert.Equal(-0.5, canvas.PinchValue);
+        Assert.Equal(250.0, canvas.PinchReachValue);
+        Assert.Equal(90.0, canvas.PinchSpeedValue);
+        Assert.Equal(400.0, canvas.PinchSpringValue);
+        Assert.Equal(0.8, canvas.PinchDampingValue);
+        Assert.Equal(0.9, config.OverviewCanvasFor("DP-1", log).GridEffectsValue.PinchValue);
+        Assert.Contains(_lines, line => line.Contains("[overview.grid_effects] pinch 0.9 is outside 0 to 0.7 on the step overview", StringComparison.Ordinal));
+        _ = TinyComp.Config.Parse("[canvas.grid_effects]\npinch = 9\n", log, out _);
+        Assert.Contains(_lines, line => line.Contains("[canvas.grid_effects] pinch 9 is outside -0.9 to 4", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_grid_effect_out_of_range_warns_and_clamps_and_an_unknown_key_warns()
+    {
+        var log = BasinLog.For("t");
+        var config = TinyComp.Config.Parse(
+            "[canvas.grid_effects]\nhighlight_windows = 3\ndensity_spacing = 0\nhighlight_damping = 9\nsparkle = true\n",
+            log,
+            out _);
+        var effects = config.CanvasFor("DP-1", log).GridEffectsValue;
+        Assert.Equal(1.0, effects.HighlightWindowsValue);
+        Assert.Equal(1.0, effects.DensitySpacingValue);
+        Assert.Equal(4.0, effects.HighlightDampingValue);
+        Assert.Contains(_lines, line => line.Contains("[canvas.grid_effects] highlight_windows 3 is outside 0 to 1", StringComparison.Ordinal));
+        Assert.Contains(_lines, line => line.Contains("[canvas.grid_effects] sparkle: unknown key", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void An_unknown_grid_reveal_name_warns_and_keeps_the_default_and_the_milliseconds_clamp()
     {
         var log = BasinLog.For("t");

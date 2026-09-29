@@ -57,7 +57,7 @@ internal sealed class SkiaGraphiteRenderPass : IRenderPass
     public void AddMesh(ITexture? texture, ReadOnlySpan<MeshVertex> vertices, in MeshRenderOptions options)
     {
         ObjectDisposedException.ThrowIf(_target is null, this);
-        SkiaDraw.Mesh(_entry!.Canvas, _paint, (ISkiaTexture?)texture, vertices, options);
+        SkiaDraw.Mesh(_entry!.Canvas, _paint, (ISkiaTexture?)texture, vertices, options, _renderer.AdditiveFilter);
     }
 
     public void AddShader(IPixelShader shader, in ShaderRenderOptions options)

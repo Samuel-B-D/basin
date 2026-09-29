@@ -105,6 +105,8 @@ internal sealed class CanvasSetting
 
     public CanvasDrag? Drag { get; init; }
 
+    public GridEffectsSetting? GridEffects { get; init; }
+
     public static CanvasSetting Defaults { get; } = new()
     {
         Enable = false,
@@ -120,6 +122,7 @@ internal sealed class CanvasSetting
         GridAnimationMs = DefaultGridAnimationMs,
         GridEasing = DefaultGridEasing,
         GridLingerMs = DefaultGridLingerMs,
+        GridEffects = GridEffectsSetting.Defaults,
         Wallpaper = CanvasWallpaper.Desktop,
         AnimationMs = 250,
         Sides = CanvasSide.Horizontal,
@@ -201,6 +204,8 @@ internal sealed class CanvasSetting
     public string GridEasingName => GridEasings.NameOf(GridEasingValue);
 
     public int GridLingerMillis => GridLingerMs ?? DefaultGridLingerMs;
+
+    public GridEffectsSetting GridEffectsValue => GridEffects ?? GridEffectsSetting.Defaults;
 
     public GridRevealStyle GridRevealStyle => GridAnimationMillis == 0 ? GridRevealStyle.None : GridAnimationValue switch
     {
@@ -342,6 +347,7 @@ internal sealed class CanvasSetting
         Shape = Shape ?? fallback.Shape,
         OnSlope = OnSlope ?? fallback.OnSlope,
         Drag = Drag ?? fallback.Drag,
+        GridEffects = GridEffects is null ? fallback.GridEffects : GridEffects.Over(fallback.GridEffects),
     };
 
     public static CanvasSetting Parse(TomlTable table, string section, BasinLogger log)
@@ -376,6 +382,7 @@ internal sealed class CanvasSetting
         ShelfShape? shelfShape = null;
         SlopeWindow? onSlope = null;
         CanvasDrag? drag = null;
+        GridEffectsSetting? gridEffects = null;
         foreach (var (key, value) in table)
         {
             switch (key)
@@ -561,6 +568,9 @@ internal sealed class CanvasSetting
                 case "sides" when value is TomlArray list:
                     sides = ParseSides(list, section, log);
                     break;
+                case "grid_effects" when value is TomlTable effects:
+                    gridEffects = GridEffectsSetting.Parse(effects, $"{section}.grid_effects", log);
+                    break;
                 default:
                     log.Warn($"[{section}] {key}: unknown key or wrong type, ignored");
                     break;
@@ -598,6 +608,7 @@ internal sealed class CanvasSetting
             Shape = shelfShape,
             OnSlope = onSlope,
             Drag = drag,
+            GridEffects = gridEffects,
         };
         if (corner is { } shaped && cornerRadius is { } exact && shaped != exact)
         {
@@ -731,6 +742,7 @@ internal sealed class CanvasSetting
             Shape = Shape,
             OnSlope = OnSlope,
             Drag = Drag,
+            GridEffects = GridEffects,
         };
     }
 

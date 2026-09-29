@@ -7,7 +7,7 @@ public static class AllocationScope
 {
     private const int MaxDepth = 8;
 
-    private const int MaxRegions = 32;
+    private const int MaxRegions = 64;
 
     private const int ForgivenessBudget = 8;
 

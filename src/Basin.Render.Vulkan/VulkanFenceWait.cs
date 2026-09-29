@@ -8,7 +8,7 @@ public sealed unsafe class VulkanFenceWait : IDisposable
 {
     private readonly VulkanDevice _device;
     private readonly KhrExternalSemaphoreFd? _semaphoreFd;
-    private readonly Semaphore _waitSemaphore;
+    private readonly List<(Semaphore Semaphore, Fence Fence)> _slots = new(4);
 
     public VulkanFenceWait(VulkanDevice device)
     {
@@ -18,12 +18,12 @@ public sealed unsafe class VulkanFenceWait : IDisposable
             vk.TryGetDeviceExtension(device.Instance, device.Device, out KhrExternalSemaphoreFd semaphoreFd))
         {
             _semaphoreFd = semaphoreFd;
-            var semaphoreInfo = new SemaphoreCreateInfo { SType = StructureType.SemaphoreCreateInfo };
-            VulkanDevice.Check(vk.CreateSemaphore(device.Device, in semaphoreInfo, null, out _waitSemaphore), "vkCreateSemaphore(wait)");
         }
     }
 
     public bool IsGpuSide => _semaphoreFd is not null;
+
+    public int Slots => _slots.Count;
 
     public void Wait(int syncFileFd)
     {
@@ -34,26 +34,27 @@ public sealed unsafe class VulkanFenceWait : IDisposable
 
         if (_semaphoreFd is { } ext)
         {
+            var (semaphore, fence) = FreeSlot();
             var import = new ImportSemaphoreFdInfoKHR
             {
                 SType = StructureType.ImportSemaphoreFDInfoKhr,
-                Semaphore = _waitSemaphore,
+                Semaphore = semaphore,
                 Flags = SemaphoreImportFlags.TemporaryBit,
                 HandleType = ExternalSemaphoreHandleTypeFlags.SyncFDBit,
                 Fd = Libc.Dup(syncFileFd),
             };
             if (ext.ImportSemaphoreF(_device.Device, in import) == Result.Success)
             {
-                var wait = _waitSemaphore;
                 var stage = PipelineStageFlags.AllCommandsBit;
                 var submit = new SubmitInfo
                 {
                     SType = StructureType.SubmitInfo,
                     WaitSemaphoreCount = 1,
-                    PWaitSemaphores = &wait,
+                    PWaitSemaphores = &semaphore,
                     PWaitDstStageMask = &stage,
                 };
-                if (_device.Api.QueueSubmit(_device.Queue, 1, in submit, default) == Result.Success)
+                _ = _device.Api.ResetFences(_device.Device, 1, &fence);
+                if (_device.Api.QueueSubmit(_device.Queue, 1, in submit, fence) == Result.Success)
                 {
                     return;
                 }
@@ -65,9 +66,32 @@ public sealed unsafe class VulkanFenceWait : IDisposable
 
     public void Dispose()
     {
-        if (_semaphoreFd is not null)
+        foreach (var (semaphore, fence) in _slots)
         {
-            _device.Api.DestroySemaphore(_device.Device, _waitSemaphore, null);
+            var handle = fence;
+            _ = _device.Api.WaitForFences(_device.Device, 1, &handle, true, ulong.MaxValue);
+            _device.Api.DestroyFence(_device.Device, fence, null);
+            _device.Api.DestroySemaphore(_device.Device, semaphore, null);
         }
+
+        _slots.Clear();
+    }
+
+    private (Semaphore Semaphore, Fence Fence) FreeSlot()
+    {
+        for (var i = 0; i < _slots.Count; i++)
+        {
+            if (_device.Api.GetFenceStatus(_device.Device, _slots[i].Fence) == Result.Success)
+            {
+                return _slots[i];
+            }
+        }
+
+        var semaphoreInfo = new SemaphoreCreateInfo { SType = StructureType.SemaphoreCreateInfo };
+        VulkanDevice.Check(_device.Api.CreateSemaphore(_device.Device, in semaphoreInfo, null, out var semaphore), "vkCreateSemaphore(wait)");
+        var fenceInfo = new FenceCreateInfo { SType = StructureType.FenceCreateInfo, Flags = FenceCreateFlags.SignaledBit };
+        VulkanDevice.Check(_device.Api.CreateFence(_device.Device, in fenceInfo, null, out var fence), "vkCreateFence(wait)");
+        _slots.Add((semaphore, fence));
+        return (semaphore, fence);
     }
 }

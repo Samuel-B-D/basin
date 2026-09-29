@@ -430,9 +430,29 @@ public sealed class SeatBinder
             Motion?.Invoke(timeMs, dx, dy, null, null);
         }
 
-        parentPointer.Enter += (on, x, y) => MoveTo((uint)Environment.TickCount, on, x, y);
+        bool Relative() => parentPointer.HasRelativeMotion && PointerFrozen?.Invoke() == true;
+
+        parentPointer.Enter += (on, x, y) =>
+        {
+            if (!Relative())
+            {
+                MoveTo((uint)Environment.TickCount, on, x, y);
+            }
+        };
+        parentPointer.RelativeMotion += (microseconds, dx, dy, unacceleratedDx, unacceleratedDy) =>
+        {
+            if (Relative())
+            {
+                Motion?.Invoke((uint)(microseconds / 1000), dx, dy, unacceleratedDx, unacceleratedDy);
+            }
+        };
         parentPointer.Motion += (timeMs, x, y) =>
         {
+            if (Relative())
+            {
+                return;
+            }
+
             if (_layout.OutputAt(_pointer.X, _pointer.Y) is WaylandOutput on)
             {
                 MoveTo(timeMs, on, x, y);

@@ -139,7 +139,7 @@ public abstract class ScreenCaptureConformance
         var target = CreateTarget(format);
         try
         {
-            for (var i = 0; i < 20; i++)
+            for (var i = 0; i < 64; i++)
             {
                 Drive(capture, source, target);
             }

@@ -11,6 +11,7 @@ public sealed class CursorController : IDisposable
     private readonly OutputLayout _layout;
     private readonly List<(IOutput Output, SceneOutput? Scene)> _outputs = [];
     private readonly Dictionary<IOutput, ImageDescription?> _descriptions = [];
+    private readonly Dictionary<string, Func<double, XcursorImage?>> _painted = [];
 
     private CursorImages? _images;
     private IAllocator? _allocator;
@@ -91,6 +92,11 @@ public sealed class CursorController : IDisposable
         {
             ColorProfiles = ColorProfiles,
         };
+        foreach (var (name, paint) in _painted)
+        {
+            _images.Define(name, paint);
+        }
+
         if (!_images.HasTheme)
         {
             Log.Warn($"no cursor theme found. XCURSOR_PATH, ~/.local/share/icons, ~/.icons, /usr/share/icons and /usr/share/pixmaps hold none, so no cursor can be drawn");
@@ -208,6 +214,19 @@ public sealed class CursorController : IDisposable
                 ShowNamed(showing);
             }
         });
+
+    public void Define(string name, Func<double, XcursorImage?> paint)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(paint);
+        _painted[name] = paint;
+        _images?.Define(name, paint);
+        if (_showingName == name)
+        {
+            _showingName = string.Empty;
+            ShowNamed(name);
+        }
+    }
 
     public void ShowNamed(string name)
     {

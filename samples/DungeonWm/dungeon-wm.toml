@@ -1,0 +1,144 @@
+# DungeonWm: a compositor that hangs windows on the walls of a 3D dungeon.
+# Every key below is at its default. SIGHUP rereads this file. A key that
+# needs a restart is named on the RELOAD line.
+
+[render]
+# vulkan or gl. Vulkan falls back to gl when it cannot start.
+renderer = "vulkan"
+# How many doorways deep the visibility walk goes.
+room_depth = 4
+# The most lights that light one level of the view.
+max_lights = 8
+# Anisotropic filtering for windows seen at an angle.
+anisotropy = 8
+# Texel-to-pixel ratios sampled straight from the client buffer, without a mip copy.
+direct_sample_range = [0.85, 1.2]
+
+[camera]
+# Vertical field of view in degrees, spanning every output.
+fov = 70
+near = 0.05
+far = 120
+# Radians per pixel of mouse motion in crosshair mode and of Super+drag.
+look_sensitivity = 0.0035
+# Meters per second, and with Shift held.
+walk_speed = 3.2
+run_speed = 6.0
+eye_height = 1.6
+# The output that holds the crosshair. Empty uses the first output.
+crosshair_output = ""
+# Meters from the eye within which E and a click act on a window.
+reach = 4.0
+
+[reticle]
+# The fill of the crosshair reticle. A dark outline goes around it.
+color = "#ffffffe6"
+# The side of the reticle in logical pixels.
+size = 24
+
+[world]
+seed = 7
+# Meters per KayKit unit. A wall module is four units.
+unit = 0.75
+# Room size in wall modules, width and depth.
+room_min = [3, 3]
+room_max = [6, 5]
+# Share of room walls that are decorated and hold no window.
+decor_walls = 0.2
+# stone, wood, mixed or none.
+roof = "stone"
+# Beams under a wooden roof.
+roof_beams = true
+# Wall modules between torches.
+torch_spacing = 2
+# Meters from the floor to a torch.
+torch_height = 2.1
+torch_color = "#ff9e4d"
+# Density of decor in room corners, 0 to 1.
+props = 0.5
+# Barrels, boxes, chairs and stools are bodies you can knock over.
+dynamic_props = true
+# A 1280-pixel window at 1000 is 1.28 meters wide.
+pixels_per_meter = 1000
+# The color where no geometry is drawn.
+sky_color = "#08080d"
+# Rooms at startup, one per workspace.
+rooms = 4
+
+[windows]
+# Slab thickness in meters.
+depth = 0.02
+# Meters from the floor to the center of a window with its frame and plaque.
+hang_height = 1.6
+edge_color = "#524538ff"
+focus_color = "#f2b852ff"
+# Opacity of windows without focus.
+unfocused_opacity = 1.0
+# Milliseconds a new window takes to drop onto its hook, swing and settle. 0 hangs it at once.
+open_ms = 600
+# Milliseconds a closed window takes to fade once it lands. 0 removes it at once.
+close_ms = 600
+
+[frames]
+# Hang every window in a picture frame with a plaque under it.
+enabled = true
+# Rail width in meters.
+width = 0.06
+# Meters from the wall to the front of the frame.
+depth = 0.04
+# Meters the canvas sits back inside the frame.
+recess = 0.015
+# Each room takes one of these, seeded from the world seed: oak, gilt, iron or stone.
+styles = ["oak", "gilt", "iron", "stone"]
+# A brass plaque with the title and Close, Takeover, Rehang and Throw.
+plaque = true
+# Plaque height in meters.
+plaque_height = 0.07
+
+[physics]
+gravity = 9.81
+# Meters a window must be pulled off its wall before it becomes a body.
+pull_distance = 0.15
+# Meters from a wall where a window at rest hangs again.
+rehang_distance = 0.6
+throw_scale = 1.0
+# Meters per second below which a release is a drop, not a throw.
+throw_min_speed = 0.6
+# Kilograms per cubic meter of a prop.
+prop_density = 60
+
+[avatar]
+# A GLB with a skin. Empty uses the built-in Rogue_Hooded.
+model = ""
+scale = 0.75
+# Rigid meshes that are drawn. Every other one is hidden.
+show = ["Rogue_Cape"]
+# Keyframes per second after resampling.
+sample_hz = 30
+
+[avatar.clips]
+idle = "Idle"
+walk = "Walking_A"
+run = "Running_A"
+jump-start = "Jump_Start"
+airborne = "Jump_Idle"
+land = "Jump_Land"
+pick-up = "PickUp"
+throw = "Throw"
+interact = "Interact"
+
+[keybindings]
+"Super+Escape" = "leave-takeover"
+"Super+Tab" = "next-room"
+"Super+F" = "takeover"
+"Super+Q" = "close"
+# spawn runs the rest of the line through sh -c.
+"Super+Return" = "spawn fuzzel"
+# use gives the window under the crosshair focus and frees the cursor.
+"E" = "use"
+# release clears the focus and locks the pointer at the crosshair again.
+"Super+E" = "release"
+# While you hold a window, hold R and move the mouse to turn it, or scroll to roll it.
+"R" = "rotate"
+# While you hold a window, stand it upright at the nearest quarter turn.
+"Shift+R" = "square"

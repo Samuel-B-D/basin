@@ -14,6 +14,7 @@ static struct wl_compositor *compositor;
 static struct wl_shm *shm;
 static struct zwlr_layer_shell_v1 *layer_shell;
 static struct wl_surface *surface;
+static struct wl_seat *seat;
 static int running = 1;
 static uint32_t colour = 0xFF202020;
 
@@ -55,6 +56,45 @@ static void layer_closed(void *data, struct zwlr_layer_surface_v1 *layer)
 
 static const struct zwlr_layer_surface_v1_listener layer_listener = { layer_configure, layer_closed };
 
+static void kb_keymap(void *d, struct wl_keyboard *k, uint32_t format, int32_t fd, uint32_t size)
+{
+    (void)d; (void)k; (void)format; (void)size;
+    close(fd);
+}
+
+static void kb_enter(void *d, struct wl_keyboard *k, uint32_t serial, struct wl_surface *s, struct wl_array *keys)
+{
+    (void)d; (void)k; (void)serial; (void)s; (void)keys;
+    printf("KEYBOARD enter\n");
+    fflush(stdout);
+}
+
+static void kb_leave(void *d, struct wl_keyboard *k, uint32_t serial, struct wl_surface *s)
+{
+    (void)d; (void)k; (void)serial; (void)s;
+    printf("KEYBOARD leave\n");
+    fflush(stdout);
+}
+
+static void kb_key(void *d, struct wl_keyboard *k, uint32_t serial, uint32_t time, uint32_t key, uint32_t state)
+{
+    (void)d; (void)k; (void)serial; (void)time;
+    printf("KEY %u %u\n", key, state);
+    fflush(stdout);
+}
+
+static void kb_modifiers(void *d, struct wl_keyboard *k, uint32_t serial, uint32_t dep, uint32_t lat, uint32_t lock, uint32_t group)
+{
+    (void)d; (void)k; (void)serial; (void)dep; (void)lat; (void)lock; (void)group;
+}
+
+static void kb_repeat(void *d, struct wl_keyboard *k, int32_t rate, int32_t delay)
+{
+    (void)d; (void)k; (void)rate; (void)delay;
+}
+
+static const struct wl_keyboard_listener keyboard_listener = { kb_keymap, kb_enter, kb_leave, kb_key, kb_modifiers, kb_repeat };
+
 static void global_add(void *data, struct wl_registry *registry, uint32_t name, const char *interface, uint32_t version)
 {
     (void)data; (void)version;
@@ -64,6 +104,8 @@ static void global_add(void *data, struct wl_registry *registry, uint32_t name, 
         shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
     else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0)
         layer_shell = wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, 1);
+    else if (strcmp(interface, wl_seat_interface.name) == 0 && !seat)
+        seat = wl_registry_bind(registry, name, &wl_seat_interface, 4);
 }
 
 static void global_remove(void *data, struct wl_registry *registry, uint32_t name) { (void)data; (void)registry; (void)name; }
@@ -73,7 +115,7 @@ static const struct wl_registry_listener registry_listener = { global_add, globa
 int main(int argc, char **argv)
 {
     if (argc < 3) {
-        fprintf(stderr, "usage: panel top|bottom|left|right SIZE\n");
+        fprintf(stderr, "usage: panel top|bottom|left|right SIZE [keyboard]\n");
         return 2;
     }
 
@@ -105,6 +147,13 @@ int main(int argc, char **argv)
     zwlr_layer_surface_v1_set_anchor(layer, edge | across);
     zwlr_layer_surface_v1_set_size(layer, horizontal ? 0 : (uint32_t)size, horizontal ? (uint32_t)size : 0);
     zwlr_layer_surface_v1_set_exclusive_zone(layer, size);
+    if (argc > 3 && strcmp(argv[3], "keyboard") == 0) {
+        zwlr_layer_surface_v1_set_keyboard_interactivity(layer, 1);
+        if (seat) {
+            struct wl_keyboard *keyboard = wl_seat_get_keyboard(seat);
+            wl_keyboard_add_listener(keyboard, &keyboard_listener, NULL);
+        }
+    }
     wl_surface_commit(surface);
 
     while (running && wl_display_dispatch(display) != -1) {

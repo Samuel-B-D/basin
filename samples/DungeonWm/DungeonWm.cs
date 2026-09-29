@@ -1,0 +1,415 @@
+using Basin;
+using Basin.Capabilities;
+using Basin.Cli;
+using Basin.Desktop;
+using Basin.Diagnostics;
+using Basin.Host;
+using Basin.Render.Gl;
+using Basin.Render.Vulkan;
+using Basin.Render3D.Gl;
+using Basin.Render3D.Vulkan;
+using Basin.Scene;
+using Basin.Scene3D;
+using Basin.Shell.Xdg;
+
+namespace DungeonWm;
+
+internal sealed partial class DungeonWm : IDisposable
+{
+    private readonly DungeonWmOptions _options;
+    private readonly BasinLogger _log;
+    private readonly DungeonWmSettings _settings;
+    private readonly IRenderer _renderer;
+    private readonly IAllocator? _deviceAllocator;
+    private readonly IWorldRenderer _worldRenderer;
+    private readonly BasinHost _host;
+    private readonly OutputLayout _layout = new();
+    private readonly Scene _scene = new();
+    private readonly SceneLayers _layers;
+    private readonly SceneTree _worldLayer;
+    private readonly BasinServices _services;
+    private readonly OutputDriver _outputs;
+    private readonly CompositorRunLoop _loop;
+    private readonly SceneCapturePack _capturePack;
+    private readonly CursorController _cursor;
+    private readonly Basin.Backend.Libinput.LibinputBackend? _input;
+    private readonly Basin.Seat.Backends.InputConfigurator _inputConfigurator = new();
+    private readonly Basin.Seat.Seat _seat;
+    private readonly XdgShell _shell;
+    private readonly IToplevelModel _toplevels;
+    private readonly SurfacePresenceTracker _presence;
+    private readonly FractionalScaleManager? _fractionalScale;
+    private readonly Dictionary<OutputView, WorldOutput> _worldOutputs = [];
+    private readonly List<DungeonWmWindow> _windows = [];
+    private readonly Dictionary<XdgSurfaceState, SceneSurface> _surfaceScenes = [];
+    private readonly List<SurfaceBox> _presenceScratch = [];
+    private readonly DungeonWmWorld _world;
+    private readonly DungeonWmFrames _frames;
+    private readonly DungeonWmPlaques _plaques;
+    private readonly DungeonWmWorkspaces _workspaces;
+    private readonly WorldCamera _camera = new();
+    private readonly Walker _walker;
+    private readonly WorldPicker _picker;
+    private readonly LayerShellSceneDriver _layerDriver;
+    private readonly SessionLockSceneDriver? _lockDriver;
+    private readonly Basin.XWayland.XWaylandServer? _xServer;
+    private DungeonWmWindow? _focused;
+    private DungeonWmWindow? _takeover;
+    private DungeonWmWindow? _pendingTakeover;
+    private (System.Numerics.Vector3 Position, float Yaw, float Pitch)? _beforeTakeover;
+    private bool _locked;
+    private long _lastStep;
+    private long _lastSlowFrameDone;
+
+    public static int Run(DungeonWmOptions options, BasinLogger log, out long rendered)
+    {
+        BasinCounters.Reset();
+        rendered = 0;
+        int status;
+        try
+        {
+            using var dungeonWm = new DungeonWm(options, log);
+            status = dungeonWm.RunLoop();
+            rendered = dungeonWm._outputs.PrimaryRendered;
+            dungeonWm.WriteScreenshot(options.Screenshot);
+        }
+        catch (Exception error) when (error is InvalidOperationException or DllNotFoundException or IOException)
+        {
+            log.Error($"{error.Message}");
+            return 1;
+        }
+
+        BasinReport.Line(CompositorLines.Frames(rendered));
+        if (BasinCounters.Enabled && (BasinCounters.LiveObjects != 0 || BasinCounters.PendingFrees != 0))
+        {
+            log.Error($"{BasinCounters.CensusReport()}");
+        }
+
+        return status;
+    }
+
+    private DungeonWm(DungeonWmOptions options, BasinLogger log)
+    {
+        _options = options;
+        _log = log;
+        _settings = options.Settings;
+
+        var stack = CreateStack(options.Renderer, log, out var rendererName);
+        _renderer = stack.Renderer;
+        _deviceAllocator = stack.DeviceAllocator;
+        _worldRenderer = rendererName == "vulkan"
+            ? new VulkanWorldRenderer(((VulkanRenderer)_renderer).Device, _settings.Render.Anisotropy)
+            : new GlWorldRenderer(((GlRenderer)_renderer).Device);
+        RendererName = rendererName;
+
+        _host = BasinHost.Create(HostOptions.ForBackend(options.Backend.ToString().ToLowerInvariant()) with
+        {
+            SocketFd = options.SocketFd,
+        });
+
+        var kit = Kit.Load();
+        _world = new DungeonWmWorld(kit, _settings);
+        _frames = new DungeonWmFrames(kit.Images.Count > 0 ? kit.Images[0] : null, _settings.Frames, _settings.Map.Seed);
+        for (var i = 0; i < Math.Max(1, _settings.Rooms); i++)
+        {
+            _world.AddRoom();
+        }
+
+        _workspaces = new DungeonWmWorkspaces(_world);
+        _walker = new Walker(_camera, _settings);
+        _picker = new WorldPicker(_world.World);
+        _camera.FieldOfView = _settings.FieldOfViewRadians;
+        _camera.Near = _settings.Near;
+        _camera.Far = _settings.Far;
+        var first = _world.Map.Rooms[0];
+        _walker.Teleport(_world.CenterOf(first, _settings.EyeHeight), 0);
+        _workspaces.SetActive(first);
+
+        var colorPack = new Basin.Color.ColorCapabilityPack(_layout, _renderer);
+        var servicePack = new DesktopServicePack(_scene, _layout, _renderer, _host.Drm);
+        _capturePack = servicePack.Capture;
+        _capturePack.Capture.Background = new RenderColor(_settings.SkyColor.X, _settings.SkyColor.Y, _settings.SkyColor.Z, 1);
+        _cursor = new CursorController(_layout) { Capture = _capturePack.Capture };
+        if (_host.Session is { } session && options.Backend == BackendKind.Drm)
+        {
+            _input = new Basin.Backend.Libinput.LibinputBackend(_host.Loop, session);
+        }
+
+        _services = _host.CreateServices()
+            .Use(_layout)
+            .With(servicePack)
+            .With(colorPack)
+            .Use<IWorkspaceModel>(_workspaces);
+        _services.Install(DesktopPack.For("dungeon-wm"));
+        if (_renderer.Device is { } renderDevice)
+        {
+            _services.Install(new LinuxDmabufModule(
+                _renderer.DmabufTextureFormats, renderDevice.DevicePath, captureFormats: _renderer.DmabufRenderFormats));
+        }
+
+        Basin.XWayland.XWaylandModule? xwaylandModule = null;
+        if (options.XWayland)
+        {
+            xwaylandModule = new Basin.XWayland.XWaylandModule();
+            _services.Install(xwaylandModule);
+        }
+
+        _services.UseDefault<IInputDeviceConfiguration>(_inputConfigurator);
+        _services.Use<IInputSink>(new Basin.Seat.Backends.HookInputSink
+        {
+            OnPointerMotion = (time, dx, dy) =>
+                _injector is { } injector && injector.PointerMotionAbsolute(time, _pointer.X + dx, _pointer.Y + dy),
+            OnPointerMotionAbsolute = (time, x, y, width, height) =>
+                width > 0 && height > 0 && _injector is { } injector && injector.MotionAbsolute(time, x, y, width, height),
+            OnPointerButton = (time, button, pressed) => _injector is { } injector && injector.PointerButton(time, button, pressed),
+            OnKey = (keyboard, time, keycode, pressed) =>
+            {
+                if (_injector is not { } injector)
+                {
+                    return false;
+                }
+
+                _seat!.Keyboard.Activate(keyboard);
+                return injector.Key(time, keycode, pressed);
+            },
+        });
+        _services.Freeze();
+
+        _layers = new SceneLayers(_scene.Root);
+        _plaques = new DungeonWmPlaques(_renderer, _deviceAllocator, _scene.Root, log);
+        _worldLayer = new SceneTree(_layers.Background);
+        _worldLayer.LowerToBottom();
+        _layers.Windows.Enabled = false;
+
+        _outputs = new OutputDriver(_host, _scene, _layout, _renderer, _deviceAllocator)
+        {
+            Capture = _capturePack,
+            Frames = _services.Require<IFrameClock>(),
+            Background = new RenderColor(_settings.SkyColor.X, _settings.SkyColor.Y, _settings.SkyColor.Z, 1),
+            Requested = options.Outputs,
+            Scales = options.Scales,
+            ContinuousRepaint = options.Frames > 0,
+            HeadlessMode = new OutputMode(options.Width, options.Height, 60_000),
+            NestedName = index => options.Outputs == 1 ? "dungeon-wm" : $"dungeon-wm-{index + 1}",
+        };
+        _loop = new CompositorRunLoop(_host, _outputs);
+        _outputs.Emptied += Stop;
+        _outputs.ModesetRefused += card => log.Error($"modeset refused by {card.Name}");
+
+        _seat = _services.Require<Basin.Seat.Seat>();
+        _shell = _services.Require<XdgShell>();
+        _toplevels = _services.Require<IToplevelModel>();
+        _fractionalScale = _services.Find<FractionalScaleManager>();
+        _presence = new SurfacePresenceTracker(_layout, (surface, scale) => _fractionalScale?.AnnounceScale(surface, scale));
+
+        _outputs.Added += OnOutputAdded;
+        _outputs.Removed += OnOutputRemoved;
+        _outputs.BeforeRepaint += OnBeforeRepaint;
+        _outputs.Painted += OnPainted;
+        _outputs.LayoutChanged += () =>
+        {
+            _layerDriver?.Rearrange();
+            _lockDriver?.Reconfigure();
+            Relock();
+        };
+
+        _capturePack.Attach(_toplevels, surface =>
+            WindowOf(surface) is { } window ? new ToplevelCaptureTrees(window.Scene.Tree, null, window.Scene.Tree) : null);
+
+        _shell.NewToplevel += OnNewToplevel;
+        _shell.NewPopup += OnNewPopup;
+
+        _layerDriver = new LayerShellSceneDriver(_services.Require<LayerShell>(), _layout, _layers)
+        {
+            Accept = _ => _outputs.Views.Count > 0,
+            DefaultOutput = _ => _outputs.Views[0].Global,
+        };
+        _layerDriver.TrackPopups(_shell);
+        TrackLayerKeyboard(_layerDriver);
+
+        if (_services.Find<SessionLockManager>() is { } sessionLock)
+        {
+            _lockDriver = new SessionLockSceneDriver(sessionLock, _seat, _layers.Lock, _layout, SetLocked);
+            _lockDriver.Locked += () => BasinReport.Line($"LOCKED");
+            _lockDriver.Unlocked += () => BasinReport.Line($"UNLOCKED");
+        }
+
+        _workspaces.Windows = () => _windows;
+        _workspaces.ActivateRequested = FlyToRoom;
+        _workspaces.CreateRequested = () =>
+        {
+            var room = _world.AddRoom();
+            ReplaceHungWindows();
+            _workspaces.RaiseChanged();
+            BasinReport.Line($"ROOM + {room.Workspace + 1}");
+            ScheduleAll();
+        };
+        _workspaces.RemoveRequested = room =>
+        {
+            room.Removed = true;
+            _workspaces.RaiseChanged();
+            BasinReport.Line($"ROOM - {room.Workspace + 1}");
+        };
+        _workspaces.AssignRequested = (window, room) => Hang(window, room, null);
+        _workspaces.Outputs = outputs =>
+        {
+            var count = Math.Min(outputs.Length, _outputs.Views.Count);
+            for (var i = 0; i < count; i++)
+            {
+                outputs[i] = _outputs.Views[i].Output;
+            }
+
+            return count;
+        };
+
+        _world.Rebuilt += ScheduleAll;
+
+        _outputs.CreateInitialOutputs();
+        if (options.Backend == BackendKind.Drm && _outputs.Views.Count == 0)
+        {
+            throw new InvalidOperationException("no connected output");
+        }
+
+        if (_host.Parent is { } parent)
+        {
+            _cursor.UseParentCursor();
+            parent.ParentGone += Stop;
+        }
+
+        if (_services.Find<CursorShapeManager>() is { } shapes)
+        {
+            _cursor.Shapes = shapes;
+            shapes.CursorRequested += _cursor.ShowImage;
+        }
+
+        _seat.Pointer.CursorRequested += _cursor.HandleCursorRequest;
+        _seat.Keyboard.SetKeymap(Basin.Seat.SystemKeymap.Read());
+        WireInput();
+        servicePack.CursorTheme.Images = _cursor.Images;
+        StartPhysics();
+        StartAvatar();
+
+        if (xwaylandModule is not null)
+        {
+            _xServer = _services.Require<Basin.XWayland.XWaylandServer>();
+            BasinReport.Line($"XWAYLAND {_xServer.DisplayName}");
+            xwaylandModule.WindowManagerReady += AttachXWayland;
+        }
+    }
+
+    public string RendererName { get; }
+
+    public DungeonWmWorld WorldState => _world;
+
+    public WorldCamera Camera => _camera;
+
+    public IReadOnlyList<DungeonWmWindow> Windows => _windows;
+
+    public void Stop() => _loop.Stop();
+
+    public void Dispose()
+    {
+        _disposing = true;
+        _host.DisconnectClients();
+        DropSnapshots();
+        foreach (var output in _worldOutputs.Values)
+        {
+            output.Dispose();
+        }
+
+        _worldOutputs.Clear();
+        _outputs.Dispose();
+        _plaques.Dispose();
+        _scene.Root.Destroy();
+        _worldRenderer.Dispose();
+        _physics?.Dispose();
+        _services.Dispose();
+        _cursor.Dispose();
+        _input?.Dispose();
+        _deviceAllocator?.Dispose();
+        _host.Dispose();
+        _renderer.Dispose();
+    }
+
+    private int RunLoop()
+    {
+        BasinReport.Line(CompositorLines.Socket(_host.Socket));
+        BasinReport.Line($"WORLD renderer={RendererName} rooms={_world.Map.Rooms.Count} seed={_settings.Map.Seed}");
+        using var ipc = StartIpc();
+        var startup = _options.Command is { } command ? InitProcess.Start(command, _host.Socket, _xServer?.DisplayName, _log) : null;
+        var hangup = _host.Loop.AddSignal(Signal.Hangup, _ => Reload());
+        _loop.Frames = _options.Frames;
+        _loop.Run();
+        hangup.Remove();
+        startup?.Stop(_log);
+        ipc?.Processes.TerminateAll(TimeSpan.FromMilliseconds(500));
+        return 0;
+    }
+
+    private static RenderStack CreateStack(string requested, BasinLogger log, out string name)
+    {
+        if (requested is not ("vulkan" or "gl"))
+        {
+            throw new InvalidOperationException(
+                $"the {requested} renderer cannot draw the world: its textures are not GL or Vulkan textures, so the 3D pass cannot open them. Use vulkan or gl.");
+        }
+
+        var node = Basin.Renderers.RendererCatalog.FindRenderNode() ?? throw new InvalidOperationException("no render node: the world needs a GPU renderer");
+        if (requested == "vulkan")
+        {
+            try
+            {
+                name = "vulkan";
+                return Basin.Renderers.RendererCatalog.Create("vulkan", node);
+            }
+            catch (Exception error) when (error is InvalidOperationException or DllNotFoundException or EntryPointNotFoundException)
+            {
+                log.Warn($"vulkan renderer unavailable ({error.Message}); falling back to gl");
+            }
+        }
+
+        name = "gl";
+        return Basin.Renderers.RendererCatalog.Create("gl", node);
+    }
+
+    private void SetLocked(bool locked)
+    {
+        _locked = locked;
+        _layers.SetLocked(locked);
+        ApplyLayerState();
+        SyncMode();
+        ScheduleAll();
+    }
+
+    private void ApplyLayerState()
+    {
+        var takeover = _takeover is not null;
+        _layers.Windows.Enabled = takeover && !_locked;
+        _worldLayer.Enabled = !takeover;
+    }
+
+    private void ScheduleAll() => _outputs.ScheduleAll();
+
+    private void OnOutputAdded(OutputView view)
+    {
+        var allocator = _deviceAllocator ?? view.Allocator ?? throw new InvalidOperationException("no allocator for the world buffers");
+        _worldOutputs[view] = new WorldOutput(view, _worldLayer, allocator);
+        _presence.AddOutput(view.Output, view.Global);
+        _cursor.AddOutput(view.Output, view.Scene);
+        _layerDriver?.Rearrange();
+        BasinReport.Line($"OUTPUT {view.Output.Name} {view.Output.CurrentMode.Width}x{view.Output.CurrentMode.Height}");
+        SyncMode();
+    }
+
+    private void OnOutputRemoved(OutputView view)
+    {
+        if (_worldOutputs.Remove(view, out var output))
+        {
+            output.Dispose();
+        }
+
+        _presence.RemoveOutput(view.Output);
+        _cursor.RemoveOutput(view.Output);
+        ForgetCrosshairOutput(view);
+    }
+}

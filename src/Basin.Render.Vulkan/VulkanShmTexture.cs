@@ -23,6 +23,10 @@ internal sealed class VulkanShmTexture : ITexture, IRefreshableTexture, IVulkanR
 
     internal Format VkFormat => _upload.VkFormat;
 
+    internal ImageView View => _upload.View;
+
+    internal VulkanDevice Device => _renderer.Dev;
+
     internal VulkanShmTexture(VulkanRenderer renderer, IBuffer buffer)
     {
         _renderer = renderer;

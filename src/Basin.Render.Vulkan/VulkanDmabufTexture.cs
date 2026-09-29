@@ -29,6 +29,10 @@ internal sealed unsafe class VulkanDmabufTexture : ITexture, IVulkanRetired
 
     internal Image Image => _imported.Image;
 
+    internal ImageView View => _imported.View;
+
+    internal VulkanDevice Device => _renderer.Dev;
+
     internal readonly Format VkFormat;
 
     private VulkanDmabufTexture(VulkanRenderer renderer, ImportedDmabuf imported, in DmabufAttributes attributes)

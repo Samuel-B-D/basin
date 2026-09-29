@@ -12,6 +12,7 @@ public sealed class CursorImages : IDisposable
     private readonly int _logicalSize;
     private readonly List<Variant> _variants = [];
     private readonly ThreadAffinity _thread = ThreadAffinity.Capture();
+    private readonly Dictionary<string, Func<double, XcursorImage?>> _painted = [];
     private Variant _current;
     private IBuffer? _clientImage;
 
@@ -75,6 +76,21 @@ public sealed class CursorImages : IDisposable
     public bool ReloadForScale(double scale, Action reacquire) =>
         Use(_current.Key with { Scale = scale }, reacquire);
 
+    public void Define(string name, Func<double, XcursorImage?> paint)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(paint);
+        _thread.Assert();
+        _painted[name] = paint;
+        foreach (var variant in _variants)
+        {
+            if (variant.Cache.Remove(name, out var image))
+            {
+                (image?.Buffer as BufferBase)?.Destroy();
+            }
+        }
+    }
+
     public CursorImage? Named(string name) => Named(name, _current.Key);
 
     public CursorImage? Named(string name, in CursorKey key)
@@ -88,7 +104,12 @@ public sealed class CursorImages : IDisposable
         }
 
         CursorImage? image = null;
-        if (entry.Theme is { } theme)
+        XcursorImage? painted = null;
+        if (_painted.TryGetValue(name, out var paint))
+        {
+            painted = paint(entry.Key.Scale);
+        }
+        else if (entry.Theme is { } theme)
         {
             var cursor = theme.Get(name);
             foreach (var alias in CursorAliases.Of(name))
@@ -96,58 +117,59 @@ public sealed class CursorImages : IDisposable
                 cursor ??= theme.Get(alias);
             }
 
-            if (cursor is not null)
+            painted = cursor?.Frame(0);
+        }
+
+        if (painted is { } frame)
+        {
+            var oversized = frame.Width > _bufferWidth || frame.Height > _bufferHeight;
+            if (oversized && Allocate() is { } scaled)
             {
-                var frame = cursor.Frame(0);
-                var oversized = frame.Width > _bufferWidth || frame.Height > _bufferHeight;
-                if (oversized && Allocate() is { } scaled)
+                var factor = Math.Min(
+                    _bufferWidth / (double)frame.Width, _bufferHeight / (double)frame.Height);
+                var width = Math.Max(1, (int)Math.Round(frame.Width * factor));
+                var height = Math.Max(1, (int)Math.Round(frame.Height * factor));
+                if (UploadScaled(scaled, frame.Pixels, frame.Width, frame.Height, width, height, entry.Lut))
                 {
-                    var factor = Math.Min(
-                        _bufferWidth / (double)frame.Width, _bufferHeight / (double)frame.Height);
-                    var width = Math.Max(1, (int)Math.Round(frame.Width * factor));
-                    var height = Math.Max(1, (int)Math.Round(frame.Height * factor));
-                    if (UploadScaled(scaled, frame.Pixels, frame.Width, frame.Height, width, height, entry.Lut))
+                    Log.Debug(
+                        $"cursor {name} is {frame.Width}x{frame.Height} at scale {entry.Key.Scale} " +
+                        $"and the buffer is {scaled.Width}x{scaled.Height}, so it is scaled to fit the cursor plane");
+
+                    image = new CursorImage(
+                        scaled,
+                        width,
+                        height,
+                        (int)Math.Round(frame.HotspotX * factor),
+                        (int)Math.Round(frame.HotspotY * factor));
+                }
+                else
+                {
+                    (scaled as BufferBase)?.Destroy();
+                }
+            }
+
+            if (image is null && AllocateFor(frame.Width, frame.Height) is { } buffer)
+            {
+                if (Upload(buffer, frame.Pixels, frame.Width, frame.Height, entry.Lut))
+                {
+                    if (oversized)
                     {
                         Log.Debug(
                             $"cursor {name} is {frame.Width}x{frame.Height} at scale {entry.Key.Scale} " +
-                            $"and the buffer is {scaled.Width}x{scaled.Height}, so it is scaled to fit the cursor plane");
+                            $"and the buffer is {buffer.Width}x{buffer.Height}, so it cannot go on a cursor plane");
+                    }
 
-                        image = new CursorImage(
-                            scaled,
-                            width,
-                            height,
-                            (int)Math.Round(frame.HotspotX * factor),
-                            (int)Math.Round(frame.HotspotY * factor));
-                    }
-                    else
-                    {
-                        (scaled as BufferBase)?.Destroy();
-                    }
+                    image = new CursorImage(
+                        buffer,
+                        Math.Min(frame.Width, buffer.Width),
+                        Math.Min(frame.Height, buffer.Height),
+                        frame.HotspotX,
+                        frame.HotspotY,
+                        oversized);
                 }
-
-                if (image is null && AllocateFor(frame.Width, frame.Height) is { } buffer)
+                else
                 {
-                    if (Upload(buffer, frame.Pixels, frame.Width, frame.Height, entry.Lut))
-                    {
-                        if (oversized)
-                        {
-                            Log.Debug(
-                                $"cursor {name} is {frame.Width}x{frame.Height} at scale {entry.Key.Scale} " +
-                                $"and the buffer is {buffer.Width}x{buffer.Height}, so it cannot go on a cursor plane");
-                        }
-
-                        image = new CursorImage(
-                            buffer,
-                            Math.Min(frame.Width, buffer.Width),
-                            Math.Min(frame.Height, buffer.Height),
-                            frame.HotspotX,
-                            frame.HotspotY,
-                            oversized);
-                    }
-                    else
-                    {
-                        (buffer as BufferBase)?.Destroy();
-                    }
+                    (buffer as BufferBase)?.Destroy();
                 }
             }
         }

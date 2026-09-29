@@ -190,6 +190,8 @@ public sealed class WaylandPointerDevice : IParentCursor, IDisposable
 
     public event Action<ulong, double, double, double, double>? RelativeMotion;
 
+    public bool HasRelativeMotion => _relative is not null;
+
     internal WlPointer Proxy => _pointer;
 
     internal WaylandOutput? CurrentOutput => _current;

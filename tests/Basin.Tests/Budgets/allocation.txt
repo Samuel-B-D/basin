@@ -33,6 +33,10 @@
 # The engine rows come from PhysicsWorldTests. Each is 100 steps of a Box2D world,
 # and the figure is what the engine allocates inside AllocationScope.Pause.
 #
+# The dungeon-wm rows come from WorldRendererTests and Scene3DTests: 1000 frames of the
+# 3D world pass per renderer with a portal and a mip-copied window, and 1000 picks
+# with the visibility walk. Both tests also assert zero in every configuration.
+#
 # scope    kind     path                          bytes
 server     exact    commit-with-frame-callback     3072
 server     exact    frame-callback-fire               0
@@ -74,7 +78,7 @@ server-managed exact    attach-and-damage              3200
 server-managed exact    pointer-axis                      0
 channel    exact    remote-frame                   6400
 channel    exact    remote-dmabuf-frame            6400
-server     exact    popup-cycle                  874400
+server     exact    popup-cycle                  876000
 server-managed exact    popup-cycle                  906400
 server     exact    color-representation-set          0
 server-managed exact    color-representation-set          0
@@ -196,3 +200,9 @@ engine     exact    physics-step-moving           35200
 engine     exact    physics-step-contacts-bepu        0
 engine     exact    physics-step-moving-bepu          0
 engine     exact    physics-step-resting-bepu         0
+engine     exact    physics-step-moving-3d            0
+engine     exact    physics-step-resting-3d           0
+engine     exact    physics-step-contacts-3d          0
+dungeon-wm     exact    world-frame-gl                    0
+dungeon-wm     exact    world-frame-vulkan                0
+dungeon-wm     exact    pick                              0

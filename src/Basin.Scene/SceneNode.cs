@@ -320,6 +320,26 @@ public abstract class SceneNode
         }
     }
 
+    internal Scene? OwnerIfAttached()
+    {
+        SceneNode node = this;
+        while (true)
+        {
+            if (node._destroyed)
+            {
+                return null;
+            }
+
+            if (node.Parent is { } parent)
+            {
+                node = parent;
+                continue;
+            }
+
+            return (node as SceneTree)?.Owner;
+        }
+    }
+
     protected internal void DamageSubtree() => DamageSubtree(structural: true);
 
     private void DamageSubtree(bool structural)

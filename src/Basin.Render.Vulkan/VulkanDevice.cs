@@ -106,6 +106,7 @@ public sealed unsafe class VulkanDevice : IDisposable, IRenderDevice
         }
 
         YcbcrSampling = ycbcrQuery.SamplerYcbcrConversion;
+        SamplerAnisotropy = featuresQuery.Features.SamplerAnisotropy;
         FormatTable = new VulkanFormatTable(Api, Physical, YcbcrSampling);
 
         var ycbcrEnable = new PhysicalDeviceSamplerYcbcrConversionFeatures
@@ -137,10 +138,12 @@ public sealed unsafe class VulkanDevice : IDisposable, IRenderDevice
         }
 
         var enabledNames = (byte**)SilkMarshal.StringArrayToPtr(EnabledExtensions);
+        var enabledFeatures = new PhysicalDeviceFeatures { SamplerAnisotropy = SamplerAnisotropy };
         var deviceInfo = new DeviceCreateInfo
         {
             SType = StructureType.DeviceCreateInfo,
             PNext = &vulkan12Enable,
+            PEnabledFeatures = &enabledFeatures,
             QueueCreateInfoCount = 1,
             PQueueCreateInfos = &queueInfo,
             EnabledExtensionCount = (uint)EnabledExtensions.Length,
@@ -247,6 +250,26 @@ public sealed unsafe class VulkanDevice : IDisposable, IRenderDevice
     public ulong Submit(CommandBuffer commands) => Ring.Submit(commands);
 
     public bool IsComplete(ulong point) => point <= Ring.ReadCompleted();
+
+    public ulong CompletedPoint => Ring.ReadCompleted();
+
+    public bool SamplerAnisotropy { get; }
+
+    public int SubmitExportable(CommandBuffer commands, out ulong point)
+    {
+        point = Ring.Submit(commands, exportable: true);
+        return Ring.ExportSyncFile(commands);
+    }
+
+    public int SubmitExportable(CommandBuffer commands, ReadOnlySpan<Silk.NET.Vulkan.Semaphore> waits, out ulong point)
+    {
+        if (!Ring.TrySubmitFrame(default, commands, waits, exportable: true, out point))
+        {
+            throw new InvalidOperationException("vkQueueSubmit2 failed for a submission with waits");
+        }
+
+        return Ring.ExportSyncFile(commands);
+    }
 
     public void WaitFor(ulong point) => Ring.Wait(point);
 

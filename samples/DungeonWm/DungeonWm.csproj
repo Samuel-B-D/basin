@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>DungeonWm</RootNamespace>
+    <AssemblyName>dungeon-wm</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DungeonWm.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Basin.Cli/Basin.Cli.csproj" />
+    <ProjectReference Include="../../src/Basin.Core/Basin.Core.csproj" />
+    <ProjectReference Include="../../src/Basin.Config/Basin.Config.csproj" />
+    <ProjectReference Include="../../src/Basin.Backend.Headless/Basin.Backend.Headless.csproj" />
+    <ProjectReference Include="../../src/Basin.Backend.Wayland/Basin.Backend.Wayland.csproj" />
+    <ProjectReference Include="../../src/Basin.Backend.Drm/Basin.Backend.Drm.csproj" />
+    <ProjectReference Include="../../src/Basin.Backend.Libinput/Basin.Backend.Libinput.csproj" />
+    <ProjectReference Include="../../src/Basin.Session/Basin.Session.csproj" />
+    <ProjectReference Include="../../src/Basin.Renderers/Basin.Renderers.csproj" />
+    <ProjectReference Include="../../src/Basin.Render.Gl/Basin.Render.Gl.csproj" />
+    <ProjectReference Include="../../src/Basin.Render.Vulkan/Basin.Render.Vulkan.csproj" />
+    <ProjectReference Include="../../src/Basin.Scene/Basin.Scene.csproj" />
+    <ProjectReference Include="../../src/Basin.Scene3D/Basin.Scene3D.csproj" />
+    <ProjectReference Include="../../src/Basin.Render3D.Gl/Basin.Render3D.Gl.csproj" />
+    <ProjectReference Include="../../src/Basin.Render3D.Vulkan/Basin.Render3D.Vulkan.csproj" />
+    <ProjectReference Include="../../src/Basin.Seat/Basin.Seat.csproj" />
+    <ProjectReference Include="../../src/Basin.Seat.Backends/Basin.Seat.Backends.csproj" />
+    <ProjectReference Include="../../src/Basin.Desktop/Basin.Desktop.csproj" />
+    <ProjectReference Include="../../src/Basin.Shell.Xdg/Basin.Shell.Xdg.csproj" />
+    <ProjectReference Include="../../src/Basin.XWayland/Basin.XWayland.csproj" />
+    <ProjectReference Include="../../src/Basin.Color/Basin.Color.csproj" />
+    <ProjectReference Include="../../src/Basin.Host/Basin.Host.csproj" />
+    <ProjectReference Include="../../src/Basin.Ipc/Basin.Ipc.csproj" />
+    <ProjectReference Include="../../src/Basin.Kinematics/Basin.Kinematics.csproj" />
+    <ProjectReference Include="../../src/Basin.Physics/Basin.Physics.csproj" />
+    <ProjectReference Include="../../src/Basin.Physics.Bepu/Basin.Physics.Bepu.csproj" />
+    <ProjectReference Include="../../src/Basin.UI.Quill/Basin.UI.Quill.csproj" />
+    <ProjectReference Include="../../src/Basin.UI.Quill.Gl/Basin.UI.Quill.Gl.csproj" />
+    <ProjectReference Include="../../src/Basin.UI.Quill.Vulkan/Basin.UI.Quill.Vulkan.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets/KayKit/**/*.glb" LogicalName="KayKit/%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="dungeon-wm.toml" LogicalName="dungeon-wm.toml" />
+    <EmbeddedResource Include="../../assets/fonts/Selawik-Semibold.ttf" LogicalName="Selawik-Semibold.ttf" />
+  </ItemGroup>
+
+</Project>

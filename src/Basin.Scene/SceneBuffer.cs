@@ -253,6 +253,7 @@ public sealed class SceneBuffer : SceneNode
         _adoptFrom = previous;
         _adoptDamage = default;
         _adoptDamageIsFull = false;
+        ContentVersion++;
         if (sizeChanges && buffer is not null)
         {
             DamageSubtree();
@@ -261,6 +262,7 @@ public sealed class SceneBuffer : SceneNode
 
     public void NotifyContentChanged()
     {
+        ContentVersion++;
         _conversion?.Refresh();
         (CurrentTexture as IRefreshableTexture)?.MarkDirty();
         DamageSubtree();
@@ -281,6 +283,8 @@ public sealed class SceneBuffer : SceneNode
         {
             return;
         }
+
+        ContentVersion++;
 
         var swapped = _bufferSwapped;
         _bufferSwapped = false;
@@ -357,6 +361,16 @@ public sealed class SceneBuffer : SceneNode
 
     internal (int Width, int Height) Size => ContentSize;
 
+    public (int Width, int Height) DisplaySize => ContentSize;
+
+    public int ContentVersion { get; private set; }
+
+    public ITexture? TextureFor(IRenderer renderer)
+    {
+        ArgumentNullException.ThrowIfNull(renderer);
+        return GetTexture(renderer);
+    }
+
     internal ITexture? GetTexture(IRenderer renderer)
     {
         if (_lock.Buffer is not { } buffer)
@@ -364,7 +378,7 @@ public sealed class SceneBuffer : SceneNode
             return null;
         }
 
-        if (OwnerIfVisible(out _, out _) is not { } scene)
+        if (OwnerIfAttached() is not { } scene)
         {
             if (_texture is null && !_importFailed)
             {
@@ -504,7 +518,7 @@ public sealed class SceneBuffer : SceneNode
     }
 
     private ITexture? CurrentTexture =>
-        _texture ?? (_lock.Buffer is { } buffer ? OwnerIfVisible(out _, out _)?.PeekTexture(buffer) : null);
+        _texture ?? (_lock.Buffer is { } buffer ? OwnerIfAttached()?.PeekTexture(buffer) : null);
 
     protected override void OnDestroy()
     {

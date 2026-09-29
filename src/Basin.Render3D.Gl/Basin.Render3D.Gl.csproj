@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Basin.Render3D.Gl</PackageId>
+    <RootNamespace>Basin.Render3D.Gl</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Description>The Basin.Scene3D world pass on GLES 3: depth, stencil portals, lights and mipmapped windows.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Basin.Tests" />
+    <ProjectReference Include="../Basin.Core/Basin.Core.csproj" />
+    <ProjectReference Include="../Basin.Scene3D/Basin.Scene3D.csproj" />
+    <ProjectReference Include="../Basin.Render.Gl/Basin.Render.Gl.csproj" />
+    <PackageReference Include="Silk.NET.OpenGLES" />
+  </ItemGroup>
+
+</Project>

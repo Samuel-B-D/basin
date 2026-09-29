@@ -19,6 +19,7 @@
     <Project Path="samples/Tarn/Tarn.Desktop/Tarn.Desktop.csproj" />
     <Project Path="samples/TinyComp/TinyComp.csproj" />
     <Project Path="samples/TinyWl/TinyWl.csproj" />
+    <Project Path="samples/DungeonWm/DungeonWm.csproj" />
     <Project Path="samples/Westonia/Westonia.csproj" />
   </Folder>
   <Folder Name="/src/">
@@ -62,6 +63,9 @@
     <Project Path="src/Basin.Effects/Basin.Effects.csproj" />
     <Project Path="src/Basin.Eis/Basin.Eis.csproj" />
     <Project Path="src/Basin.Kinematics/Basin.Kinematics.csproj" />
+    <Project Path="src/Basin.Scene3D/Basin.Scene3D.csproj" />
+    <Project Path="src/Basin.Render3D.Gl/Basin.Render3D.Gl.csproj" />
+    <Project Path="src/Basin.Render3D.Vulkan/Basin.Render3D.Vulkan.csproj" />
     <Project Path="src/Basin.Physics/Basin.Physics.csproj" />
     <Project Path="src/Basin.Physics.Box2D/Basin.Physics.Box2D.csproj" />
     <Project Path="src/Basin.Physics.Bepu/Basin.Physics.Bepu.csproj" />
@@ -102,5 +106,6 @@
     <Project Path="tests/MauiComp.Tests/MauiComp.Tests.csproj" />
     <Project Path="tests/Westonia.Tests/Westonia.Tests.csproj" />
     <Project Path="tests/EightWm.Tests/EightWm.Tests.csproj" />
+    <Project Path="tests/DungeonWm.Tests/DungeonWm.Tests.csproj" />
   </Folder>
 </Solution>

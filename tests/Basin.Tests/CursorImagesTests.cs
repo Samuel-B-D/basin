@@ -92,6 +92,54 @@ public sealed class CursorImagesTests
     }
 
     [Fact]
+    public unsafe void A_defined_cursor_is_painted_for_each_scale_and_a_redefinition_replaces_it()
+    {
+        using var allocator = new ShmAllocator();
+        using var cursors = Create(allocator);
+        var painted = new List<double>();
+        byte blue = 0x40;
+        XcursorImage Paint(double scale)
+        {
+            painted.Add(scale);
+            var size = (int)(10 * scale);
+            var pixels = new byte[size * size * 4];
+            for (var i = 0; i < pixels.Length; i += 4)
+            {
+                pixels[i] = blue;
+                pixels[i + 3] = 0xFF;
+            }
+
+            return new XcursorImage { Width = size, Height = size, HotspotX = size / 2, HotspotY = size / 2, DelayMs = 0, Pixels = pixels };
+        }
+
+        byte FirstBlue(CursorImage image)
+        {
+            Assert.True(image.Buffer.BeginDataAccess(BufferDataAccess.Read, out var view));
+            var value = *(byte*)view.Data;
+            image.Buffer.EndDataAccess();
+            return value;
+        }
+
+        cursors.Define("probe", Paint);
+        var one = cursors.Named("probe", new CursorKey(1, null));
+        var two = cursors.Named("probe", new CursorKey(2, null));
+        Assert.NotNull(one);
+        Assert.NotNull(two);
+        Assert.Equal((10, 5), (one!.Value.Width, one.Value.HotspotX));
+        Assert.Equal((20, 10), (two!.Value.Width, two.Value.HotspotX));
+        Assert.Equal(0x40, FirstBlue(one.Value));
+        Assert.Equal(one, cursors.Named("probe", new CursorKey(1, null)));
+        Assert.Equal([1.0, 2.0], painted);
+
+        blue = 0x80;
+        cursors.Define("probe", Paint);
+        var redrawn = cursors.Named("probe", new CursorKey(1, null));
+        Assert.NotNull(redrawn);
+        Assert.Equal(0x80, FirstBlue(redrawn!.Value));
+        Assert.Equal([1.0, 2.0, 1.0], painted);
+    }
+
+    [Fact]
     public void A_name_resolves_through_its_aliases()
     {
         Assert.Contains("default", CursorAliases.Of("left_ptr"));

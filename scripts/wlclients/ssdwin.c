@@ -16,6 +16,7 @@ static struct xdg_wm_base *wm_base;
 static struct zxdg_decoration_manager_v1 *decoration_manager;
 static struct wl_seat *seat;
 static struct wl_pointer *pointer;
+static struct wl_keyboard *keyboard;
 static double pointer_x, pointer_y;
 static struct wl_surface *surface;
 static struct xdg_surface *xdg_surface;
@@ -168,12 +169,53 @@ static const struct wl_pointer_listener pointer_listener = {
     .button = pointer_button, .axis = pointer_axis,
 };
 
+static void kb_keymap(void *d, struct wl_keyboard *k, uint32_t format, int32_t fd, uint32_t size)
+{
+    (void)d; (void)k; (void)format; (void)size;
+    close(fd);
+}
+
+static void kb_enter(void *d, struct wl_keyboard *k, uint32_t serial, struct wl_surface *s, struct wl_array *keys)
+{
+    (void)d; (void)k; (void)serial; (void)s; (void)keys;
+}
+
+static void kb_leave(void *d, struct wl_keyboard *k, uint32_t serial, struct wl_surface *s)
+{
+    (void)d; (void)k; (void)serial; (void)s;
+}
+
+/* Print every key the client is given, so a test can check a key the compositor kept for itself never arrives. */
+static void kb_key(void *d, struct wl_keyboard *k, uint32_t serial, uint32_t time, uint32_t key, uint32_t state)
+{
+    (void)d; (void)k; (void)serial; (void)time;
+    printf("KEY %u %u\n", key, state);
+    fflush(stdout);
+}
+
+static void kb_modifiers(void *d, struct wl_keyboard *k, uint32_t serial, uint32_t dep, uint32_t lat, uint32_t lock, uint32_t group)
+{
+    (void)d; (void)k; (void)serial; (void)dep; (void)lat; (void)lock; (void)group;
+}
+
+static void kb_repeat(void *d, struct wl_keyboard *k, int32_t rate, int32_t delay)
+{
+    (void)d; (void)k; (void)rate; (void)delay;
+}
+
+static const struct wl_keyboard_listener keyboard_listener = { kb_keymap, kb_enter, kb_leave, kb_key, kb_modifiers, kb_repeat };
+
 static void seat_capabilities(void *data, struct wl_seat *s, uint32_t caps)
 {
     (void)data;
     if ((caps & WL_SEAT_CAPABILITY_POINTER) && !pointer) {
         pointer = wl_seat_get_pointer(s);
         wl_pointer_add_listener(pointer, &pointer_listener, NULL);
+    }
+
+    if ((caps & WL_SEAT_CAPABILITY_KEYBOARD) && !keyboard) {
+        keyboard = wl_seat_get_keyboard(s);
+        wl_keyboard_add_listener(keyboard, &keyboard_listener, NULL);
     }
 }
 

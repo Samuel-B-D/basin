@@ -54,6 +54,18 @@ public sealed class IpcLineReport
         methods.Register(name, Wrap(handler), line, Format);
     }
 
+    public void Register(IpcMethodRegistry methods, string name, string? line, IpcMethodInfo info, IpcHandler handler)
+    {
+        ArgumentNullException.ThrowIfNull(methods);
+        methods.Register(name, Wrap(handler), line, Format, info);
+    }
+
+    public void Register(IpcMethodRegistry methods, string name, string? line, IpcMethodInfo info, Action action)
+    {
+        ArgumentNullException.ThrowIfNull(methods);
+        methods.Register(name, Wrap(action), line, Format, info);
+    }
+
     public void Register(IpcMethodRegistry methods, string name, string? line, Action action)
     {
         ArgumentNullException.ThrowIfNull(methods);

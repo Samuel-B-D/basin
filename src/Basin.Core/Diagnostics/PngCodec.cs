@@ -50,6 +50,7 @@ public static class PngCodec
 
         var width = 0;
         var height = 0;
+        var channels = 0;
         using var idat = new MemoryStream();
         var offset = 8;
         while (offset < png.Length)
@@ -62,9 +63,15 @@ public static class PngCodec
                 case "IHDR":
                     width = BinaryPrimitives.ReadInt32BigEndian(data);
                     height = BinaryPrimitives.ReadInt32BigEndian(data[4..]);
-                    if (data[8] != 8 || data[9] != 6 || data[12] != 0)
+                    channels = data[9] switch
                     {
-                        throw new NotSupportedException("Only 8-bit non-interlaced RGBA is supported.");
+                        2 => 3,
+                        6 => 4,
+                        _ => 0,
+                    };
+                    if (data[8] != 8 || channels == 0 || data[12] != 0)
+                    {
+                        throw new NotSupportedException("Only 8-bit non-interlaced RGB or RGBA is supported.");
                     }
 
                     break;
@@ -83,20 +90,64 @@ public static class PngCodec
             zlib.CopyTo(inflated);
         }
 
-        var raw = inflated.ToArray();
+        var raw = inflated.GetBuffer();
+        var lineBytes = width * channels;
+        var previous = new byte[lineBytes];
+        var line = new byte[lineBytes];
         var rgba = new byte[width * height * 4];
-        var lineBytes = width * 4;
         for (var y = 0; y < height; y++)
         {
-            if (raw[y * (lineBytes + 1)] != 0)
+            var start = y * (lineBytes + 1);
+            Unfilter(raw[start], raw.AsSpan(start + 1, lineBytes), previous, line, channels);
+            var output = rgba.AsSpan(y * width * 4, width * 4);
+            if (channels == 4)
             {
-                throw new NotSupportedException("Only filter 0 is supported.");
+                line.CopyTo(output);
+            }
+            else
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    output[x * 4] = line[x * 3];
+                    output[(x * 4) + 1] = line[(x * 3) + 1];
+                    output[(x * 4) + 2] = line[(x * 3) + 2];
+                    output[(x * 4) + 3] = 0xFF;
+                }
             }
 
-            raw.AsSpan(y * (lineBytes + 1) + 1, lineBytes).CopyTo(rgba.AsSpan(y * lineBytes));
+            (previous, line) = (line, previous);
         }
 
         return (rgba, width, height);
+    }
+
+    private static void Unfilter(byte filter, ReadOnlySpan<byte> source, ReadOnlySpan<byte> above, Span<byte> line, int bpp)
+    {
+        for (var i = 0; i < source.Length; i++)
+        {
+            int left = i >= bpp ? line[i - bpp] : 0;
+            int up = above[i];
+            int upLeft = i >= bpp ? above[i - bpp] : 0;
+            var predictor = filter switch
+            {
+                0 => 0,
+                1 => left,
+                2 => up,
+                3 => (left + up) >> 1,
+                4 => Paeth(left, up, upLeft),
+                _ => throw new InvalidDataException($"Unknown PNG filter {filter}."),
+            };
+            line[i] = (byte)(source[i] + predictor);
+        }
+    }
+
+    private static int Paeth(int a, int b, int c)
+    {
+        var p = a + b - c;
+        var pa = Math.Abs(p - a);
+        var pb = Math.Abs(p - b);
+        var pc = Math.Abs(p - c);
+        return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
     }
 
     private static void WriteChunk(Stream output, string type, ReadOnlySpan<byte> data)

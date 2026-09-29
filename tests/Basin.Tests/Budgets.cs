@@ -21,7 +21,79 @@ internal static class Budgets
         BasinCounters.Enabled;
 #endif
 
-    public static void Require() => Assert.SkipWhen(!Recorded, Reason);
+    private const int VirtualCallCacheMaximum = 8 * 1024;
+
+    private const int CastCacheMaximumInts = (4096 + 1) * 6;
+
+    private static bool _settled;
+
+    public static void Require()
+    {
+        Assert.SkipWhen(!Recorded, Reason);
+        SettleRuntimeCaches();
+    }
+
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Test-only reach into CoreLib; absent under NativeAOT, where it returns early.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2057", Justification = "Test-only reach into CoreLib; absent under NativeAOT, where it returns early.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Test-only reach into CoreLib; absent under NativeAOT, where it returns early.")]
+    private static void SettleRuntimeCaches()
+    {
+        if (_settled)
+        {
+            return;
+        }
+
+        _settled = true;
+        const System.Reflection.BindingFlags Private = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance;
+        var helpers = typeof(object).Assembly.GetType("System.Runtime.CompilerServices.VirtualDispatchHelpers");
+        if (helpers?.GetField("s_virtualFunctionPointerCache", Private) is not { } field ||
+            field.GetValue(null) is not { } cache ||
+            cache.GetType().GetMethod("MaybeReplaceCacheWithLarger", Private) is not { } grow)
+        {
+            return;
+        }
+
+        grow.Invoke(cache, [VirtualCallCacheMaximum]);
+        field.SetValue(null, cache);
+        FillCastCache();
+    }
+
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Test-only reach into CoreLib; absent under NativeAOT, where it returns early.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2057", Justification = "Test-only reach into CoreLib; absent under NativeAOT, where it returns early.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Test-only reach into CoreLib; absent under NativeAOT, where it returns early.")]
+    private static void FillCastCache()
+    {
+        const System.Reflection.BindingFlags Private = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
+        var table = typeof(object).Assembly.GetType("System.Runtime.CompilerServices.CastHelpers")?.GetField("s_table", Private);
+        if (table is null)
+        {
+            return;
+        }
+
+        int Length() => (table.GetValue(null) as Array)?.Length ?? 0;
+        var types = new List<Type>();
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            try
+            {
+                types.AddRange(assembly.GetTypes().Where(type => !type.ContainsGenericParameters && !type.IsByRefLike && !type.IsPointer));
+            }
+            catch (System.Reflection.ReflectionTypeLoadException error)
+            {
+                types.AddRange(error.Types.OfType<Type>().Where(type => !type.ContainsGenericParameters && !type.IsByRefLike && !type.IsPointer));
+            }
+        }
+
+        var targets = types.Where(type => type.IsInterface).Take(64).ToArray();
+        var full = CastCacheMaximumInts;
+        for (var i = 0; i < types.Count && Length() < full; i++)
+        {
+            foreach (var target in targets)
+            {
+                _ = target.IsAssignableFrom(types[i]);
+            }
+        }
+    }
 
     public static bool Updating => Environment.GetEnvironmentVariable(UpdateVariable) == "1";
 

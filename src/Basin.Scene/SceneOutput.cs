@@ -1538,7 +1538,9 @@ public sealed class SceneOutput : IDisposable, IColorLutTable
         var logical = bounds.Translated(entry.X, entry.Y);
         if (!entry.Transformed)
         {
-            return _projection.Project(logical);
+            return entry.Node is SceneBuffer exact && exact.IsExactAt(_projection.Scale)
+                ? _projection.MapPixels(exact.DeviceBox(logical.X, logical.Y, _projection.Scale))
+                : _projection.Project(logical);
         }
 
         if (!entry.Transform.TryMapBounds(logical, out var hull))

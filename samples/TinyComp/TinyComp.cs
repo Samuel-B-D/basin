@@ -275,8 +275,6 @@ internal sealed partial class TinyComp :
     private readonly List<HostChrome> _hostChrome = [];
     private bool _probed;
     private bool _outputsCreated;
-    private readonly List<Basin.Backend.Drm.DrmBackend> _secondaryBackends = [];
-    private readonly List<IAllocator> _secondaryAllocators = [];
     private readonly List<Basin.Render.Vulkan.VulkanDeviceBlitter> _blitters = [];
 
     private IBackdropBlur? _blurEffect;
@@ -891,13 +889,7 @@ internal sealed partial class TinyComp :
 
             if (forcedCard is null)
             {
-                foreach (var device in drmDevices)
-                {
-                    if (device.HasConnectors && device.CardPath != _drm!.DevicePath)
-                    {
-                        AdoptSecondaryCard(device);
-                    }
-                }
+                _driver.AdoptSecondaryCards();
             }
 
             _outputsCreated = true;
@@ -1102,16 +1094,6 @@ internal sealed partial class TinyComp :
         foreach (var blitter in _blitters)
         {
             blitter.Dispose();
-        }
-
-        foreach (var allocator in _secondaryAllocators)
-        {
-            allocator.Dispose();
-        }
-
-        foreach (var backend in _secondaryBackends)
-        {
-            backend.Dispose();
         }
 
         _feedback?.Dispose();

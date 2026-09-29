@@ -163,7 +163,6 @@ internal sealed class WestoniaSeat : IDisposable, Basin.Seat.ITouchChrome
         };
         keyboard.Modifiers += (depressed, latched, locked, group) =>
             OnModifiers(depressed, latched, locked, group);
-        keyboard.Leave += () => _seat.Keyboard.NotifyClearFocus();
     }
 
     private void WireLibinput(Basin.Backend.Libinput.LibinputBackend input)

@@ -169,6 +169,7 @@ internal sealed class ChurnWindow : IDisposable
     private WlSubsurface? _subsurface;
     private ShmBuffer? _childBuffer;
     private uint _color;
+    private bool _configured;
 
     private ChurnWindow(WlSurface surface, XdgSurface xdgSurface, XdgToplevel toplevel, ShmBuffer buffer, uint color)
     {
@@ -203,6 +204,7 @@ internal sealed class ChurnWindow : IDisposable
         xdgSurface.Configure += (_, e) =>
         {
             xdgSurface.AckConfigure(e.Serial);
+            window._configured = true;
             window.Redraw();
         };
 
@@ -226,6 +228,11 @@ internal sealed class ChurnWindow : IDisposable
 
     public void Redraw()
     {
+        if (!_configured)
+        {
+            return;
+        }
+
         _color = (_color & 0xFF000000u) | ((_color + 0x00112233u) & 0x00FFFFFFu);
         Fill(_buffer, _color);
         _surface.Attach(_buffer.Proxy, 0, 0);

@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="../Basin.Core/Basin.Core.csproj" />
     <PackageReference Include="seatd-dotnet" />
+    <PackageReference Include="Tmds.DBus.Protocol" />
   </ItemGroup>
 
 </Project>

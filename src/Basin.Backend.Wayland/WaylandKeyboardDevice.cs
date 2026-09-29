@@ -15,6 +15,8 @@ public sealed class WaylandKeyboardDevice
     [DllImport("libc")]
     private static extern int close(int fd);
 
+    private readonly List<uint> _held = [];
+
     internal WaylandKeyboardDevice(WaylandBackend backend, WlKeyboard keyboard)
     {
         keyboard.Keymap += (_, e) =>
@@ -34,12 +36,47 @@ public sealed class WaylandKeyboardDevice
             {
                 Enter?.Invoke(output);
             }
+
+            var time = (uint)Environment.TickCount64;
+            for (var i = 0; i + 4 <= e.Keys.Length; i += 4)
+            {
+                var key = BitConverter.ToUInt32(e.Keys, i);
+                if (!_held.Contains(key))
+                {
+                    _held.Add(key);
+                    Key?.Invoke(time, key, true);
+                }
+            }
         };
-        keyboard.Leave += (_, _) => Leave?.Invoke();
+        keyboard.Leave += (_, _) =>
+        {
+            var time = (uint)Environment.TickCount64;
+            for (var i = _held.Count - 1; i >= 0; i--)
+            {
+                var key = _held[i];
+                _held.RemoveAt(i);
+                Key?.Invoke(time, key, false);
+            }
+
+            Leave?.Invoke();
+        };
         keyboard.Key += (_, e) =>
         {
             backend.LastKeyboardSerial = e.Serial;
-            Key?.Invoke(e.Time, e.Key, e.State == WlKeyboard.KeyState.Pressed);
+            var pressed = e.State == WlKeyboard.KeyState.Pressed;
+            if (pressed)
+            {
+                if (!_held.Contains(e.Key))
+                {
+                    _held.Add(e.Key);
+                }
+            }
+            else
+            {
+                _held.Remove(e.Key);
+            }
+
+            Key?.Invoke(e.Time, e.Key, pressed);
         };
         keyboard.Modifiers += (_, e) => Modifiers?.Invoke(e.ModsDepressed, e.ModsLatched, e.ModsLocked, e.Group);
         keyboard.RepeatInfo += (_, e) => RepeatInfo?.Invoke(e.Rate, e.Delay);

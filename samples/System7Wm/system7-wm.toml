@@ -1,0 +1,89 @@
+# system7-wm configuration. SIGHUP rereads this file.
+
+[display]
+# Output that carries the menu bar and the startup disk: an output name, or empty for the first output.
+main = ""
+# Screen depth the chrome draws at: "bw", "4", "16", "256", "thousands" or "millions".
+depth = "256"
+# Show applications at the screen depth too, on every renderer but pixman and impeller: true or false.
+apply_to_applications = false
+# Dither applications when the depth has a palette, rather than taking the nearest color: true or false.
+dither = true
+
+[menubar]
+# Show the time at the right of the menu bar, before the Application menu: true or false.
+clock = false
+# Clock format, a .NET date format string.
+clock_format = "h:mm tt"
+
+[keyboard]
+# Modifier that acts as the Command key: "super", "alt" or "ctrl".
+command = "super"
+# Keys repeated per second while held, or 0 for no repeat.
+repeat_rate = 25
+# Milliseconds a key is held before it repeats.
+repeat_delay = 600
+
+[windows]
+# Bring every window of an application forward when one of them is activated: true or false.
+app_layering = true
+# Deliver the click that activates an inactive window to the window as well: true or false.
+click_through = false
+# Host X11 clients through Xwayland: true or false. --xwayland beats it, and a change needs a restart.
+xwayland = true
+
+[windowshade]
+# Collapse a window to its title bar from the title bar: true or false.
+enabled = true
+# Clicks on the title bar that collapse or expand a window: 1, 2 or 3.
+clicks = 2
+# Modifier that must be held while clicking: "none", "command", "option", "control" or "shift".
+modifier = "none"
+# Play the alert sound on every collapse and expand: true or false.
+sound = false
+
+[desktop]
+# Desktop pattern name, from the Desktop Patterns control panel.
+pattern = "Desktop"
+# Image file shown instead of the pattern, or empty for the pattern.
+wallpaper = ""
+
+[finder]
+# Name of the startup disk icon at the top right of the main screen, or empty for the folder it opens.
+disk_name = ""
+# Folder the startup disk opens, or empty for the mount point that holds the home folder.
+disk_root = ""
+# Double-click interval in milliseconds, also the WindowShade click interval.
+double_click_ms = 500
+
+[mouse]
+# Pointer tracking speed from 0 (slowest) to 1 (fastest), or empty for the device default.
+tracking = ""
+
+[sound]
+# Alert sound: a System 7 sound by name (Droplet, Indigo, Quack, Sosumi, Wild Eep),
+# a sound file path, or empty for Simple Beep. Played through pw-play, paplay or aplay.
+alert = ""
+# Output volume from 0 to 7, applied through wpctl, or -1 to leave the volume alone.
+volume = -1
+
+[terminal]
+# Terminal for Terminal=true applications and New Terminal, or empty for the built-in one.
+command = ""
+# Shell the built-in terminal runs, or empty for $SHELL, then /bin/sh.
+shell = ""
+# Monaco size: 9 or 12.
+font_size = 9
+# Lines of scrollback.
+scrollback = 1000
+
+[keybindings]
+# Open a new terminal window, or empty for none.
+new_terminal = "Super+Alt+T"
+
+# Per-application overrides. app_id matches exactly, app_id_prefix matches a prefix.
+# edit_chords is the modifier set the Edit menu sends: "ctrl" or "ctrl+shift".
+# decorations forces a frame: "auto", "frame" or "none".
+#[[rule]]
+#app_id = "foot"
+#edit_chords = "ctrl+shift"

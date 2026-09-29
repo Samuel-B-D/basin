@@ -31,11 +31,14 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Basin.Core/Basin.Core.csproj" />
+    <ProjectReference Include="../../src/Basin.Pty/Basin.Pty.csproj" />
     <ProjectReference Include="../../samples/Dam/Dam.csproj" />
     <ProjectReference Include="../../samples/EightWm/EightWm.csproj" />
     <ProjectReference Include="../../samples/TinyComp/TinyComp.csproj" />
     <ProjectReference Include="../../samples/BasinPortal/BasinPortal.csproj" />
     <ProjectReference Include="../../samples/Tarn/Tarn/Tarn.csproj" />
+    <ProjectReference Include="../../src/Basin.AppMenu/Basin.AppMenu.csproj" />
+    <ProjectReference Include="../../src/Basin.Session/Basin.Session.csproj" />
     <ProjectReference Include="../../src/Basin.Config/Basin.Config.csproj" />
     <ProjectReference Include="../../src/Basin.Ipc/Basin.Ipc.csproj" />
     <ProjectReference Include="../../src/Basin.Ipc.Client/Basin.Ipc.Client.csproj" />

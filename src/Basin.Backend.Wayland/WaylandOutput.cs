@@ -43,6 +43,9 @@ public sealed class WaylandOutput : OutputBase, IPresentingOutput
     private bool _frameRequested;
     private bool _configured;
     private int _logicalWidth;
+    private int _floatingWidth;
+    private int _floatingHeight;
+    private bool _constrained;
     private int _logicalHeight;
     private double _presentationScale = 1;
     private bool _scaleWarned;
@@ -136,6 +139,7 @@ public sealed class WaylandOutput : OutputBase, IPresentingOutput
 
             _configureWidth = pendingWidth;
             _configureHeight = pendingHeight;
+            _constrained = IsConstrained(pendingStates);
             var first = !_configured;
             _configured = true;
             EnsureHostFrame();
@@ -333,6 +337,20 @@ public sealed class WaylandOutput : OutputBase, IPresentingOutput
         _hostFrameAvailable?.Invoke(_hostFrame);
     }
 
+    private static bool IsConstrained(byte[] states)
+    {
+        foreach (var value in MemoryMarshal.Cast<byte, uint>(states))
+        {
+            if ((XdgToplevel.State)value is XdgToplevel.State.Maximized or XdgToplevel.State.Fullscreen or
+                XdgToplevel.State.TiledLeft or XdgToplevel.State.TiledRight or XdgToplevel.State.TiledTop or XdgToplevel.State.TiledBottom)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void ApplyToplevelStates(byte[] states)
     {
         if (_hostFrame is null)
@@ -381,8 +399,14 @@ public sealed class WaylandOutput : OutputBase, IPresentingOutput
     private void ApplyConfigure()
     {
         var insets = _hostFrame?.Insets ?? default;
-        var outerWidth = _configureWidth > 0 ? _configureWidth : 1024;
-        var outerHeight = _configureHeight > 0 ? _configureHeight : 768;
+        if (!_constrained && _configureWidth > 0 && _configureHeight > 0)
+        {
+            _floatingWidth = _configureWidth;
+            _floatingHeight = _configureHeight;
+        }
+
+        var outerWidth = _configureWidth > 0 ? _configureWidth : _floatingWidth > 0 ? _floatingWidth : 1024;
+        var outerHeight = _configureHeight > 0 ? _configureHeight : _floatingHeight > 0 ? _floatingHeight : 768;
         _logicalWidth = Math.Max(outerWidth - insets.Left - insets.Right, MinContentWidth);
         _logicalHeight = Math.Max(outerHeight - insets.Top - insets.Bottom, MinContentHeight);
 
@@ -775,6 +799,11 @@ public sealed class WaylandOutput : OutputBase, IPresentingOutput
             return null;
         }
 
+        return CreateImported(buffer, dmabuf, attributes);
+    }
+
+    private ImportedBuffer CreateImported(IBuffer buffer, ZwpLinuxDmabufV1 dmabuf, in DmabufAttributes attributes)
+    {
         var bufferParams = dmabuf.CreateParams();
         for (var plane = 0; plane < attributes.PlaneCount; plane++)
         {

@@ -154,7 +154,6 @@ internal sealed class MauiCompSeat : IDisposable
             _router.Modifiers(depressed, latched, locked, group);
             _seat.Keyboard.NotifyModifiers(depressed, latched, locked, group);
         };
-        keyboard.Leave += () => _seat.Keyboard.NotifyClearFocus();
     }
 
     private void WireLibinput(Basin.Backend.Libinput.LibinputBackend input)

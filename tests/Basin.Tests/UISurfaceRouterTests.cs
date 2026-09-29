@@ -54,6 +54,21 @@ public sealed class UISurfaceRouterTests
     }
 
     [Fact]
+    public void An_input_scale_turns_scene_units_into_the_surfaces_own()
+    {
+        using var fixture = new RouterFixture();
+        var panel = fixture.Add(new Box(10, 10, 100, 100));
+        panel.Node.InputScale = 0.85;
+
+        var route = fixture.Router.PointerMotion(1, 30, 50);
+        Assert.Same(panel.Surface, route.Surface);
+        Assert.Equal("enter 17,34", panel.Surface.Log[0]);
+        Assert.True(fixture.Router.TryLocal(panel.Surface, 30, 50, out var localX, out var localY));
+        Assert.Equal(17, localX, 6);
+        Assert.Equal(34, localY, 6);
+    }
+
+    [Fact]
     public void Buttons_and_axis_reach_the_hovered_surface()
     {
         using var fixture = new RouterFixture();

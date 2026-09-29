@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Basin.Pty</PackageId>
+    <RootNamespace>Basin.Pty</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Description>A pseudo-terminal on the compositor's event loop: the master is a loop fd, the child is spawned as a session leader on the slave and reaped through a pidfd, with no threads.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Basin.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Basin.Core/Basin.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -9,6 +9,7 @@
 #include "xdg-decoration-unstable-v1-client-protocol.h"
 #include "fractional-scale-v1-client-protocol.h"
 #include "viewporter-client-protocol.h"
+#include "xdg-dialog-v1-client-protocol.h"
 
 static struct wl_compositor *compositor;
 static struct wl_shm *shm;
@@ -24,11 +25,13 @@ static struct xdg_toplevel *toplevel;
 static struct zxdg_toplevel_decoration_v1 *decoration;
 static int width = 256, height = 256;
 static int running = 1;
+static int move_on_press;
 static uint32_t colour = 0xFF3C7A9E;
 static uint32_t wanted = ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE;
 static struct wp_fractional_scale_manager_v1 *fractional_manager;
 static struct wp_viewporter *viewporter;
 static struct wp_viewport *viewport;
+static struct xdg_wm_dialog_v1 *dialog_manager;
 /* pixel mode: the buffer stays 256 pixels and the logical size follows the preferred scale, ignoring configure sizes, like a client that sizes its window in pixels. */
 static int pixel_mode;
 static uint32_t pixel_scale = 120;
@@ -87,6 +90,21 @@ static void xdg_surface_configure(void *data, struct xdg_surface *s, uint32_t se
 
 static const struct xdg_surface_listener xdg_surface_listener = { xdg_surface_configure };
 
+static struct wl_surface *child_surface;
+
+static void child_configure(void *data, struct xdg_surface *s, uint32_t serial)
+{
+    (void)data;
+    xdg_surface_ack_configure(s, serial);
+    struct wl_buffer *buf = make_buffer(160, 100);
+    if (!buf) return;
+    wl_surface_attach(child_surface, buf, 0, 0);
+    wl_surface_damage_buffer(child_surface, 0, 0, 160, 100);
+    wl_surface_commit(child_surface);
+}
+
+static const struct xdg_surface_listener child_listener = { child_configure };
+
 static int suspended = -1;
 
 static void toplevel_configure(void *data, struct xdg_toplevel *t, int32_t w, int32_t h, struct wl_array *states)
@@ -101,6 +119,10 @@ static void toplevel_configure(void *data, struct xdg_toplevel *t, int32_t w, in
         fflush(stdout);
     }
     suspended = now;
+    if (w > 0 && h > 0 && (w != width || h != height)) {
+        printf("CONFIGURE %d %d\n", w, h);
+        fflush(stdout);
+    }
     if (pixel_mode) return;
     if (w > 0) width = w;
     if (h > 0) height = h;
@@ -148,14 +170,20 @@ static void pointer_motion(void *data, struct wl_pointer *p, uint32_t t, wl_fixe
     pointer_y = wl_fixed_to_double(y);
 }
 
-/* Print where a press landed in surface coordinates, so a test can check the compositor's hit mapping. */
+/* Print where a press landed in surface coordinates, so a test can check the compositor's hit mapping.
+   With "move", a press also asks for an interactive move, the way a client lets its content drag the window. */
 static void pointer_button(void *data, struct wl_pointer *p, uint32_t serial,
                            uint32_t t, uint32_t button, uint32_t state)
 {
-    (void)data; (void)p; (void)serial; (void)t;
+    (void)data; (void)p; (void)t;
     if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
         printf("BUTTON %u %.2f %.2f\n", button, pointer_x, pointer_y);
         fflush(stdout);
+        if (move_on_press && toplevel && seat) {
+            xdg_toplevel_move(toplevel, seat, serial);
+            printf("MOVE requested\n");
+            fflush(stdout);
+        }
     }
 }
 
@@ -193,9 +221,12 @@ static void kb_key(void *d, struct wl_keyboard *k, uint32_t serial, uint32_t tim
     fflush(stdout);
 }
 
+/* Print the depressed modifier mask, so a test can see a chord sent as modifier state rather than as key presses. */
 static void kb_modifiers(void *d, struct wl_keyboard *k, uint32_t serial, uint32_t dep, uint32_t lat, uint32_t lock, uint32_t group)
 {
-    (void)d; (void)k; (void)serial; (void)dep; (void)lat; (void)lock; (void)group;
+    (void)d; (void)k; (void)serial; (void)lat; (void)lock; (void)group;
+    printf("MODIFIERS %u\n", dep);
+    fflush(stdout);
 }
 
 static void kb_repeat(void *d, struct wl_keyboard *k, int32_t rate, int32_t delay)
@@ -246,6 +277,8 @@ static void global_add(void *data, struct wl_registry *registry, uint32_t name, 
         fractional_manager = wl_registry_bind(registry, name, &wp_fractional_scale_manager_v1_interface, 1);
     else if (strcmp(interface, wp_viewporter_interface.name) == 0)
         viewporter = wl_registry_bind(registry, name, &wp_viewporter_interface, 1);
+    else if (strcmp(interface, xdg_wm_dialog_v1_interface.name) == 0)
+        dialog_manager = wl_registry_bind(registry, name, &xdg_wm_dialog_v1_interface, 1);
     else if (strcmp(interface, wl_seat_interface.name) == 0 && !seat) {
         seat = wl_registry_bind(registry, name, &wl_seat_interface, 1);
         wl_seat_add_listener(seat, &seat_listener, NULL);
@@ -263,6 +296,7 @@ int main(int argc, char **argv)
     int fullscreen = 0;
     for (int i = 1; i < argc; i++) if (strcmp(argv[i], "fullscreen") == 0) fullscreen = 1;
     for (int i = 1; i < argc; i++) if (strcmp(argv[i], "pixel") == 0) pixel_mode = 1;
+    for (int i = 1; i < argc; i++) if (strcmp(argv[i], "move") == 0) move_on_press = 1;
 
     struct wl_display *display = wl_display_connect(NULL);
     if (!display) { fprintf(stderr, "no display\n"); return 1; }
@@ -294,6 +328,31 @@ int main(int argc, char **argv)
     }
     if (fullscreen) xdg_toplevel_set_fullscreen(toplevel, NULL);
     wl_surface_commit(surface);
+
+    /* modal: a 160x100 fixed-size child titled dialog, made modal through xdg-dialog once the parent maps. */
+    int modal = 0;
+    for (int i = 1; i < argc; i++) if (strcmp(argv[i], "modal") == 0) modal = 1;
+    if (modal) {
+        wl_display_roundtrip(display);
+        wl_display_roundtrip(display);
+        struct wl_surface *child = wl_compositor_create_surface(compositor);
+        child_surface = child;
+        struct xdg_surface *child_xdg = xdg_wm_base_get_xdg_surface(wm_base, child);
+        xdg_surface_add_listener(child_xdg, &child_listener, NULL);
+        struct xdg_toplevel *child_top = xdg_surface_get_toplevel(child_xdg);
+        xdg_toplevel_set_parent(child_top, toplevel);
+        xdg_toplevel_set_title(child_top, "dialog");
+        xdg_toplevel_set_app_id(child_top, "ssdwin");
+        xdg_toplevel_set_min_size(child_top, 160, 100);
+        xdg_toplevel_set_max_size(child_top, 160, 100);
+        if (dialog_manager) {
+            struct xdg_dialog_v1 *dialog = xdg_wm_dialog_v1_get_xdg_dialog(dialog_manager, child_top);
+            xdg_dialog_v1_set_modal(dialog);
+        }
+        wl_surface_commit(child);
+        printf("MODAL %s\n", dialog_manager ? "yes" : "unavailable");
+        fflush(stdout);
+    }
 
     while (running && wl_display_dispatch(display) != -1) {
     }

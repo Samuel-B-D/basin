@@ -60,6 +60,18 @@ public sealed class UISurfaceNode : IUISurfaceObserver, IDisposable
 
     public bool IsFaulted => _faulted;
 
+    public (int Width, int Height)? DevicePixels { get; set; }
+
+    public double OutputScale { get; set; } = 1.0;
+
+    public (int X, int Y) DeviceNudge
+    {
+        get => _node.DeviceNudge;
+        set => _node.DeviceNudge = value;
+    }
+
+    public double InputScale { get; set; } = 1.0;
+
     public bool AutoEnable { get; set; } = true;
 
     public UITargetKind? Target { get; init; }
@@ -175,9 +187,21 @@ public sealed class UISurfaceNode : IUISurfaceObserver, IDisposable
         _scale = size.Scale;
         _node.SetBuffer(frame.Buffer);
         _node.AcquireFenceFd = frame.AcquireFenceFd;
-        _node.SourceBox = OutputScaling.ToPhysical(new Box(0, 0, size.Width, size.Height), size.Scale);
-        _node.DestinationWidth = size.Width;
-        _node.DestinationHeight = size.Height;
+        if (DevicePixels is { } pixels)
+        {
+            _node.SourceBox = new FBox(0, 0, Math.Min(pixels.Width, frame.Buffer.Width), Math.Min(pixels.Height, frame.Buffer.Height));
+            _node.DestinationWidth = (int)Math.Ceiling((pixels.Width + Math.Max(0, DeviceNudge.X)) / OutputScale);
+            _node.DestinationHeight = (int)Math.Ceiling((pixels.Height + Math.Max(0, DeviceNudge.Y)) / OutputScale);
+            _node.DevicePixels = (Math.Min(pixels.Width, frame.Buffer.Width), Math.Min(pixels.Height, frame.Buffer.Height));
+            _node.DeviceScale = OutputScale;
+        }
+        else
+        {
+            _node.DevicePixels = null;
+            _node.SourceBox = OutputScaling.ToPhysical(new Box(0, 0, size.Width, size.Height), size.Scale);
+            _node.DestinationWidth = size.Width;
+            _node.DestinationHeight = size.Height;
+        }
         if (AutoEnable)
         {
             _node.Enabled = true;

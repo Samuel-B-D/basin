@@ -18,6 +18,7 @@ public sealed class OutputDriver : IDisposable
     private readonly List<IAllocator> _ownedAllocators = [];
     private readonly OutputState _frameState = new();
     private readonly Dictionary<OutputView, Action<SceneNode?, Box>> _secondaryDamage = [];
+    private readonly List<DrmBackend> _secondaryCards = [];
     private bool? _hasLidSwitch;
 
     public OutputDriver(
@@ -102,6 +103,74 @@ public sealed class OutputDriver : IDisposable
     public event Action<OutputView, double>? ScaleRefused;
 
     public event Action<DrmOutput>? ModesetRefused;
+
+    public event Action<DrmDeviceInfo>? CardAdopted;
+
+    public event Action<DrmDeviceInfo, string>? CardRefused;
+
+    public event Action<DrmOutput>? SecondaryOutputAdded;
+
+    public void AdoptSecondaryCards()
+    {
+        if (_host.Drm is not { } primary || _host.Session is not { } session)
+        {
+            return;
+        }
+
+        foreach (var device in DrmDevices.Enumerate())
+        {
+            if (device.HasConnectors && device.CardPath != primary.DevicePath)
+            {
+                AdoptSecondaryCard(session, device);
+            }
+        }
+    }
+
+    private void AdoptSecondaryCard(Basin.Session.ISession session, DrmDeviceInfo device)
+    {
+        DrmBackend? backend = null;
+        try
+        {
+            backend = new DrmBackend(_host.Loop, session, device.CardPath);
+            backend.Start();
+        }
+        catch (Exception e) when (e is InvalidOperationException or IOException)
+        {
+            backend?.Dispose();
+            CardRefused?.Invoke(device, e.Message);
+            return;
+        }
+
+        _secondaryCards.Add(backend);
+        var allocator = new DumbAllocator(backend);
+        _ownedAllocators.Add(allocator);
+        CardAdopted?.Invoke(device);
+        foreach (var output in backend.Outputs)
+        {
+            AddSecondaryOutput(output, allocator);
+        }
+
+        backend.OutputAdded += output => AddSecondaryOutput(output, allocator);
+        backend.OutputRemoved += output =>
+        {
+            if (ViewOf(output) is { } view)
+            {
+                RemoveView(view);
+            }
+        };
+    }
+
+    private void AddSecondaryOutput(DrmOutput output, IAllocator allocator)
+    {
+        if (!EnableWithStamp(output))
+        {
+            ModesetRefused?.Invoke(output);
+            return;
+        }
+
+        SecondaryOutputAdded?.Invoke(output);
+        _ = AddView(output, allocator, secondary: true);
+    }
 
     public void CreateInitialOutputs()
     {
@@ -375,6 +444,12 @@ public sealed class OutputDriver : IDisposable
         }
 
         _ownedAllocators.Clear();
+        foreach (var card in _secondaryCards)
+        {
+            card.Dispose();
+        }
+
+        _secondaryCards.Clear();
         _frameState.Dispose();
     }
 

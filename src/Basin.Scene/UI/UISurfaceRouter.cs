@@ -48,7 +48,8 @@ public sealed class UISurfaceRouter : IUISurfaceObserver
             return null;
         }
 
-        return new UISurfaceHit(surface, node, hit.X, hit.Y);
+        var scale = _index.NodeOf(node)?.InputScale ?? 1.0;
+        return new UISurfaceHit(surface, node, hit.X * scale, hit.Y * scale);
     }
 
     public string? CursorAt(double x, double y) =>
@@ -63,7 +64,14 @@ public sealed class UISurfaceRouter : IUISurfaceObserver
             return false;
         }
 
-        return owner.Node.TryMapSceneToLocal(x, y, out localX, out localY);
+        if (!owner.Node.TryMapSceneToLocal(x, y, out localX, out localY))
+        {
+            return false;
+        }
+
+        localX *= owner.InputScale;
+        localY *= owner.InputScale;
+        return true;
     }
 
     public UIPointerRoute PointerMotion(uint timeMs, double x, double y)

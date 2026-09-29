@@ -57,6 +57,10 @@ public sealed class XWaylandWindow : Basin.Capabilities.IToplevelHandle
 
     public XWaylandIcon? Icon { get; internal set; }
 
+    public string AppMenuServiceName { get; internal set; } = string.Empty;
+
+    public string AppMenuObjectPath { get; internal set; } = string.Empty;
+
     public Surface? Surface { get; internal set; }
 
     internal ulong AssociationSerial { get; set; }
@@ -80,6 +84,8 @@ public sealed class XWaylandWindow : Basin.Capabilities.IToplevelHandle
     public event Action? DecorationsChanged;
 
     public event Action? IconChanged;
+
+    public event Action? AppMenuChanged;
 
     public event Action? SizeHintsChanged;
 
@@ -240,6 +246,8 @@ public sealed class XWaylandWindow : Basin.Capabilities.IToplevelHandle
     }
 
     internal void RaiseTitleChanged() => TitleChanged?.Invoke();
+
+    internal void RaiseAppMenuChanged() => AppMenuChanged?.Invoke();
 
     internal void RaisePropertiesChanged() => PropertiesChanged?.Invoke();
 

@@ -25,3 +25,6 @@
 [submodule "external/xdg-desktop-portal"]
 	path = external/xdg-desktop-portal
 	url = https://github.com/flatpak/xdg-desktop-portal.git
+[submodule "external/System7.Avalonia"]
+	path = external/System7.Avalonia
+	url = https://github.com/drasticactions/System7.Avalonia.git

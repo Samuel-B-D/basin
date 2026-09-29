@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>System7Wm.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" VersionOverride="$(System7AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Skia" VersionOverride="$(System7AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.HarfBuzz" VersionOverride="$(System7AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Themes.Simple" VersionOverride="$(System7AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Headless" VersionOverride="$(System7AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Headless.XUnit" VersionOverride="$(System7AvaloniaVersion)" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../samples/System7Wm/System7Wm.csproj" />
+    <ProjectReference Include="../../src/Basin.AppMenu/Basin.AppMenu.csproj" />
+    <ProjectReference Include="../../src/Basin.Core/Basin.Core.csproj" />
+    <ProjectReference Include="../../samples/BasinCtl/BasinCtl.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../samples/BasinMcp/BasinMcp.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../BasinChurn/BasinChurn.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Goldens/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

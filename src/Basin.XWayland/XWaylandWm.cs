@@ -119,7 +119,7 @@ public sealed unsafe class XWaylandWm : IDisposable
             "_NET_WM_WINDOW_TYPE_COMBO", "_NET_WM_WINDOW_TYPE_DND", "_NET_WM_WINDOW_TYPE_DROPDOWN_MENU",
             "_NET_WM_WINDOW_TYPE_MENU", "_NET_WM_WINDOW_TYPE_NOTIFICATION", "_NET_WM_WINDOW_TYPE_POPUP_MENU",
             "_NET_WM_WINDOW_TYPE_SPLASH", "_NET_WM_WINDOW_TYPE_DESKTOP", "_NET_WM_WINDOW_TYPE_TOOLTIP",
-            "_NET_WM_WINDOW_TYPE_UTILITY",
+            "_NET_WM_WINDOW_TYPE_UTILITY", "_KDE_NET_WM_APPMENU_SERVICE_NAME", "_KDE_NET_WM_APPMENU_OBJECT_PATH",
         ];
         var cookies = new xcb_intern_atom_cookie_t[names.Length];
         for (var i = 0; i < names.Length; i++)
@@ -235,6 +235,8 @@ public sealed unsafe class XWaylandWm : IDisposable
 
                 _windows[e->window] = new XWaylandWindow(
                     this, e->window, e->override_redirect != 0, e->x, e->y, e->width, e->height);
+                var events = 0x00400000u;
+                _ = Libxcb.xcb_change_window_attributes(_conn, e->window, 0x800, &events);
                 break;
             }
 
@@ -363,6 +365,10 @@ public sealed unsafe class XWaylandWm : IDisposable
                     else if (e->atom == AtomWmNormalHints)
                     {
                         RefreshSizeHints(window);
+                    }
+                    else if (e->atom == Atom("_KDE_NET_WM_APPMENU_SERVICE_NAME") || e->atom == Atom("_KDE_NET_WM_APPMENU_OBJECT_PATH"))
+                    {
+                        RefreshAppMenu(window);
                     }
                 }
 
@@ -518,6 +524,7 @@ public sealed unsafe class XWaylandWm : IDisposable
         RefreshIcon(window);
         RefreshWindowType(window);
         RefreshSizeHints(window);
+        RefreshAppMenu(window);
     }
 
     private const uint AtomWmNormalHints = 40;
@@ -713,6 +720,18 @@ public sealed unsafe class XWaylandWm : IDisposable
         {
             window.WantsDecorations = wants;
             window.RaiseDecorationsChanged();
+        }
+    }
+
+    private void RefreshAppMenu(XWaylandWindow window)
+    {
+        var service = GetStringProperty(window.WindowId, Atom("_KDE_NET_WM_APPMENU_SERVICE_NAME"), 0).TrimEnd('\0');
+        var path = GetStringProperty(window.WindowId, Atom("_KDE_NET_WM_APPMENU_OBJECT_PATH"), 0).TrimEnd('\0');
+        if (service != window.AppMenuServiceName || path != window.AppMenuObjectPath)
+        {
+            window.AppMenuServiceName = service;
+            window.AppMenuObjectPath = path;
+            window.RaiseAppMenuChanged();
         }
     }
 

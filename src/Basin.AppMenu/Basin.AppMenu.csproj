@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Basin.AppMenu</PackageId>
+    <RootNamespace>Basin.AppMenu</RootNamespace>
+    <Description>Global menus for Basin: org_kde_kwin_appmenu and gtk_shell1, readers for com.canonical.dbusmenu and org.gtk.Menus, and a toolkit-free menu model a compositor draws its menu bar from.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Basin.Tests" />
+    <ProjectReference Include="../Basin.Core/Basin.Core.csproj" />
+    <ProjectReference Include="../Basin.Shell.Xdg/Basin.Shell.Xdg.csproj" />
+    <PackageReference Include="WaylandSharpest" />
+    <PackageReference Include="Tmds.DBus.Protocol" />
+    <AdditionalFiles Include="$(PlasmaProtocolsDir)appmenu.xml" WaylandNamespace="Basin.AppMenu.Protocol" />
+    <AdditionalFiles Include="$(BasinProtocolDir)gtk-shell.xml" WaylandNamespace="Basin.AppMenu.Protocol" />
+  </ItemGroup>
+
+</Project>

@@ -14,6 +14,9 @@ public sealed class SceneBuffer : SceneNode
     private FBox _sourceBox;
     private int _destinationWidth;
     private int _destinationHeight;
+    private (int Width, int Height)? _devicePixels;
+    private (int X, int Y) _deviceNudge;
+    private double _deviceScale = 1.0;
 
     public SceneBuffer(SceneTree parent)
         : base(parent)
@@ -53,6 +56,54 @@ public sealed class SceneBuffer : SceneNode
     {
         get => _destinationHeight;
         set => ResizeDestination(ref _destinationHeight, value);
+    }
+
+    public (int Width, int Height)? DevicePixels
+    {
+        get => _devicePixels;
+        set
+        {
+            if (Nullable.Equals(_devicePixels, value))
+            {
+                return;
+            }
+
+            DamageSubtree();
+            _devicePixels = value;
+            DamageSubtree();
+        }
+    }
+
+    public double DeviceScale
+    {
+        get => _deviceScale;
+        set
+        {
+            if (_deviceScale == value)
+            {
+                return;
+            }
+
+            DamageSubtree();
+            _deviceScale = value;
+            DamageSubtree();
+        }
+    }
+
+    public (int X, int Y) DeviceNudge
+    {
+        get => _deviceNudge;
+        set
+        {
+            if (_deviceNudge == value)
+            {
+                return;
+            }
+
+            DamageSubtree();
+            _deviceNudge = value;
+            DamageSubtree();
+        }
     }
 
     public bool IsOpaque { get; set; }
@@ -362,6 +413,14 @@ public sealed class SceneBuffer : SceneNode
     internal (int Width, int Height) Size => ContentSize;
 
     public (int Width, int Height) DisplaySize => ContentSize;
+
+    internal bool IsExactAt(double scale) => _devicePixels is not null && _deviceScale == scale;
+
+    internal Box DeviceBox(int x, int y, double scale)
+    {
+        var (width, height) = _devicePixels ?? default;
+        return new Box((int)Math.Round(x * scale) + _deviceNudge.X, (int)Math.Round(y * scale) + _deviceNudge.Y, width, height);
+    }
 
     public int ContentVersion { get; private set; }
 

@@ -5,17 +5,24 @@ namespace Westonia;
 
 internal sealed partial class Westonia
 {
-    private readonly ShellModifierState _modifiers = new();
+    private ShellModifierState? _modifierState;
     private ShellModifiers _bindingModifier = ShellModifiers.Super;
+
+    private ShellModifierState Modifiers => _modifierState ??= new ShellModifierState(() => Seat.Keyboard.State);
 
     private bool OnKeyBinding(uint time, uint key, bool pressed)
     {
-        if (_modifiers.Track(key, pressed))
+        if (Modifiers.IsModifierKey(key))
         {
-            if (!pressed && _switcher is { IsOpen: true } && !_modifiers.Holds(_bindingModifier))
+            if (!pressed && _switcher is { IsOpen: true })
             {
-                _switcher.Commit();
-                return true;
+                _host.Loop.AddIdle(() =>
+                {
+                    if (_switcher is { IsOpen: true } && !Modifiers.Holds(_bindingModifier))
+                    {
+                        _switcher.Commit();
+                    }
+                });
             }
 
             return false;
@@ -38,7 +45,7 @@ internal sealed partial class Westonia
         }
 
         if (_ini.Shell.AllowZap &&
-            _modifiers.Exactly(ShellModifiers.Ctrl | ShellModifiers.Alt) &&
+            Modifiers.Exactly(ShellModifiers.Ctrl | ShellModifiers.Alt) &&
             key == InputCodes.KeyBackspace)
         {
             _log.Info($"terminating on the zap binding");
@@ -56,13 +63,13 @@ internal sealed partial class Westonia
                 return true;
         }
 
-        if (_bindingModifier == ShellModifiers.None || !_modifiers.Holds(_bindingModifier))
+        if (_bindingModifier == ShellModifiers.None || !Modifiers.Holds(_bindingModifier))
         {
             return false;
         }
 
-        var shift = _modifiers.Holds(ShellModifiers.Shift);
-        var ctrl = _modifiers.Holds(ShellModifiers.Ctrl);
+        var shift = Modifiers.Holds(ShellModifiers.Shift);
+        var ctrl = Modifiers.Holds(ShellModifiers.Ctrl);
 
         switch (key)
         {
@@ -130,9 +137,9 @@ internal sealed partial class Westonia
         var pointer = (_seat!.PointerX, _seat.PointerY);
         var window = WindowUnder(pointer.PointerX, pointer.PointerY);
 
-        if (_bindingModifier != ShellModifiers.None && _modifiers.Holds(_bindingModifier) && window is not null)
+        if (_bindingModifier != ShellModifiers.None && Modifiers.Holds(_bindingModifier) && window is not null)
         {
-            var shift = _modifiers.Holds(ShellModifiers.Shift);
+            var shift = Modifiers.Holds(ShellModifiers.Shift);
             switch (button)
             {
                 case InputCodes.BtnLeft when !shift:

@@ -750,7 +750,9 @@ public sealed partial class Scene
                         pass.AddTexture(texture, new TextureRenderOptions
                         {
                             SrcBox = buffer.SourceBox,
-                            DstBox = OutputScaling.ToPhysical(new Box(entry.X, entry.Y, width, height), scale).Translated(-offsetX, -offsetY),
+                            DstBox = (buffer.IsExactAt(scale)
+                                ? buffer.DeviceBox(entry.X, entry.Y, scale)
+                                : OutputScaling.ToPhysical(new Box(entry.X, entry.Y, width, height), scale)).Translated(-offsetX, -offsetY),
                             Transform = projection.MapsPixels ? projection.Matrix : RenderTransform.Identity,
                             Alpha = entry.Alpha,
                             Clip = clip,

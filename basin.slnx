@@ -21,8 +21,10 @@
     <Project Path="samples/TinyWl/TinyWl.csproj" />
     <Project Path="samples/DungeonWm/DungeonWm.csproj" />
     <Project Path="samples/Westonia/Westonia.csproj" />
+    <Project Path="samples/System7Wm/System7Wm.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/Basin.AppMenu/Basin.AppMenu.csproj" />
     <Project Path="src/Basin.Backend.Headless/Basin.Backend.Headless.csproj" />
     <Project Path="src/Basin.Backend.Hosted/Basin.Backend.Hosted.csproj" />
     <Project Path="src/Basin.Cli/Basin.Cli.csproj" />
@@ -30,6 +32,7 @@
     <Project Path="src/Basin.Freedesktop/Basin.Freedesktop.csproj" />
     <Project Path="src/Basin.Frames.Metacity/Basin.Frames.Metacity.csproj" />
     <Project Path="src/Basin.Frames.Quill/Basin.Frames.Quill.csproj" />
+    <Project Path="src/Basin.Pty/Basin.Pty.csproj" />
     <Project Path="src/Basin.Backend.Wayland/Basin.Backend.Wayland.csproj" />
     <Project Path="src/Basin.Backend.Drm/Basin.Backend.Drm.csproj" />
     <Project Path="src/Basin.Backend.Libinput/Basin.Backend.Libinput.csproj" />
@@ -98,6 +101,7 @@
   </Folder>
   <Folder Name="/external/">
     <Project Path="external/NImpeller/src/NImpeller/NImpeller.csproj" />
+    <Project Path="external/System7.Avalonia/src/System7.Avalonia/System7.Avalonia.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Basin.Tests/Basin.Tests.csproj" />
@@ -106,6 +110,7 @@
     <Project Path="tests/MauiComp.Tests/MauiComp.Tests.csproj" />
     <Project Path="tests/Westonia.Tests/Westonia.Tests.csproj" />
     <Project Path="tests/EightWm.Tests/EightWm.Tests.csproj" />
+    <Project Path="tests/System7Wm.Tests/System7Wm.Tests.csproj" />
     <Project Path="tests/DungeonWm.Tests/DungeonWm.Tests.csproj" />
   </Folder>
 </Solution>

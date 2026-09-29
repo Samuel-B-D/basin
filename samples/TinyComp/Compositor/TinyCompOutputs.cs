@@ -58,6 +58,9 @@ internal sealed partial class TinyComp
         _driver.ScanoutChanged += OnScanoutChanged;
         _driver.ScaleRefused += (view, scale) => _log.Warn($"scale {scale} refused by {view.Output.Name}");
         _driver.ModesetRefused += card => _log.Error($"modeset refused by {card.Name}");
+        _driver.CardAdopted += device => _report.Line($"CARD + {device.CardPath} ({device.Driver})");
+        _driver.CardRefused += (device, reason) => _report.Line($"CARD {device.CardPath} not adopted: {reason}");
+        _driver.SecondaryOutputAdded += output => _report.Line($"OUTPUT + {output.Name}");
         _driver.HostScaleFollowed += view =>
         {
             _report.Line($"SCALE {view.Output.Name} {view.Output.Scale}");
@@ -466,51 +469,6 @@ internal sealed partial class TinyComp
         _scene.Root.SetPosition(-box.X, -box.Y);
         MaybeScreenshot(view);
         _scene.Root.SetPosition(0, 0);
-    }
-
-    private void AdoptSecondaryCard(DrmDeviceInfo device)
-    {
-        try
-        {
-            var backend = new Basin.Backend.Drm.DrmBackend(_loop, _session!, device.CardPath);
-            backend.Start();
-            _secondaryBackends.Add(backend);
-            var allocator = new Basin.Backend.Drm.DumbAllocator(backend);
-            _secondaryAllocators.Add(allocator);
-            _report.Line($"CARD + {device.CardPath} ({device.Driver})");
-            foreach (var output in backend.Outputs)
-            {
-                AddSecondaryOutput(output, allocator);
-            }
-
-            backend.OutputAdded += output =>
-            {
-                _report.Line($"OUTPUT + {output.Name}");
-                AddSecondaryOutput(output, allocator);
-            };
-            backend.OutputRemoved += output =>
-            {
-                if (_driver.ViewOf(output) is { } view)
-                {
-                    _driver.RemoveView(view);
-                }
-            };
-        }
-        catch (Exception e) when (e is InvalidOperationException or IOException)
-        {
-            _report.Line($"CARD {device.CardPath} not adopted: {e.Message}");
-        }
-    }
-
-    private void AddSecondaryOutput(Basin.Backend.Drm.DrmOutput output, IAllocator allocator)
-    {
-        if (!_driver.EnableWithStamp(output))
-        {
-            _log.Error($"modeset refused by {output.Name}");
-            return;
-        }
-
-        _ = _driver.AddView(output, allocator, secondary: true);
     }
 
     private RenderColor Background => _config.Background;

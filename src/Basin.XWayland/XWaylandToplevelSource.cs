@@ -200,6 +200,7 @@ public sealed class XWaylandToplevelSource : IToplevelSource, IDisposable
         _windows[id] = window;
         _ids[window] = id;
         window.TitleChanged += () => _observers.Changed(id);
+        window.AppMenuChanged += () => _observers.Changed(id);
         window.GeometryChanged += () => _observers.Changed(id);
         window.PropertiesChanged += () => _observers.Changed(id);
         window.MinimizeRequested += _ => _observers.Changed(id);
@@ -243,6 +244,8 @@ public sealed class XWaylandToplevelSource : IToplevelSource, IDisposable
             window.Instance,
             pid,
             window.TransientFor is { } transient ? _ids.GetValueOrDefault(transient) : 0,
+            AppMenuService: window.AppMenuServiceName,
+            AppMenuObjectPath: window.AppMenuObjectPath,
             MinimizedGeometry: _minimized.GetValueOrDefault(id));
     }
 }

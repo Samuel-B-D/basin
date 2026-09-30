@@ -1,6 +1,4 @@
-using System.Diagnostics;
 using System.Globalization;
-using Basin.Diagnostics;
 using Xunit;
 
 namespace Basin.Tests;
@@ -10,28 +8,28 @@ public sealed class ClientTeardownTests
     [Fact]
     public void Stopping_a_client_kills_what_the_client_spawned()
     {
-        Assert.SkipUnless(!OperatingSystem.IsWindows(), "the client is a shell command, and this host has no /bin/sh");
+        Assert.SkipUnless(OperatingSystem.IsLinux(), "the tracker reaps through a pidfd, which only Linux has");
 
         var marker = Path.Combine(Path.GetTempPath(), $"basin-tree-{Environment.ProcessId}-{Environment.TickCount64}");
-        Process? client = null;
-
+        using var host = new CompositorTestHost();
         try
         {
-            client = BasinDiagnostics.StartClient($"sleep 300 & echo $! > '{marker}'; wait", "wayland-not-connected");
-            Assert.NotNull(client);
+            using var tracker = new ProcessTracker(host.Loop, () => ProcessTracker.SessionEnvironment("wayland-not-connected", null, null));
+            var client = tracker.SpawnShell($"sleep 300 & echo $! > '{marker}'; wait", out var error);
+            Assert.True(client is not null, error);
 
             var spawned = WaitForMarker(marker);
             Assert.True(spawned > 0, "the client never reported the process it spawned");
             Assert.True(Alive(spawned), "the spawned process was not running before teardown");
+            Assert.True(tracker.Owns(client!.Pid));
 
-            BasinDiagnostics.StopClient(client);
-            client = null;
+            tracker.TerminateAll(TimeSpan.FromSeconds(2));
 
             Assert.True(WaitForDeath(spawned), "the spawned process outlived the client it came from");
+            Assert.False(tracker.Owns(client.Pid));
         }
         finally
         {
-            client?.Dispose();
             if (File.Exists(marker))
             {
                 File.Delete(marker);

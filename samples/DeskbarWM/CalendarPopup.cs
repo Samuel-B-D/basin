@@ -16,9 +16,7 @@ internal sealed class CalendarPopup : IDisposable
     private (DateTime Month, DateTime Today, int Scale)? _lastKey;
 
     internal CalendarPopup(
-        WlCompositor compositor,
-        WlShm shm,
-        ZwlrLayerShellV1 layerShell,
+        ManagerSurfaceHost host,
         WlOutput wlOutput,
         WmOutput output,
         RiverWindowManager wm,
@@ -26,8 +24,7 @@ internal sealed class CalendarPopup : IDisposable
     {
         Output = output;
         Month = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
-        _surface = new ManagerSurface(
-            compositor, shm, layerShell, wlOutput, ZwlrLayerShellV1.Layer.Overlay, "deskbar-calendar");
+        _surface = host.Create(wlOutput, ZwlrLayerShellV1.Layer.Overlay, "deskbar-calendar");
         _surface.SetExclusiveZone(-1);
         _surface.SetAnchor(ZwlrLayerSurfaceV1.Anchor.Top | ZwlrLayerSurfaceV1.Anchor.Left);
         _surface.SetSize(SurfaceSize.Width, SurfaceSize.Height);

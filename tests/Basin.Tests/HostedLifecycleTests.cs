@@ -12,7 +12,7 @@ public sealed class HostedLifecycleTests
         public Fixture()
         {
             BasinCounters.Reset();
-            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "basin-tests" });
+            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "basin-tests", ConfigureServices = HostedDrivers.Without });
         }
 
         public BasinCompositorHost Host { get; }
@@ -54,6 +54,24 @@ public sealed class HostedLifecycleTests
         }
 
         public void Cancel() => Cancelled++;
+    }
+
+    [Theory]
+    [InlineData("zwlr_layer_shell_v1", "ILayerShellDriver")]
+    [InlineData("ext_session_lock_manager_v1", "ISessionLockDriver")]
+    public void A_host_with_an_undriven_scene_protocol_refuses_to_start(string wireInterface, string driver)
+    {
+        BasinCounters.Reset();
+        var other = wireInterface == "zwlr_layer_shell_v1" ? "ext_session_lock_manager_v1" : "zwlr_layer_shell_v1";
+
+        var error = Assert.Throws<InvalidOperationException>(() => new BasinCompositorHost(new BasinCompositorOptions
+        {
+            AppName = "basin-tests",
+            ConfigureServices = (_, services) => services.Without(other),
+        }));
+
+        Assert.Contains(wireInterface, error.Message, StringComparison.Ordinal);
+        Assert.Contains(driver, error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

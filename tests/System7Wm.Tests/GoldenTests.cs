@@ -133,7 +133,7 @@ public sealed class GoldenTests
 
     private static async Task Shoot(Session session, string scene, string renderer, string scale)
     {
-        await Task.Delay(400, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
         var path = Path.Combine(session.Home, $"{scene}.png");
         var mark = session.Mark();
         await session.SendAsync($"shotraw {path}");

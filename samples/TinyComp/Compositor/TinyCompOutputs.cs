@@ -179,7 +179,7 @@ internal sealed partial class TinyComp
 
             view.ColorDescription = DescriptionOf(view.Output);
             view.KmsColorRouted = _colorConfiguration is { } routing && routing.RouteKmsPipeline(view.Output);
-            _outputColor?.Add(view.Global, view.Output, view.Scene);
+            _colorPack.AddOutput(view.Global, view.Output, view.Scene);
             SyncBlendSpace(view);
             RefreshSurfaceLuts();
             if (_hdr && drmOutput.Edid.SupportsPq)
@@ -194,7 +194,7 @@ internal sealed partial class TinyComp
             }
         }
 
-        _outputColor?.Add(view.Global, view.Output, view.Scene);
+        _colorPack.AddOutput(view.Global, view.Output, view.Scene);
         if (view.Output.Scale != 1)
         {
             _report.Line($"SCALE {view.Output.Name} {view.Output.Scale}");
@@ -221,7 +221,7 @@ internal sealed partial class TinyComp
         UnshelveFromOutput(view, Views.FirstOrDefault(v => v != view && v.Tag is OutputPolicy));
 
         _presenceTracker.RemoveOutput(view.Output);
-        _outputColor?.Remove(view.Global);
+        _colorPack.RemoveOutput(view.Global);
         _cursor.RemoveOutput(view.Output);
         DropWorkspacesOf(view);
         view.Canvas.DisposeGlow(_glowShaders);
@@ -529,7 +529,7 @@ internal sealed partial class TinyComp
         view.ColorDescription = description;
         view.KmsColorRouted = colorConfiguration.RouteKmsPipeline(view.Output);
         RefreshGammaBaseline(view);
-        _outputColor?.Refresh();
+        _colorPack.Outputs?.Refresh();
         SyncBlendSpace(view);
         RefreshSurfaceLuts();
         view.Scheduler?.ScheduleRepaint();

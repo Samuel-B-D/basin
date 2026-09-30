@@ -10,6 +10,18 @@
     <DefineConstants>$(DefineConstants);BASIN_COUNTERS</DefineConstants>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug' and '$(BasinDebugOptimize)' != 'false'">
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <Target Name="BasinOptimizeStamp" BeforeTargets="CoreCompile">
+    <WriteLinesToFile File="$(IntermediateOutputPath)basin.optimize" Lines="$(Optimize)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <CustomAdditionalCompileInputs Include="$(IntermediateOutputPath)basin.optimize" />
+      <FileWrites Include="$(IntermediateOutputPath)basin.optimize" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="BasinAvaloniaImplementationAssemblies"
           Condition="'$(BasinAvaloniaBackend)' == 'true'"
           AfterTargets="ResolveAssemblyReferences"

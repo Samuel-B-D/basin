@@ -15,6 +15,8 @@ internal sealed partial class MauiComp
             Grabbing = () => IsGrabbing,
             Configurator = _inputConfigurator,
         };
+        _seat.Binder.RelativePointer = _services.Find<Basin.Desktop.RelativePointerManager>();
+        _seat.Binder.Constraints = _services.Find<Basin.Desktop.PointerConstraintDriver>();
         _inputConfigurator.Rejected += outcome =>
             _log.Warn($"[input] {InputSettingNamesKey(outcome)} on {outcome.DeviceName ?? "every device"}: {outcome.Result}");
         _inputConfigurator.Apply(_config.InputRules);

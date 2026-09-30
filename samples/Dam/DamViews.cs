@@ -164,13 +164,22 @@ internal sealed class DamViews
         var (width, height) = view.GeometrySize();
         if (view.IsPrimary || layout.Width < width || layout.Height < height)
         {
-            view.Scene.Tree.SetPosition(layout.X, layout.Y);
             view.Maximize(layout.X, layout.Y, layout.Width, layout.Height);
         }
-        else
-        {
-            view.Scene.Tree.SetPosition((layout.Width - width) / 2, (layout.Height - height) / 2);
-        }
+
+        Place(view);
+    }
+
+    private void Place(DamView view)
+    {
+        var layout = _layout.Bounds;
+        var (width, height) = view.GeometrySize();
+        var (originX, originY) = view.GeometryOrigin();
+        var filled = view.IsPrimary || layout.Width < width || layout.Height < height;
+        var x = filled ? layout.X : (layout.Width - width) / 2;
+        var y = filled ? layout.Y : (layout.Height - height) / 2;
+        view.Placed = (originX, originY, width, height);
+        view.Scene.Tree.SetPosition(x - originX, y - originY);
     }
 
     public void SetFullscreen(DamView view, bool fullscreen)
@@ -240,6 +249,20 @@ internal sealed class DamViews
             _views.Insert(0, view);
             _owners[window.Surface] = view;
             Focus(view);
+        };
+        window.Xdg.Committed += () =>
+        {
+            if (!window.Xdg.IsMapped)
+            {
+                return;
+            }
+
+            var (originX, originY) = view.GeometryOrigin();
+            var (width, height) = view.GeometrySize();
+            if (view.Placed != (originX, originY, width, height))
+            {
+                Place(view);
+            }
         };
         window.Xdg.Unmapped += () =>
         {

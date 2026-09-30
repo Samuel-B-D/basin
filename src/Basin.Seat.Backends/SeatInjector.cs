@@ -71,9 +71,14 @@ public sealed class SeatInjector : Basin.Capabilities.ISyntheticInput
 
         var previousX = _pointer.X;
         var previousY = _pointer.Y;
-        _pointer.Warp(
-            bounds.X + (x / extentWidth * bounds.Width),
-            bounds.Y + (y / extentHeight * bounds.Height));
+        var targetX = bounds.X + (x / extentWidth * bounds.Width);
+        var targetY = bounds.Y + (y / extentHeight * bounds.Height);
+        if (!_binder.Gate(timeMs, previousX, previousY, ref targetX, ref targetY, null, null))
+        {
+            return true;
+        }
+
+        _pointer.Warp(targetX, targetY);
         if (MovedBy is { } movedBy)
         {
             movedBy(timeMs, _pointer.X - previousX, _pointer.Y - previousY);
@@ -91,6 +96,11 @@ public sealed class SeatInjector : Basin.Capabilities.ISyntheticInput
         _binder.EnsurePointerCapability();
         var previousX = _pointer.X;
         var previousY = _pointer.Y;
+        if (!_binder.Gate(timeMs, previousX, previousY, ref x, ref y, null, null))
+        {
+            return true;
+        }
+
         _pointer.Warp(x, y);
         if (MovedBy is { } movedBy)
         {
@@ -139,6 +149,16 @@ public sealed class SeatInjector : Basin.Capabilities.ISyntheticInput
         deliver(timeMs, keycode, pressed);
         return true;
     }
+
+    public bool TouchDown(uint timeMs, int id, double x, double y) => _binder.InjectTouchDown(timeMs, id, x, y);
+
+    public bool TouchMotion(uint timeMs, int id, double x, double y) => _binder.InjectTouchMotion(timeMs, id, x, y);
+
+    public bool TouchUp(uint timeMs, int id) => _binder.InjectTouchUp(timeMs, id);
+
+    public bool TouchFrame() => _binder.InjectTouchFrame();
+
+    public bool TouchCancel() => _binder.InjectTouchCancel();
 
     public bool TryPointerPosition(out double x, out double y)
     {

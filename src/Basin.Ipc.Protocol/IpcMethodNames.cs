@@ -10,6 +10,7 @@ public static class IpcMethodNames
 
     public const string SessionDescribe = "session/describe";
     public const string SessionQuit = "session/quit";
+    public const string SessionSettle = "session/settle";
 
     public const string OutputsList = "outputs/list";
     public const string OutputsTest = "outputs/test";

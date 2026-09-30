@@ -43,7 +43,7 @@ public sealed class AvaloniaInputTests
         {
             CompositorTestHost.SkipWithoutWaylandClient();
             BasinCounters.Reset();
-            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "waylonia-tests" });
+            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "waylonia-tests", ConfigureServices = HostedDrivers.ToplevelLayers });
             Manager = new ToplevelWindows(Host, action => action());
 
             int serverFd, clientFd;

@@ -62,20 +62,19 @@ internal sealed partial class Westonia
 
     internal void StartScreensaver()
     {
-        if (_screensaver is { HasExited: false } || _ini.Screensaver.Path is not { Length: > 0 } path)
+        if (_screensaver is { IsRunning: true } || _ini.Screensaver.Path is not { Length: > 0 } path)
         {
             return;
         }
 
-        try
+        _screensaver = _processes.SpawnShell(path, out var error);
+        if (_screensaver is null)
         {
-            _screensaver = Basin.Diagnostics.BasinDiagnostics.StartClient(path, _host.Socket);
-            _log.Info($"started the screensaver: {path}");
+            _log.Error($"cannot start the screensaver {path}: {error}");
+            return;
         }
-        catch (Exception error)
-        {
-            _log.Error($"cannot start the screensaver {path}: {error.Message}");
-        }
+
+        _log.Info($"started the screensaver: {path}");
     }
 
     internal void StopScreensaver()
@@ -85,7 +84,7 @@ internal sealed partial class Westonia
             return;
         }
 
-        Basin.Diagnostics.BasinDiagnostics.StopClient(_screensaver);
+        _processes.Kill(_screensaver.LaunchId);
         _screensaver = null;
     }
 }

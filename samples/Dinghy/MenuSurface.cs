@@ -21,12 +21,10 @@ internal sealed class MenuSurface : IDisposable
     private readonly ManagerSurface _surface;
     private WmBackgroundEffects? _effects;
     private Basin.Box _blurred;
-    private (int Scale, int? Hovered)? _lastKey;
+    private readonly WmMenuModel _model;
 
     internal MenuSurface(
-        WlCompositor compositor,
-        WlShm shm,
-        ZwlrLayerShellV1 layerShell,
+        ManagerSurfaceHost host,
         WlOutput wlOutput,
         WmOutput output,
         RiverWindowManager wm,
@@ -37,9 +35,19 @@ internal sealed class MenuSurface : IDisposable
         Output = output;
         Items = items;
         HeaderTitle = headerTitle;
-        _surface = new ManagerSurface(
-            compositor, shm, layerShell, wlOutput, ZwlrLayerShellV1.Layer.Overlay, "dinghy-window-menu");
+        _surface = host.Create(wlOutput, ZwlrLayerShellV1.Layer.Overlay, "dinghy-window-menu");
         Measure(scale);
+        _model = new WmMenuModel(items.Count);
+        for (var i = 0; i < items.Count; i++)
+        {
+            _model.SetRow(i, ItemHeight);
+        }
+
+        _model.Content = new Rect(
+            ShadowLeft + MenuBorder,
+            ShadowTop + MenuBorder + (headerTitle is null ? 0 : ItemHeight),
+            MenuWidth - (MenuBorder * 2),
+            items.Count * ItemHeight);
         _surface.SetAnchor(ZwlrLayerSurfaceV1.Anchor.Top | ZwlrLayerSurfaceV1.Anchor.Left);
         _surface.SetSize(SurfaceSize.Width, SurfaceSize.Height);
         _surface.Configured += wm.RequestManage;
@@ -57,7 +65,7 @@ internal sealed class MenuSurface : IDisposable
 
     public string? HeaderTitle { get; }
 
-    public int? Hovered { get; private set; }
+    public int? Hovered => _model.Hovered < 0 ? null : _model.Hovered;
 
     public Point Origin { get; set; }
 
@@ -81,64 +89,20 @@ internal sealed class MenuSurface : IDisposable
         ShadowLeft + (ItemHeight / 2),
         ShadowTop + MenuBorder + (ItemHeight / 2));
 
-    public int? ItemAt(int x, int y)
-    {
-        var contentX = ShadowLeft + MenuBorder;
-        var contentY = ShadowTop + MenuBorder;
-        var contentWidth = MenuWidth - (MenuBorder * 2);
-        var contentHeight = MenuHeight - (MenuBorder * 2);
-        if (x < contentX || y < contentY || x >= contentX + contentWidth || y >= contentY + contentHeight)
-        {
-            return null;
-        }
+    public int? ItemAt(int x, int y) => _model.RowAt(x, y);
 
-        var headerHeight = HeaderTitle is null ? 0 : ItemHeight;
-        if (y < contentY + headerHeight)
-        {
-            return null;
-        }
+    public bool UpdateHover(int x, int y) => _model.Hover(x, y);
 
-        var index = (y - contentY - headerHeight) / ItemHeight;
-        return index < Items.Count ? index : null;
-    }
-
-    public bool UpdateHover(int x, int y)
-    {
-        var next = ItemAt(x, y);
-        if (next != Hovered)
-        {
-            Hovered = next;
-            return true;
-        }
-
-        return false;
-    }
-
-    public bool SelectNext()
-    {
-        if (Items.Count == 0)
-        {
-            return false;
-        }
-
-        var next = Hovered is { } index ? (index + 1) % Items.Count : 0;
-        if (Hovered != next)
-        {
-            Hovered = next;
-            return true;
-        }
-
-        return false;
-    }
+    public bool SelectNext() => _model.Step(1);
 
     public void SelectWindow(ManagedWindow? window)
     {
-        Hovered = null;
+        _model.SetHovered(-1);
         for (var i = 0; i < Items.Count; i++)
         {
             if (ReferenceEquals(Items[i].Window, window))
             {
-                Hovered = i;
+                _model.SetHovered(i);
                 return;
             }
         }
@@ -151,8 +115,7 @@ internal sealed class MenuSurface : IDisposable
             return false;
         }
 
-        var key = (scale, Hovered);
-        if (key == _lastKey)
+        if (!_model.NeedsRender(scale))
         {
             return false;
         }
@@ -187,7 +150,7 @@ internal sealed class MenuSurface : IDisposable
         Draw(surface.Canvas, menuWidth, menuHeight, scale);
         surface.Canvas.Flush();
         _surface.SetInputRegion(new Rect(ShadowLeft, ShadowTop, menuWidth, menuHeight));
-        _lastKey = key;
+        _model.Rendered(scale);
         return true;
     }
 

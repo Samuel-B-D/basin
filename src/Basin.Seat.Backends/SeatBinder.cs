@@ -3,6 +3,9 @@ using Basin.Backend.Libinput;
 using Basin.Backend.Wayland;
 using Basin.Capabilities.Defaults;
 using Basin.Desktop;
+using Xkb;
+
+using static Basin.Seat.Backends.SeatBackendsLog;
 
 namespace Basin.Seat.Backends;
 
@@ -18,6 +21,11 @@ public sealed class SeatBinder
     private int _pointers;
     private int _touchDevices;
     private bool _cursorLoaded;
+    private PointerConstraintDriver? _constraints;
+    private readonly bool[] _vtKeys = new bool[VtKeyCount];
+    private static readonly uint SwitchVt1 = XkbKeysym.FromName("XF86Switch_VT_1").Value;
+    private static readonly uint SwitchVt12 = XkbKeysym.FromName("XF86Switch_VT_12").Value;
+    private const int VtKeyCount = 768;
 
     public SeatBinder(Seat seat, OutputLayout layout, LayoutPointer pointer, CursorController cursor)
     {
@@ -47,6 +55,30 @@ public sealed class SeatBinder
     public Func<InputDevice, string?>? OutputNameFor { get; set; }
 
     internal InputConfigurator? Configurator { get; set; }
+
+    public PointerConstraintDriver? Constraints
+    {
+        get => _constraints;
+        set
+        {
+            if (_constraints is { } previous)
+            {
+                previous.Changed -= OnConstraintChanged;
+            }
+
+            _constraints = value;
+            if (value is not null)
+            {
+                value.Changed += OnConstraintChanged;
+            }
+        }
+    }
+
+    public ParentPointerLock? ParentLock { get; private set; }
+
+    public bool VtSwitching { get; set; } = true;
+
+    public RelativePointerManager? RelativePointer { get; set; }
 
     public event Action<InputDevice>? DeviceAdded;
 
@@ -123,13 +155,29 @@ public sealed class SeatBinder
         input.Key += (device, timeMs, key, pressed) =>
         {
             ActivateKeyboard(device);
+            if (SwitchVt(input.Session, key, pressed))
+            {
+                return;
+            }
+
             Key?.Invoke(timeMs, key, pressed);
         };
         input.PointerMotion += (_, timeMs, dx, dy, unacceleratedDx, unacceleratedDy) =>
         {
-            if (PointerFrozen?.Invoke() != true)
+            if (PointerFrozen?.Invoke() == true)
             {
-                _pointer.Motion(dx, dy);
+                SendRelative(timeMs, dx, dy, unacceleratedDx, unacceleratedDy);
+            }
+            else
+            {
+                var x = _pointer.X + dx;
+                var y = _pointer.Y + dy;
+                if (!Gate(timeMs, _pointer.X, _pointer.Y, ref x, ref y, unacceleratedDx, unacceleratedDy))
+                {
+                    return;
+                }
+
+                _pointer.Warp(x, y);
             }
 
             Motion?.Invoke(timeMs, dx, dy, unacceleratedDx, unacceleratedDy);
@@ -144,7 +192,18 @@ public sealed class SeatBinder
             var previousX = _pointer.X;
             var previousY = _pointer.Y;
             _pointer.MotionAbsolute(OutputFor(device), normalizedX, normalizedY);
-            Motion?.Invoke(timeMs, _pointer.X - previousX, _pointer.Y - previousY, null, null);
+            var x = _pointer.X;
+            var y = _pointer.Y;
+            var moves = Gate(timeMs, previousX, previousY, ref x, ref y, null, null);
+            if (x != _pointer.X || y != _pointer.Y)
+            {
+                _pointer.Warp(x, y);
+            }
+
+            if (moves)
+            {
+                Motion?.Invoke(timeMs, _pointer.X - previousX, _pointer.Y - previousY, null, null);
+            }
         };
         input.PointerButton += (_, timeMs, button, pressed) => Button?.Invoke(timeMs, button, pressed);
         input.PointerScroll += (device, timeMs, axis) =>
@@ -242,9 +301,66 @@ public sealed class SeatBinder
     {
         ArgumentNullException.ThrowIfNull(parent);
 
+        ParentLock ??= new ParentPointerLock(_layout);
         parent.KeyboardAdded += BindParentKeyboard;
         parent.PointerAdded += BindParentPointer;
         parent.TouchAdded += BindParentTouch;
+    }
+
+    internal bool InjectTouchDown(uint timeMs, int id, double x, double y)
+    {
+        if (TouchDown is not { } down)
+        {
+            return false;
+        }
+
+        _seat.SetCapability(SeatCapability.Touch, true);
+        down(timeMs, id, x, y);
+        return true;
+    }
+
+    internal bool InjectTouchMotion(uint timeMs, int id, double x, double y)
+    {
+        if (TouchMotion is not { } motion)
+        {
+            return false;
+        }
+
+        motion(timeMs, id, x, y);
+        return true;
+    }
+
+    internal bool InjectTouchUp(uint timeMs, int id)
+    {
+        if (TouchUp is not { } up)
+        {
+            return false;
+        }
+
+        up(timeMs, id);
+        return true;
+    }
+
+    internal bool InjectTouchFrame()
+    {
+        if (TouchFrame is not { } frame)
+        {
+            return false;
+        }
+
+        frame();
+        return true;
+    }
+
+    internal bool InjectTouchCancel()
+    {
+        if (TouchCancelled is not { } cancel)
+        {
+            return false;
+        }
+
+        cancel();
+        return true;
     }
 
     public void EnsurePointerCapability()
@@ -401,6 +517,7 @@ public sealed class SeatBinder
             };
         }
 
+        keyboard.RepeatInfo += (rate, delay) => Configurator?.AdoptRepeatInfo(rate, delay);
         keyboard.Key += (timeMs, key, pressed) =>
         {
             _seat.Keyboard.Activate(null);
@@ -426,11 +543,23 @@ public sealed class SeatBinder
             var (layoutX, layoutY) = _layout.ToLayout(on, physicalX, physicalY);
             var dx = layoutX - _pointer.X;
             var dy = layoutY - _pointer.Y;
+            if (!parentPointer.HasRelativeMotion)
+            {
+                SendRelative(timeMs, dx, dy, null, null);
+            }
+
+            if (_constraints is { IsLocked: true })
+            {
+                return;
+            }
+
+            _constraints?.Constrain(_pointer.X, _pointer.Y, ref layoutX, ref layoutY);
             _pointer.Warp(layoutX, layoutY);
             Motion?.Invoke(timeMs, dx, dy, null, null);
         }
 
-        bool Relative() => parentPointer.HasRelativeMotion && PointerFrozen?.Invoke() == true;
+        bool Relative() => parentPointer.HasRelativeMotion &&
+            (PointerFrozen?.Invoke() == true || ParentLock?.IsLocked == true);
 
         parentPointer.Enter += (on, x, y) =>
         {
@@ -441,9 +570,11 @@ public sealed class SeatBinder
         };
         parentPointer.RelativeMotion += (microseconds, dx, dy, unacceleratedDx, unacceleratedDy) =>
         {
-            if (Relative())
+            var timeMs = (uint)(microseconds / 1000);
+            SendRelative(timeMs, dx, dy, unacceleratedDx, unacceleratedDy);
+            if (Relative() && _constraints is not { IsLocked: true })
             {
-                Motion?.Invoke((uint)(microseconds / 1000), dx, dy, unacceleratedDx, unacceleratedDy);
+                Motion?.Invoke(timeMs, dx, dy, unacceleratedDx, unacceleratedDy);
             }
         };
         parentPointer.Motion += (timeMs, x, y) =>
@@ -465,6 +596,92 @@ public sealed class SeatBinder
         parentPointer.Leave += () => PointerLeft?.Invoke();
         parentPointer.Button += (timeMs, button, pressed) => Button?.Invoke(timeMs, button, pressed);
         parentPointer.Axis += (timeMs, axis) => Axis?.Invoke(timeMs, axis);
+    }
+
+    internal bool Gate(uint timeMs, double fromX, double fromY, ref double x, ref double y, double? unacceleratedDx, double? unacceleratedDy)
+    {
+        SendRelative(timeMs, x - fromX, y - fromY, unacceleratedDx, unacceleratedDy);
+        if (_constraints is not { } constraints)
+        {
+            return true;
+        }
+
+        constraints.Constrain(fromX, fromY, ref x, ref y);
+        return !constraints.IsLocked;
+    }
+
+    private bool SwitchVt(Basin.Session.ISession session, uint key, bool pressed)
+    {
+        if (key >= VtKeyCount)
+        {
+            return false;
+        }
+
+        if (!pressed)
+        {
+            var held = _vtKeys[key];
+            _vtKeys[key] = false;
+            return held;
+        }
+
+        if (!VtSwitching)
+        {
+            return false;
+        }
+
+        var symbol = _seat.Keyboard.KeysymFor(key).Value;
+        if (symbol < SwitchVt1 || symbol > SwitchVt12)
+        {
+            return false;
+        }
+
+        _vtKeys[key] = true;
+        try
+        {
+            session.SwitchSession((int)(symbol - SwitchVt1 + 1));
+        }
+        catch (NotSupportedException)
+        {
+            Log.Debug($"no seat manager to switch sessions");
+        }
+
+        return true;
+    }
+
+    private void SendRelative(uint timeMs, double dx, double dy, double? unacceleratedDx, double? unacceleratedDy)
+    {
+        if (RelativePointer is null || (dx == 0 && dy == 0))
+        {
+            return;
+        }
+
+        RelativePointer.NotifyMotion((ulong)timeMs * 1000, dx, dy, unacceleratedDx ?? dx, unacceleratedDy ?? dy);
+    }
+
+    private void OnConstraintChanged(PointerConstraint? previous, PointerConstraint? next)
+    {
+        var releaseX = _pointer.X;
+        var releaseY = _pointer.Y;
+        if (previous is not null && _constraints is { } constraints &&
+            constraints.ReleasePoint(previous, out var hintX, out var hintY))
+        {
+            _pointer.Warp(hintX, hintY);
+            (releaseX, releaseY) = (_pointer.X, _pointer.Y);
+        }
+
+        if (ParentLock is not { } parentLock || _constraints is not { } owner)
+        {
+            return;
+        }
+
+        if (next is { Kind: ConstraintKind.Lock } && _layout.OutputAt(_pointer.X, _pointer.Y) is WaylandOutput output)
+        {
+            parentLock.Request(owner, output);
+        }
+        else
+        {
+            parentLock.Release(owner, releaseX, releaseY);
+        }
     }
 
     private void BindParentTouch(WaylandTouchDevice parentTouch)

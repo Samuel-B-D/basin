@@ -200,6 +200,12 @@ public sealed class RiverWindowManager : IDisposable
 
                 try
                 {
+                    _display.DispatchPending();
+                    if (_finished || _unavailable)
+                    {
+                        break;
+                    }
+
                     _display.Flush();
                 }
                 catch (WaylandException)

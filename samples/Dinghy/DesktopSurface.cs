@@ -20,16 +20,13 @@ internal sealed class DesktopSurface : IDisposable
     private string? _lastKey;
 
     internal DesktopSurface(
-        WlCompositor compositor,
-        WlShm shm,
-        ZwlrLayerShellV1 layerShell,
+        ManagerSurfaceHost host,
         WlOutput wlOutput,
         WmOutput output,
         RiverWindowManager wm)
     {
         Output = output;
-        _surface = new ManagerSurface(
-            compositor, shm, layerShell, wlOutput, ZwlrLayerShellV1.Layer.Bottom, "dinghy-desktop");
+        _surface = host.Create(wlOutput, ZwlrLayerShellV1.Layer.Bottom, "dinghy-desktop");
         _surface.SetAnchor(
             ZwlrLayerSurfaceV1.Anchor.Top | ZwlrLayerSurfaceV1.Anchor.Bottom
             | ZwlrLayerSurfaceV1.Anchor.Left | ZwlrLayerSurfaceV1.Anchor.Right);

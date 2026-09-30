@@ -15,8 +15,6 @@ public sealed class PointerDelivery
         _cursor = cursor;
     }
 
-    public RelativePointerManager? RelativePointer { get; set; }
-
     public string DefaultCursorName { get; set; } = "left_ptr";
 
     public bool Motion(uint timeMs, Surface? surface, double localX, double localY, double x, double y)
@@ -40,16 +38,5 @@ public sealed class PointerDelivery
         {
             _cursor.ShowNamed(DefaultCursorName);
         }
-    }
-
-    public void Relative(uint timeMs, double dx, double dy, double? unacceleratedDx, double? unacceleratedDy)
-    {
-        if (dx == 0 && dy == 0)
-        {
-            return;
-        }
-
-        RelativePointer?.NotifyMotion(
-            (ulong)timeMs * 1000, dx, dy, unacceleratedDx ?? dx, unacceleratedDy ?? dy);
     }
 }

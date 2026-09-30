@@ -36,7 +36,10 @@ public sealed class HeadlessSessionTests
 
         bare.Kill(entireProcessTree: true);
         framed.Kill(entireProcessTree: true);
-        await Task.Delay(500, TestContext.Current.CancellationToken);
+        bare.WaitForExit(5000);
+        framed.WaitForExit(5000);
+        Assert.NotNull(await session.WaitForAsync(
+            line => line.StartsWith("SCOPES 2", StringComparison.Ordinal), poke: "where", fresh: true));
         state = await session.StateAsync();
         Assert.DoesNotContain(state, line => line.StartsWith("WINDOW ", StringComparison.Ordinal));
         Assert.Contains(state, line => line.StartsWith("SCOPES 2", StringComparison.Ordinal));
@@ -58,7 +61,8 @@ public sealed class HeadlessSessionTests
         Assert.Contains("titlebar=none", window!, StringComparison.Ordinal);
 
         app.Kill(entireProcessTree: true);
-        await Task.Delay(500, TestContext.Current.CancellationToken);
+        app.WaitForExit(5000);
+        await session.SettleAsync();
         await AssertCleanExit(session);
     }
 
@@ -136,6 +140,7 @@ public sealed class HeadlessSessionTests
         await session.SendAsync("launcher run");
         var run = await session.WaitForAsync(line => line.StartsWith("SURFACE run ", StringComparison.Ordinal), poke: "where");
         Assert.NotNull(run);
+        await session.SettleAsync();
         var state = await session.StateAsync();
         Assert.Contains(state, line => line.StartsWith("RUN open", StringComparison.Ordinal));
         Assert.Contains("STARTMENU closed programs=closed", state);
@@ -217,7 +222,9 @@ public sealed class HeadlessSessionTests
 
         first.Kill(entireProcessTree: true);
         second.Kill(entireProcessTree: true);
-        await Task.Delay(500, TestContext.Current.CancellationToken);
+        first.WaitForExit(5000);
+        second.WaitForExit(5000);
+        await session.SettleAsync();
         await AssertCleanExit(session);
     }
 
@@ -288,7 +295,8 @@ public sealed class HeadlessSessionTests
         Assert.Contains("HIT scene=surface focus=surface shell=no", state);
 
         app.Kill(entireProcessTree: true);
-        await Task.Delay(500, TestContext.Current.CancellationToken);
+        app.WaitForExit(5000);
+        await session.SettleAsync();
         await AssertCleanExit(session);
     }
 
@@ -314,7 +322,7 @@ public sealed class HeadlessSessionTests
             poke: "where");
         Assert.NotNull(maximized);
 
-        await Task.Delay(500, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
         await session.SendAsync("move 600 12");
         await session.SendAsync("button 272 1");
         await session.SendAsync("button 272 0");
@@ -327,7 +335,8 @@ public sealed class HeadlessSessionTests
         Assert.NotNull(restored);
 
         app.Kill(entireProcessTree: true);
-        await Task.Delay(500, TestContext.Current.CancellationToken);
+        app.WaitForExit(5000);
+        await session.SettleAsync();
         await AssertCleanExit(session);
     }
 
@@ -352,7 +361,8 @@ public sealed class HeadlessSessionTests
         Assert.Contains("HIT scene=surface focus=surface shell=no", state);
 
         app.Kill(entireProcessTree: true);
-        await Task.Delay(500, TestContext.Current.CancellationToken);
+        app.WaitForExit(5000);
+        await session.SettleAsync();
         await AssertCleanExit(session);
     }
 
@@ -384,7 +394,8 @@ public sealed class HeadlessSessionTests
         Assert.Contains(state, line => line.StartsWith("WINDOW ", StringComparison.Ordinal) && line.Contains("X = 712, Y = 429", StringComparison.Ordinal));
 
         app.Kill(entireProcessTree: true);
-        await Task.Delay(500, TestContext.Current.CancellationToken);
+        app.WaitForExit(5000);
+        await session.SettleAsync();
         await AssertCleanExit(session);
     }
 
@@ -416,13 +427,110 @@ public sealed class HeadlessSessionTests
         using var session = new Session(compositor);
         await session.DisplayAsync();
         await session.SendAsync("clock 12:00");
-        await Task.Delay(300, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
         await session.SendAsync("pumps 600");
         var line = await session.WaitForAsync(l => l.StartsWith("PUMPS ", StringComparison.Ordinal));
         Assert.NotNull(line);
         Assert.Equal("PUMPS n=600 bytes=0", line);
 
         await AssertCleanExit(session);
+    }
+
+    [Fact]
+    public async Task A_layer_shell_panel_maps_and_its_exclusive_zone_shrinks_the_work_area()
+    {
+        var (compositor, _) = Require();
+        var panel = Session.WlClient("panel");
+        Assert.SkipWhen(panel is null, "scripts/wlclients/bin/panel could not be built");
+
+        using var session = new Session(compositor);
+        var display = await session.DisplayAsync();
+        var output = new List<string>();
+        using (var client = Session.StartListening(panel!, display, output, "top", "32"))
+        {
+            Assert.True(await WaitForLineAsync(output, "PANEL 1280x32"), "the panel was never configured");
+            Assert.NotNull(await session.WaitForAsync(line => line == "LAYER + panel Top"));
+            var area = await session.WaitForAsync(line => line.StartsWith("AREA ", StringComparison.Ordinal), poke: "where", fresh: true);
+            Assert.Contains("work=Box { X = 0, Y = 32, Width = 1280, Height = 658,", area!, StringComparison.Ordinal);
+            client.Kill(entireProcessTree: true);
+        }
+
+        Assert.NotNull(await session.WaitForAsync(line => line == "LAYER - panel"));
+        var restored = await session.WaitForAsync(line => line.StartsWith("AREA ", StringComparison.Ordinal), poke: "where", fresh: true);
+        Assert.Contains("work=Box { X = 0, Y = 0, Width = 1280, Height = 690,", restored!, StringComparison.Ordinal);
+        await AssertCleanExit(session);
+    }
+
+    [Fact]
+    public async Task A_session_lock_takes_the_keyboard_from_the_focused_window_until_it_unlocks()
+    {
+        var (compositor, _) = Require();
+        var ssd = RequireSsdClient();
+        var script = Path.Combine(RepositoryRoot(), "scripts", "session-lock.sh");
+        Assert.SkipUnless(File.Exists(script), "scripts/session-lock.sh is missing");
+
+        using var session = new Session(compositor);
+        var display = await session.DisplayAsync();
+        var keys = new List<string>();
+        using var window = Session.StartListening(ssd, display, keys, "server");
+        Assert.NotNull(await session.WaitForAsync(line => line.StartsWith("WINDOW \"ssdwin\"", StringComparison.Ordinal) && line.Contains("focused=True", StringComparison.Ordinal), poke: "where"));
+        await session.SendAsync("key 30 1");
+        await session.SendAsync("key 30 0");
+        Assert.True(await WaitForLineAsync(keys, "KEY 30 1"), "the focused window did not get the key before the lock");
+
+        using (var locker = Session.StartClient(script, display, "2", "FF227744"))
+        {
+            Assert.NotNull(await session.WaitForAsync(line => line == "LOCKED"));
+            Assert.NotNull(await session.WaitForAsync(line => line == "LOCK on", poke: "where", fresh: true));
+            await session.SendAsync("key 31 1");
+            await session.SendAsync("key 31 0");
+            Assert.NotNull(await session.WaitForAsync(line => line == "UNLOCKED"));
+            lock (keys)
+            {
+                Assert.DoesNotContain(keys, line => line.StartsWith("KEY 31 ", StringComparison.Ordinal));
+            }
+        }
+
+        Assert.NotNull(await session.WaitForAsync(line => line == "LOCK off", poke: "where", fresh: true));
+        await session.SendAsync("key 32 1");
+        await session.SendAsync("key 32 0");
+        Assert.True(await WaitForLineAsync(keys, "KEY 32 1"), "the keyboard did not go back to the window after the unlock");
+        window.Kill(entireProcessTree: true);
+        await AssertCleanExit(session);
+    }
+
+    private static async Task<bool> WaitForLineAsync(List<string> lines, string exact)
+    {
+        for (var i = 0; i < 500; i++)
+        {
+            lock (lines)
+            {
+                if (lines.Contains(exact))
+                {
+                    return true;
+                }
+            }
+
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
+
+        return false;
+    }
+
+    private static string RepositoryRoot()
+    {
+        var directory = AppContext.BaseDirectory;
+        for (var i = 0; i < 10 && directory is not null; i++)
+        {
+            if (File.Exists(Path.Combine(directory, "basin.slnx")))
+            {
+                return directory;
+            }
+
+            directory = Path.GetDirectoryName(directory.TrimEnd(Path.DirectorySeparatorChar));
+        }
+
+        return string.Empty;
     }
 
     internal static (string Compositor, string Client) Require()

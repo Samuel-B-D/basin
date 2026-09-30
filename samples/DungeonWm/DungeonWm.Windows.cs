@@ -4,6 +4,7 @@ using Basin.Capabilities;
 using Basin.Diagnostics;
 using Basin.Scene;
 using Basin.Scene3D;
+using Basin.Scene3D.Scene;
 using Basin.Shell.Xdg;
 
 namespace DungeonWm;
@@ -16,7 +17,7 @@ internal sealed partial class DungeonWm
     {
         var scene = new SceneSurface(_layers.Windows, toplevel.Surface);
         scene.Tree.Enabled = false;
-        _surfaceScenes[toplevel.Xdg] = scene;
+        _popups.Add(toplevel.Xdg, scene);
         var window = new DungeonWmWindow(toplevel, scene);
 
         toplevel.Xdg.Mapped += () => OnMapped(window);
@@ -25,7 +26,7 @@ internal sealed partial class DungeonWm
         toplevel.Destroyed += () =>
         {
             OnUnmapped(window);
-            _surfaceScenes.Remove(toplevel.Xdg);
+            _popups.Remove(toplevel.Xdg);
         };
         toplevel.FullscreenRequested += fullscreen =>
         {
@@ -60,35 +61,7 @@ internal sealed partial class DungeonWm
         toplevel.MinimizeRequested += () => toplevel.RequestConfigure();
     }
 
-    private void OnNewPopup(XdgPopupWindow popup)
-    {
-        if (popup.Parent is not { } parent || !_surfaceScenes.TryGetValue(parent, out var parentScene))
-        {
-            return;
-        }
-
-        var scene = new SceneSurface(parentScene.Tree, popup.Surface);
-        _surfaceScenes[popup.Xdg] = scene;
-
-        void Place()
-        {
-            var origin = parent.EffectiveGeometry;
-            var offset = popup.SurfacePosition;
-            scene.Tree.SetPosition(origin.X + offset.X, origin.Y + offset.Y);
-            ScheduleAll();
-        }
-
-        Place();
-        popup.Xdg.Committed += Place;
-        popup.GeometryChanged += Place;
-        popup.Destroyed += () =>
-        {
-            popup.Xdg.Committed -= Place;
-            popup.GeometryChanged -= Place;
-            _surfaceScenes.Remove(popup.Xdg);
-            ScheduleAll();
-        };
-    }
+    private void OnNewPopup(XdgPopupWindow popup) => _popups.Attach(popup);
 
     private void OnMapped(DungeonWmWindow window)
     {
@@ -338,7 +311,7 @@ internal sealed partial class DungeonWm
         originX += geometry.X;
         originY += geometry.Y;
         var level = 0;
-        Collect(window.Scene.Tree, ref level);
+        WorldSceneLayers.Collect(world, window.Scene.Tree, _renderer, originX, originY, ref level);
         if (window.X is not null)
         {
             foreach (var (overrideRedirect, scene) in _overrides)
@@ -346,7 +319,7 @@ internal sealed partial class DungeonWm
                 if (ReferenceEquals(OwnerOf(overrideRedirect), window) && scene.Tree.Enabled)
                 {
                     level++;
-                    Collect(scene.Tree, ref level);
+                    WorldSceneLayers.Collect(world, scene.Tree, _renderer, originX, originY, ref level);
                 }
             }
         }
@@ -354,46 +327,6 @@ internal sealed partial class DungeonWm
         world.Focused = ReferenceEquals(_focused, window);
         world.Opacity = MathF.Min(window.Fade, world.Focused ? 1 : _settings.UnfocusedOpacity);
         world.CanvasOpacity = window.CanvasFade;
-
-        void Collect(SceneTree tree, ref int level)
-        {
-            var children = tree.Children;
-            for (var i = 0; i < children.Count; i++)
-            {
-                var child = children[i];
-                if (!child.Enabled)
-                {
-                    continue;
-                }
-
-                if (child is SceneTree subtree)
-                {
-                    Collect(subtree, ref level);
-                    continue;
-                }
-
-                if (child is not SceneBuffer buffer || buffer.Buffer is null)
-                {
-                    continue;
-                }
-
-                var (x, y) = buffer.ScenePosition;
-                var (width, height) = buffer.DisplaySize;
-                world.AddLayer(new WorldSurfaceLayer
-                {
-                    Surface = buffer.InputSurface,
-                    Texture = buffer.TextureFor(_renderer),
-                    X = x - originX,
-                    Y = y - originY,
-                    Width = width,
-                    Height = height,
-                    Source = buffer.SourceBox,
-                    Level = level++,
-                    ContentVersion = buffer.ContentVersion,
-                    Input = buffer.InputEnabled && buffer.InputSurface is not null,
-                });
-            }
-        }
     }
 
     private void Focus(DungeonWmWindow? window)
@@ -456,20 +389,8 @@ internal sealed partial class DungeonWm
         return null;
     }
 
-    private ulong ToplevelIdOf(Surface surface)
-    {
-        Span<ToplevelInfo> infos = new ToplevelInfo[64];
-        var count = _toplevels.Enumerate(infos);
-        for (var i = 0; i < Math.Max(0, count); i++)
-        {
-            if (ReferenceEquals(infos[i].Surface, surface))
-            {
-                return infos[i].Id;
-            }
-        }
-
-        return 0;
-    }
+    private ulong ToplevelIdOf(Surface surface) =>
+        _toplevels.TryFind(surface, out var info) ? info.Id : 0;
 
     private void EnterTakeover(DungeonWmWindow window)
     {

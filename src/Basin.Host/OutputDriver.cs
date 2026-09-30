@@ -18,6 +18,11 @@ public sealed class OutputDriver : IDisposable
     private readonly List<IAllocator> _ownedAllocators = [];
     private readonly OutputState _frameState = new();
     private readonly Dictionary<OutputView, Action<SceneNode?, Box>> _secondaryDamage = [];
+    private OutputView? _preparing;
+
+    private const OutputStateFields FrameFields =
+        OutputStateFields.Buffer | OutputStateFields.Damage | OutputStateFields.InFence |
+        OutputStateFields.OutFence | OutputStateFields.Layers | OutputStateFields.Tearing;
     private readonly List<DrmBackend> _secondaryCards = [];
     private bool? _hasLidSwitch;
 
@@ -611,7 +616,13 @@ public sealed class OutputDriver : IDisposable
         var scheduler = new OutputScheduler(_host.Loop, view.Output);
         view.Scheduler = scheduler;
         scheduler.Repaint += () => Repaint(view);
-        view.Output.Committed += _ => scheduler.ScheduleRepaint();
+        view.Output.Committed += fields =>
+        {
+            if ((fields & ~FrameFields) != 0)
+            {
+                scheduler.ScheduleRepaint();
+            }
+        };
         if (view.Output is IPresentingOutput presenting)
         {
             presenting.PresentedOnScreen += (timeNs, _, _) => scheduler.NotifyPresented((long)timeNs);
@@ -622,7 +633,8 @@ public sealed class OutputDriver : IDisposable
             void OnDamage(SceneNode? _, Box box)
             {
                 var watched = view.ReplicaSource is { } replicaSource ? replicaSource.Box : view.Box;
-                if (!watched.IsEmpty && box.X < watched.X + watched.Width && box.X + box.Width > watched.X &&
+                if (!ReferenceEquals(_preparing, view) &&
+                    !watched.IsEmpty && box.X < watched.X + watched.Width && box.X + box.Width > watched.X &&
                     box.Y < watched.Y + watched.Height && box.Y + box.Height > watched.Y)
                 {
                     scheduler.ScheduleRepaint();
@@ -637,7 +649,13 @@ public sealed class OutputDriver : IDisposable
 
         var sceneOutput = new SceneOutput(_scene, view.Output);
         view.Scene = sceneOutput;
-        sceneOutput.DamagePending += scheduler.ScheduleRepaint;
+        sceneOutput.DamagePending += () =>
+        {
+            if (!ReferenceEquals(_preparing, view))
+            {
+                scheduler.ScheduleRepaint();
+            }
+        };
         Capture?.DmabufCapture.Track(view.Output, sceneOutput);
         scheduler.ScheduleRepaint();
     }
@@ -742,12 +760,14 @@ public sealed class OutputDriver : IDisposable
         }
 
         AllocationScope.Pause();
+        _preparing = view;
         try
         {
             BeforeRepaint?.Invoke(view);
         }
         finally
         {
+            _preparing = null;
             AllocationScope.Resume();
         }
 
@@ -942,7 +962,16 @@ public sealed class OutputDriver : IDisposable
             return;
         }
 
-        BeforeRepaint?.Invoke(view);
+        _preparing = view;
+        try
+        {
+            BeforeRepaint?.Invoke(view);
+        }
+        finally
+        {
+            _preparing = null;
+        }
+
         EnsureSwapchain(view, mode);
         if (view.Swapchain!.Acquire(out _) is not { } target)
         {

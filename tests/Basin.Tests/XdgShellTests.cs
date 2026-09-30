@@ -169,6 +169,27 @@ public sealed class XdgShellTests
     }
 
     [Fact]
+    public void A_size_set_before_a_client_commit_is_the_size_sent()
+    {
+        using var host = new CompositorTestHost();
+        var window = MappedToplevel.Map(host, host.Client);
+
+        window.XdgSurface.SetWindowGeometry(0, 0, 240, 200);
+        window.Surface.Commit();
+        host.PumpToServer();
+
+        var serial = window.LastConfigureSerial;
+        window.ServerToplevel.TitleChanged += () => window.ServerToplevel.SetSize(300, 260);
+        window.Toplevel.SetTitle("resizing");
+        window.XdgSurface.SetWindowGeometry(0, 0, 240, 200);
+        window.Surface.Commit();
+        host.PumpUntil(() => window.LastConfigureSerial != serial);
+
+        Assert.Equal(300, window.ConfiguredWidth);
+        Assert.Equal(260, window.ConfiguredHeight);
+    }
+
+    [Fact]
     public void Close_reaches_the_client()
     {
         using var host = new CompositorTestHost();

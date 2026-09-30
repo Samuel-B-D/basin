@@ -36,7 +36,7 @@ public static class RendererCatalog
     };
 
     public static RenderStack CreateWithFallback(
-        ref string name, string? renderNodePath, Action<RendererFallback>? report = null)
+        ref string name, string? renderNodePath, Action<RendererFallback>? report = null, string floor = "pixman")
     {
         var path = renderNodePath ?? string.Empty;
         if (path.Length == 0 && NeedsGpu(name))
@@ -53,12 +53,17 @@ public static class RendererCatalog
             }
             catch (Exception error)
             {
-                if (name == "pixman")
+                if (name == "pixman" || name == floor)
                 {
                     throw;
                 }
 
                 var next = name == "gl" || path.Length == 0 ? "pixman" : "gl";
+                if (next == "pixman" && floor != "pixman")
+                {
+                    throw;
+                }
+
                 report?.Invoke(new RendererFallback(name, next, error.Message));
                 name = next;
             }

@@ -6,6 +6,7 @@ namespace DeskbarWm;
 internal sealed class IconCache(IconRaster fallback)
 {
     private readonly Dictionary<(string AppId, int SizePx), SKImage?> _cache = [];
+    private readonly List<SKImage> _hvif = [];
     private string _haikuDirectory = string.Empty;
 
     public void Reconfigure(Config config)
@@ -14,6 +15,12 @@ internal sealed class IconCache(IconRaster fallback)
         {
             _haikuDirectory = config.HaikuIconDirectory;
             _cache.Clear();
+            foreach (var image in _hvif)
+            {
+                image.Dispose();
+            }
+
+            _hvif.Clear();
         }
     }
 
@@ -25,7 +32,13 @@ internal sealed class IconCache(IconRaster fallback)
             return cached;
         }
 
-        var image = TryHvif(appId, sizePx) ?? fallback.Load(appId, sizePx);
+        var image = TryHvif(appId, sizePx);
+        if (image is not null)
+        {
+            _hvif.Add(image);
+        }
+
+        image ??= fallback.Load(appId, sizePx);
         _cache[key] = image;
         return image;
     }

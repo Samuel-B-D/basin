@@ -14,9 +14,7 @@ public sealed class SceneBuffer : SceneNode
     private FBox _sourceBox;
     private int _destinationWidth;
     private int _destinationHeight;
-    private (int Width, int Height)? _devicePixels;
-    private (int X, int Y) _deviceNudge;
-    private double _deviceScale = 1.0;
+    private SceneBufferDevice? _device;
 
     public SceneBuffer(SceneTree parent)
         : base(parent)
@@ -58,50 +56,62 @@ public sealed class SceneBuffer : SceneNode
         set => ResizeDestination(ref _destinationHeight, value);
     }
 
+    public void PlaceDevice(int originX, int originY, double scale, in Box device)
+    {
+        var (x, nudgeX) = DevicePlacement.FromDevice(device.X, scale);
+        var (y, nudgeY) = DevicePlacement.FromDevice(device.Y, scale);
+        SetPosition(originX + x, originY + y);
+        DestinationWidth = DevicePlacement.ToLogicalSpan(device.Width + nudgeX, scale) + 1;
+        DestinationHeight = DevicePlacement.ToLogicalSpan(device.Height + nudgeY, scale) + 1;
+        DeviceNudge = (nudgeX, nudgeY);
+        DevicePixels = (device.Width, device.Height);
+        DeviceScale = scale;
+    }
+
     public (int Width, int Height)? DevicePixels
     {
-        get => _devicePixels;
+        get => _device?.Pixels;
         set
         {
-            if (Nullable.Equals(_devicePixels, value))
+            if (Nullable.Equals(_device?.Pixels, value))
             {
                 return;
             }
 
             DamageSubtree();
-            _devicePixels = value;
+            (_device ??= new SceneBufferDevice()).Pixels = value;
             DamageSubtree();
         }
     }
 
     public double DeviceScale
     {
-        get => _deviceScale;
+        get => _device?.Scale ?? 1.0;
         set
         {
-            if (_deviceScale == value)
+            if (DeviceScale == value)
             {
                 return;
             }
 
             DamageSubtree();
-            _deviceScale = value;
+            (_device ??= new SceneBufferDevice()).Scale = value;
             DamageSubtree();
         }
     }
 
     public (int X, int Y) DeviceNudge
     {
-        get => _deviceNudge;
+        get => _device?.Nudge ?? default;
         set
         {
-            if (_deviceNudge == value)
+            if (DeviceNudge == value)
             {
                 return;
             }
 
             DamageSubtree();
-            _deviceNudge = value;
+            (_device ??= new SceneBufferDevice()).Nudge = value;
             DamageSubtree();
         }
     }
@@ -414,12 +424,13 @@ public sealed class SceneBuffer : SceneNode
 
     public (int Width, int Height) DisplaySize => ContentSize;
 
-    internal bool IsExactAt(double scale) => _devicePixels is not null && _deviceScale == scale;
+    internal bool IsExactAt(double scale) => _device is { Pixels: not null } device && device.Scale == scale;
 
     internal Box DeviceBox(int x, int y, double scale)
     {
-        var (width, height) = _devicePixels ?? default;
-        return new Box((int)Math.Round(x * scale) + _deviceNudge.X, (int)Math.Round(y * scale) + _deviceNudge.Y, width, height);
+        var (width, height) = _device?.Pixels ?? default;
+        var nudge = _device?.Nudge ?? default;
+        return new Box((int)Math.Round(x * scale) + nudge.X, (int)Math.Round(y * scale) + nudge.Y, width, height);
     }
 
     public int ContentVersion { get; private set; }

@@ -15,13 +15,13 @@ namespace DeskbarWm;
 internal sealed class Manager
 {
     private const int CascadePadding = 32;
-    private const long DoubleClickMs = 400;
 
     private readonly RiverWindowManager _wm;
     private readonly WlCompositor? _compositor;
     private readonly WlShm? _shm;
     private readonly OutputScales? _scales;
-    private Protocol.ZwlrLayerShellV1? _layerShell;
+    private readonly ManagerSurfaceHost? _surfaces;
+    private readonly WmCurrents _currents;
     private readonly bool _trace;
     private readonly WmSession<ManagedWindow> _session;
     private readonly WmFocusStack<ManagedWindow> _focusStack;
@@ -29,15 +29,14 @@ internal sealed class Manager
     private readonly IReadOnlyDictionary<WmWindow, ManagedWindow> _byWindow;
     private readonly List<WmOutput> _outputs = [];
     private readonly Queue<WmAction> _actions = new();
-    private readonly List<KeyBinding> _bindings = [];
-    private readonly HashSet<WmSeat> _armedSeats = [];
+    private readonly WmBindingTable<BindingMode> _table;
     private readonly List<ManagedWindow> _cascade = [];
     private readonly Dictionary<WmOutput, int> _cascadeSteps = [];
 
     private readonly PointerInput _pointerInput;
     private readonly TeamTable _teams = new();
-    private readonly Dictionary<WmOutput, DeskbarSurface> _deskbars = [];
-    private readonly Dictionary<WmOutput, WallpaperSurface> _wallpapers = [];
+    private readonly PerOutput<DeskbarSurface> _deskbars;
+    private readonly PerOutput<WallpaperSurface> _wallpapers;
     private WallpaperSurface? _pointerWallpaper;
     private readonly Queue<Team> _teamActivations = new();
     private readonly Queue<ManagedWindow> _windowActivations = new();
@@ -70,14 +69,13 @@ internal sealed class Manager
     private readonly Queue<Action> _menuActions = new();
     private readonly RecentItems _recents;
     private Basin.WindowManager.IWmEventSource? _clockTimer;
+    private readonly DirectoryWatch _desktopWatch = new();
+    private bool _desktopFlushArmed;
     private ManagedWindow? _pointerTab;
     private double _tabX;
     private double _tabY;
-    private (ManagedWindow Window, long At)? _lastTabClick;
+    private readonly WmDoubleClick<ManagedWindow> _tabClick = new();
 
-    private WmSeat? _currentSeat;
-    private WmOutput? _currentOutput;
-    private bool _layerDefaultSet;
     private DragState? _drag;
     private SKFont? _font;
     private readonly Dictionary<WmSeat, bool> _shiftHeld = [];
@@ -111,21 +109,23 @@ internal sealed class Manager
         _reload = new WmReloadSignal(wm);
         _reload.Reload += OnReload;
         WarnWithoutBlur();
-        if (wm is { Compositor: { } compositor, Shm: { } shm })
+        _currents = new WmCurrents(wm) { SetsLayerDefault = true };
+        _table = new WmBindingTable<BindingMode>(wm)
         {
-            _compositor = compositor;
-            _shm = shm;
-            _scales = new OutputScales(wm);
-
-            var registry = wm.Display.GetRegistry();
-            registry.Global += (_, e) =>
-            {
-                if (e.Interface == "zwlr_layer_shell_v1")
-                {
-                    _layerShell = registry.Bind<Protocol.ZwlrLayerShellV1>(e.Name, Math.Min(e.Version, 4));
-                }
-            };
+            Shadowed = (keysym, modifiers) =>
+                _config.Hotkeys.Any(hotkey => hotkey.Keysym == keysym && hotkey.ModifierMask == modifiers),
+        };
+        _surfaces = ManagerSurfaceHost.TryCreate(wm);
+        if (_surfaces is not null)
+        {
+            _compositor = _surfaces.Compositor;
+            _shm = _surfaces.Shm;
+            _scales = _surfaces.Scales;
         }
+
+        _deskbars = new PerOutput<DeskbarSurface>(_surfaces, (output, proxy) =>
+            new DeskbarSurface(_surfaces!, proxy, output, _wm) { AutoHidden = _config.AutoHide });
+        _wallpapers = new PerOutput<WallpaperSurface>(_surfaces, (output, proxy) => new WallpaperSurface(_surfaces!, proxy, output, _wm));
 
         _pointerInput = new PointerInput(wm);
         _pointerInput.SurfaceEntered += OnDecorEntered;
@@ -146,6 +146,24 @@ internal sealed class Manager
 
         _clockTimer = wm.Loop.AddTimer(OnClockTick);
         _clockTimer.UpdateTimer(ClockIntervalMs());
+
+        if (_desktopWatch.Available)
+        {
+            Desktop.Watch(_desktopWatch);
+            var flush = wm.Loop.AddTimer(() =>
+            {
+                _desktopFlushArmed = false;
+                _desktopWatch.Flush();
+            });
+            wm.Loop.AddFd(_desktopWatch.Fd, WmFdReadiness.Readable, (_, _) =>
+            {
+                if (_desktopWatch.Read() && !_desktopFlushArmed)
+                {
+                    _desktopFlushArmed = true;
+                    flush.UpdateTimer(DirectoryWatch.CoalesceMillis);
+                }
+            });
+        }
 
         wm.Manage += OnManage;
         wm.Render += OnRender;
@@ -216,6 +234,7 @@ internal sealed class Manager
         RefreshChrome();
         RefreshCapabilities();
         ArmBindings(context);
+        _table.Apply(context.SessionIsLocked);
         ApplyDrag(allowResize: true);
         FinishReleasedDrag();
         _session.DrainInteractions();
@@ -281,79 +300,11 @@ internal sealed class Manager
     private void UpdateCurrents(ManageContext context)
     {
         RefreshOutputs(context.Outputs);
-
-        if (_currentSeat is null or { IsRemoved: true })
-        {
-            _currentSeat = context.Seats.Count > 0 ? context.Seats[0] : null;
-        }
-
-        if (_currentOutput is null or { IsRemoved: true })
-        {
-            _currentOutput = _outputs.Count > 0 ? _outputs[0] : null;
-            _layerDefaultSet = false;
-        }
-
-        if (!_layerDefaultSet && _wm.LayerShell is not null
-            && _currentOutput is { IsRemoved: false } defaultOutput)
-        {
-            defaultOutput.SetDefaultForLayerSurfaces();
-            _layerDefaultSet = true;
-        }
-
+        _currents.Update(context, _outputs);
         _session.ObserveSeats(context);
-        _focusStack.Seat = _currentSeat;
-
-        if (_wm.LayerShell is { } shell)
-        {
-            foreach (var output in _outputs)
-            {
-                shell.Track(output);
-            }
-
-            foreach (var seat in context.Seats)
-            {
-                shell.Track(seat);
-            }
-        }
-
-        if (_compositor is not null && _shm is not null && _layerShell is not null && _scales is not null)
-        {
-            foreach (var output in _outputs)
-            {
-                if (_deskbars.ContainsKey(output) || _scales.ProxyForName(output.WlOutputName) is not { } proxy)
-                {
-                    continue;
-                }
-
-                _deskbars[output] = new DeskbarSurface(_compositor, _shm, _layerShell, proxy, output, _wm)
-                {
-                    AutoHidden = _config.AutoHide,
-                };
-                _wallpapers[output] = new WallpaperSurface(_compositor, _shm, _layerShell, proxy, output, _wm);
-            }
-
-            List<WmOutput>? removed = null;
-            foreach (var (output, bar) in _deskbars)
-            {
-                if (output.IsRemoved)
-                {
-                    bar.Dispose();
-                    (removed ??= []).Add(output);
-                }
-            }
-
-            if (removed is not null)
-            {
-                foreach (var output in removed)
-                {
-                    _deskbars.Remove(output);
-                    if (_wallpapers.Remove(output, out var wallpaper))
-                    {
-                        wallpaper.Dispose();
-                    }
-                }
-            }
-        }
+        _focusStack.Seat = _currents.Seat;
+        _deskbars.Reconcile(_outputs);
+        _wallpapers.Reconcile(_outputs);
     }
 
     private void RefreshOutputs(IReadOnlyList<WmOutput> outputs)
@@ -395,10 +346,7 @@ internal sealed class Manager
             _pointerTab = null;
         }
 
-        if (_lastTabClick is { } click && ReferenceEquals(click.Window, mw))
-        {
-            _lastTabClick = null;
-        }
+        _tabClick.Forget(mw);
 
         if (mw.Area is { } area)
         {
@@ -464,12 +412,6 @@ internal sealed class Manager
                 }
             }
 
-            if (capabilities == mw.SentCapabilities)
-            {
-                continue;
-            }
-
-            mw.SentCapabilities = capabilities;
             mw.Window.SetCapabilities(capabilities);
         }
     }
@@ -519,7 +461,7 @@ internal sealed class Manager
                 }
             }
 
-            tab.UpdateInputRegion(_compositor, strip?.Count ?? 0);
+            tab.UpdateInputRegion(strip?.Count ?? 0);
             tab.Blur(_wm.BackgroundEffects, Theme.Blur, strip?.Count ?? 0);
 
             var rendered = tab.Render(
@@ -614,7 +556,7 @@ internal sealed class Manager
     private void RenderPlacementOutline()
     {
         if (_barDrag is not { Candidate: { } candidate } drag
-            || _compositor is null || _shm is null || _layerShell is null || _scales is null)
+            || _surfaces is not { LayerShell: not null } surfaces || _scales is null)
         {
             if (_outline is not null)
             {
@@ -639,14 +581,11 @@ internal sealed class Manager
                 return;
             }
 
-            _outline = new PlacementOutline(_compositor, _shm, _layerShell, proxy, output, _wm);
+            _outline = new PlacementOutline(surfaces, proxy, output);
         }
 
         var scale = _scales.ScaleForName(output.WlOutputName);
-        if (_outline.Render(EstimateFrame(candidate, output), scale))
-        {
-            _outline.Commit();
-        }
+        _outline.Show(EstimateFrame(candidate, output), scale);
     }
 
     private Rect EstimateFrame(DeskbarPlacement placement, WmOutput output)
@@ -761,20 +700,8 @@ internal sealed class Manager
         Focus(front);
     }
 
-    private void ArmBindings(ManageContext context)
-    {
-        if (!_wm.Bindings.IsSupported)
+    private void ArmBindings(ManageContext context) => _table.Arm(context, seat =>
         {
-            return;
-        }
-
-        foreach (var seat in context.Seats)
-        {
-            if (!_armedSeats.Add(seat))
-            {
-                continue;
-            }
-
             if (_wm.Bindings.Version >= 3)
             {
                 _wm.Bindings.WatchModifiers(seat, Modifiers.Shift | Modifiers.Ctrl);
@@ -813,49 +740,15 @@ internal sealed class Manager
             foreach (var hotkey in _config.Hotkeys)
             {
                 var pressed = hotkey;
-                var binding = _wm.Bindings.Bind(seat, pressed.Keysym, pressed.ModifierMask, () =>
-                {
-                    _hotkeyPresses.Enqueue(pressed);
-                    _wm.RequestManage();
-                });
-                binding.Enable();
-                _bindings.Add(binding);
+                _table.BindUnshadowed(seat, pressed.Keysym, pressed.ModifierMask, () => _hotkeyPresses.Enqueue(pressed));
             }
-        }
-    }
+        });
 
-    private void BindAction(WmSeat seat, string keysym, Modifiers modifiers, Action action)
-    {
-        var binding = _wm.Bindings.Bind(seat, keysym, modifiers, action);
-        binding.Enable();
-        _bindings.Add(binding);
-    }
+    private void BindAction(WmSeat seat, string keysym, Modifiers modifiers, Action action) =>
+        _table.BindUnshadowed(seat, Keysym.FromName(keysym), modifiers, action);
 
-    private void Bind(WmSeat seat, string keysym, Modifiers modifiers, WmAction action)
-    {
-        if (HotkeyShadowsDefault(keysym, modifiers))
-        {
-            return;
-        }
-
-        var binding = _wm.Bindings.Bind(seat, keysym, modifiers, () => _actions.Enqueue(action));
-        binding.Enable();
-        _bindings.Add(binding);
-    }
-
-    private bool HotkeyShadowsDefault(string keysym, Modifiers modifiers)
-    {
-        var symbol = Keysym.FromName(keysym);
-        foreach (var hotkey in _config.Hotkeys)
-        {
-            if (hotkey.Keysym == symbol && hotkey.ModifierMask == modifiers)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    private void Bind(WmSeat seat, string keysym, Modifiers modifiers, WmAction action) =>
+        _table.Bind(seat, keysym, modifiers, () => _actions.Enqueue(action));
 
     private void BindPointer(WmSeat seat, uint button, Modifiers modifiers, WmAction action)
     {
@@ -872,7 +765,7 @@ internal sealed class Manager
 
     private void HandleInteraction(ManagedWindow mw)
     {
-        if (_currentSeat is not { IsRemoved: false } seat || _drag is { Op.IsEnded: false })
+        if (_currents.Seat is not { IsRemoved: false } seat || _drag is { Op.IsEnded: false })
         {
             return;
         }
@@ -951,7 +844,7 @@ internal sealed class Manager
 
     private void ApplyFocusMode()
     {
-        if (_config.FocusMode == FocusMode.Click || _currentSeat is not { IsRemoved: false } seat)
+        if (_config.FocusMode == FocusMode.Click || _currents.Seat is not { IsRemoved: false } seat)
         {
             return;
         }
@@ -1010,9 +903,7 @@ internal sealed class Manager
 
         if (resizeEdges == Edges.None)
         {
-            var pointer = seat.PointerPosition;
-            resizeEdges = (pointer.X < mw.X + (mw.Width / 2) ? Edges.Left : Edges.Right)
-                | (pointer.Y < mw.Y + (mw.Height / 2) ? Edges.Top : Edges.Bottom);
+            resizeEdges = WmDrag.Quadrant(mw.ContentRect, seat.PointerPosition);
         }
 
         StartDrag(mw, seat, resizeEdges);
@@ -1328,16 +1219,9 @@ internal sealed class Manager
             mw.TabPressed = hit.Part is FramePart.CloseBox or FramePart.ZoomBox ? hit.Part : null;
             if (hit.Part == FramePart.Tab)
             {
-                var now = Environment.TickCount64;
-                if (_lastTabClick is { } last && ReferenceEquals(last.Window, mw)
-                    && now - last.At <= DoubleClickMs)
+                if (_tabClick.Click(mw))
                 {
-                    _lastTabClick = null;
                     mw.Events.Enqueue((WindowEventKind.Minimize, null));
-                }
-                else
-                {
-                    _lastTabClick = (mw, now);
                 }
             }
 
@@ -1409,7 +1293,7 @@ internal sealed class Manager
             return;
         }
 
-        if (_compositor is null || _shm is null || _layerShell is null || _scales is null
+        if (_surfaces is not { LayerShell: not null } surfaces || _scales is null
             || _scales.ProxyForName(bar.Output.WlOutputName) is not { } proxy)
         {
             return;
@@ -1435,14 +1319,14 @@ internal sealed class Manager
             y = Math.Clamp(VerticalLayout.MenuBarHeight, 0, Math.Max(area.Height - size.Height, 0));
         }
 
-        _calendar = new CalendarPopup(_compositor, _shm, _layerShell, proxy, bar.Output, _wm, new Point(x, y));
+        _calendar = new CalendarPopup(surfaces, proxy, bar.Output, _wm, new Point(x, y));
         _wm.RequestManage();
     }
 
     private bool PointerFarFromBar(DeskbarSurface bar)
     {
         const int preventDistance = 80;
-        if (_currentSeat is not { IsRemoved: false } seat)
+        if (_currents.Seat is not { IsRemoved: false } seat)
         {
             return true;
         }
@@ -1511,18 +1395,7 @@ internal sealed class Manager
         var shape = hit.Part switch
         {
             FramePart.ResizeCorner => CursorShape.SeResize,
-            FramePart.Border => hit.Edges switch
-            {
-                Edges.Left => CursorShape.WResize,
-                Edges.Right => CursorShape.EResize,
-                Edges.Top => CursorShape.NResize,
-                Edges.Bottom => CursorShape.SResize,
-                Edges.Left | Edges.Top => CursorShape.NwResize,
-                Edges.Right | Edges.Top => CursorShape.NeResize,
-                Edges.Left | Edges.Bottom => CursorShape.SwResize,
-                Edges.Right | Edges.Bottom => CursorShape.SeResize,
-                _ => CursorShape.Default,
-            },
+            FramePart.Border => EdgeCursors.ShapeFor(hit.Edges),
             _ => CursorShape.Default,
         };
         _pointerInput.SetShape(seatName, shape);
@@ -1530,12 +1403,7 @@ internal sealed class Manager
 
     private void StartDrag(ManagedWindow mw, WmSeat seat, Edges edges, bool fromTab = false)
     {
-        var op = seat.StartPointerOperation();
-        _drag = new DragState(mw, op, edges, mw.X, mw.Y, mw.Width, mw.Height) { FromTab = fromTab };
-        if (edges != Edges.None)
-        {
-            mw.Window.InformResizing(true);
-        }
+        _drag = new DragState(mw, WmDrag.Begin(mw.Window, seat, edges, mw.ContentRect)) { FromTab = fromTab };
     }
 
     private void RaiseInStack(SatArea area, ManagedWindow window)
@@ -1546,8 +1414,7 @@ internal sealed class Manager
 
     private void StartSlide(ManagedWindow mw, WmSeat seat)
     {
-        var op = seat.StartPointerOperation();
-        _drag = new DragState(mw, op, Edges.None, mw.X, mw.Y, mw.Width, mw.Height)
+        _drag = new DragState(mw, WmDrag.Begin(mw.Window, seat, Edges.None, mw.ContentRect))
         {
             Slide = true,
             StartTabOffset = mw.Metrics.TabRect.X,
@@ -1652,60 +1519,20 @@ internal sealed class Manager
             return;
         }
 
-        var minimum = mw.Window.SizeHint.Minimum;
-        var minWidth = Math.Max(minimum.Width, 1);
-        var minHeight = Math.Max(minimum.Height, 1);
-        var newWidth = drag.StartWidth;
-        var newHeight = drag.StartHeight;
-        if ((drag.Edges & Edges.Left) != 0)
+        var anchored = drag.Core.AnchoredAt(new Size(mw.Width, mw.Height));
+        if (anchored.X != mw.X || anchored.Y != mw.Y)
         {
-            newWidth = Math.Max(drag.StartWidth - delta.X, minWidth);
-        }
-        else if ((drag.Edges & Edges.Right) != 0)
-        {
-            newWidth = Math.Max(drag.StartWidth + delta.X, minWidth);
+            mw.SetPosition(anchored.X, anchored.Y);
         }
 
-        if ((drag.Edges & Edges.Top) != 0)
-        {
-            newHeight = Math.Max(drag.StartHeight - delta.Y, minHeight);
-        }
-        else if ((drag.Edges & Edges.Bottom) != 0)
-        {
-            newHeight = Math.Max(drag.StartHeight + delta.Y, minHeight);
-        }
-
-        var anchorX = (drag.Edges & Edges.Left) != 0
-            ? drag.StartX + (drag.StartWidth - mw.Width)
-            : drag.StartX;
-        var anchorY = (drag.Edges & Edges.Top) != 0
-            ? drag.StartY + (drag.StartHeight - mw.Height)
-            : drag.StartY;
-        if (anchorX != mw.X || anchorY != mw.Y)
-        {
-            mw.SetPosition(anchorX, anchorY);
-        }
-
-        drag.Desired = new Size(newWidth, newHeight);
-        ProposePaced(drag, mw, drag.Desired);
-    }
-
-    private static void ProposePaced(DragState drag, ManagedWindow mw, Size desired)
-    {
-        if (drag.LastProposed == desired)
-        {
-            return;
-        }
-
-        drag.LastProposed = desired;
-        mw.Window.ProposeDimensions(desired.Width, desired.Height);
+        drag.Core.Propose(drag.Core.SizeFor(delta));
     }
 
     private void RefreshDropCandidates(DragState drag, ManagedWindow mw, Point delta)
     {
         drag.StackTarget = null;
         drag.TileTarget = null;
-        if (!_config.StackAndTile || _currentSeat is not { IsRemoved: false } seat)
+        if (!_config.StackAndTile || _currents.Seat is not { IsRemoved: false } seat)
         {
             return;
         }
@@ -1793,7 +1620,7 @@ internal sealed class Manager
         }
     }
 
-    private bool CtrlHeld => _currentSeat is { } seat && _ctrlHeld.GetValueOrDefault(seat);
+    private bool CtrlHeld => _currents.Seat is { } seat && _ctrlHeld.GetValueOrDefault(seat);
 
     private void ApplyGroup(SatGroup group, bool allowResize)
     {
@@ -1840,22 +1667,13 @@ internal sealed class Manager
 
     private void FinishReleasedDrag()
     {
-        if (_drag is not { } drag || drag.Op.IsEnded || !drag.Op.IsReleased)
+        if (_drag is not { Core.IsReleased: true } drag)
         {
             return;
         }
 
         _drag = null;
-        if (drag.Edges != Edges.None && !drag.Window.Window.IsClosed)
-        {
-            drag.Window.Window.InformResizing(false);
-            if (drag.Window.Area is null && !drag.Desired.IsEmpty && drag.LastProposed != drag.Desired)
-            {
-                drag.Window.Window.ProposeDimensions(drag.Desired.Width, drag.Desired.Height);
-            }
-        }
-
-        drag.Op.End();
+        drag.Core.Finish();
 
         var mw = drag.Window;
         if (!mw.Window.IsClosed && _config.StackAndTile)
@@ -1885,7 +1703,7 @@ internal sealed class Manager
 
     private void StartPointerMove()
     {
-        if (_currentSeat is not { IsRemoved: false } seat)
+        if (_currents.Seat is not { IsRemoved: false } seat)
         {
             return;
         }
@@ -1901,7 +1719,7 @@ internal sealed class Manager
 
     private void StartPointerResize()
     {
-        if (_currentSeat is not { IsRemoved: false } seat)
+        if (_currents.Seat is not { IsRemoved: false } seat)
         {
             return;
         }
@@ -1913,10 +1731,7 @@ internal sealed class Manager
         }
 
         Focus(mw);
-        var pointer = seat.PointerPosition;
-        var edges = (pointer.X < mw.X + (mw.Width / 2) ? Edges.Left : Edges.Right)
-            | (pointer.Y < mw.Y + (mw.Height / 2) ? Edges.Top : Edges.Bottom);
-        StartDrag(mw, seat, edges);
+        StartDrag(mw, seat, WmDrag.Quadrant(mw.ContentRect, seat.PointerPosition));
     }
 
     private void DrainWorkspaceSwitches()
@@ -2069,7 +1884,7 @@ internal sealed class Manager
 
     private void StartSwitcher()
     {
-        if (_currentSeat is not { IsRemoved: false } seat || !_wm.Bindings.IsSupported
+        if (_currents.Seat is not { IsRemoved: false } seat || !_wm.Bindings.IsSupported
             || _wm.Bindings.Version < 2)
         {
             return;
@@ -2190,20 +2005,17 @@ internal sealed class Manager
 
         if (_dropHighlight is null)
         {
-            if (_compositor is null || _shm is null || _layerShell is null || _scales is null
+            if (_surfaces is not { LayerShell: not null } surfaces || _scales is null
                 || _scales.ProxyForName(output.WlOutputName) is not { } proxy)
             {
                 return;
             }
 
-            _dropHighlight = new DropHighlight(_compositor, _shm, _layerShell, proxy, output, _wm);
+            _dropHighlight = new DropHighlight(surfaces, proxy, output);
         }
 
         var scale = _scales?.ScaleForName(output.WlOutputName) ?? 1;
-        if (_dropHighlight.Render(region, scale))
-        {
-            _dropHighlight.Commit();
-        }
+        _dropHighlight.Show(region, scale);
     }
 
     private void RenderSwitcher()
@@ -2222,14 +2034,14 @@ internal sealed class Manager
 
         if (_switcherSurface is null)
         {
-            if (_compositor is null || _shm is null || _layerShell is null || _scales is null
-                || _currentOutput is not { IsRemoved: false } output
+            if (_surfaces is not { LayerShell: not null } surfaces || _scales is null
+                || _currents.Output is not { IsRemoved: false } output
                 || _scales.ProxyForName(output.WlOutputName) is not { } proxy)
             {
                 return;
             }
 
-            _switcherSurface = new SwitcherSurface(_compositor, _shm, _layerShell, proxy, output, _wm);
+            _switcherSurface = new SwitcherSurface(surfaces, proxy, output, _wm);
         }
 
         var scale = _scales?.ScaleForName(_switcherSurface.Output.WlOutputName) ?? 1;
@@ -2292,7 +2104,7 @@ internal sealed class Manager
                 mw.Window.Close();
                 break;
             case WindowEventKind.Fullscreen:
-                var target = output is { IsRemoved: false } ? output : mw.Output ?? _currentOutput;
+                var target = output is { IsRemoved: false } ? output : mw.Output ?? _currents.Output;
                 if (target is { IsRemoved: false })
                 {
                     EnterFullscreen(mw, target);
@@ -2378,7 +2190,7 @@ internal sealed class Manager
 
         _focusStack.Focus(mw);
         if (_config.FocusMode == FocusMode.FollowMouseWarping
-            && _currentSeat is { IsRemoved: false } seat
+            && _currents.Seat is { IsRemoved: false } seat
             && !mw.ContentRect.Contains(seat.PointerPosition)
             && _wm.Version >= 3
             && mw.Width > 0)
@@ -2455,12 +2267,12 @@ internal sealed class Manager
             return;
         }
 
-        if ((mw.Output ?? _currentOutput) is not { IsRemoved: false } output)
+        if ((mw.Output ?? _currents.Output) is not { IsRemoved: false } output)
         {
             return;
         }
 
-        var shift = _currentSeat is { } seat && ShiftHeld(seat);
+        var shift = _currents.Seat is { } seat && ShiftHeld(seat);
         var area = shift ? output.Area : WmOutputPolicy.UsableArea(output);
         if (!shift && _deskbars.TryGetValue(output, out var bar)
             && bar.Placement.Orientation == BarOrientation.Vertical)
@@ -2555,7 +2367,7 @@ internal sealed class Manager
                     continue;
                 }
 
-                var target = mw.Output ?? _currentOutput;
+                var target = mw.Output ?? _currents.Output;
                 if (ReferenceEquals(target, output))
                 {
                     _cascade.Add(mw);
@@ -2617,8 +2429,7 @@ internal sealed class Manager
             : (x, Math.Min(y, frame.Y - height - CascadePadding));
     }
 
-    private ManagedWindow? ParentOf(ManagedWindow mw) =>
-        mw.Window.Parent is { } parent ? _byWindow.GetValueOrDefault(parent) : null;
+    private ManagedWindow? ParentOf(ManagedWindow mw) => _session.ParentOf(mw);
 
     private void Restack()
     {
@@ -2651,27 +2462,14 @@ internal sealed class Manager
         {
             if (mw.Output is { IsRemoved: true })
             {
-                mw.Output = _currentOutput;
+                mw.Output = _currents.Output;
             }
         }
     }
 
     private void UpdateOutputFromRect(ManagedWindow mw)
     {
-        WmOutput? best = null;
-        long bestArea = 0;
-        foreach (var output in _outputs)
-        {
-            var overlap = output.Area.Intersect(mw.ContentRect);
-            long area = (long)overlap.Width * overlap.Height;
-            if (!overlap.IsEmpty && area > bestArea)
-            {
-                best = output;
-                bestArea = area;
-            }
-        }
-
-        if (best is not null)
+        if (WmOutputPolicy.LargestOverlap(mw.ContentRect, _outputs) is { } best)
         {
             mw.Output = best;
         }
@@ -2701,15 +2499,8 @@ internal sealed class Manager
         _config = Config.Load(_noConfig, _log);
         WarnWithoutBlur();
         _log.Info($"configuration reloaded");
-        Desktop.Invalidate();
 
-        foreach (var binding in _bindings)
-        {
-            binding.Destroy();
-        }
-
-        _bindings.Clear();
-        _armedSeats.Clear();
+        _table.Reset();
         _font?.Dispose();
         _font = null;
 
@@ -2768,13 +2559,13 @@ internal sealed class Manager
 
     internal void SetDeskbarFlag(string key, bool value)
     {
-        _config.SaveKey("deskbar", key, value ? "true" : "false", _log);
+        _config.SaveKey("deskbar", key, Basin.Config.TomlValue.From(value), _log);
         InvalidateBars();
     }
 
     internal void SetClockFlag(string key, bool value)
     {
-        _config.SaveKey("deskbar.clock", key, value ? "true" : "false", _log);
+        _config.SaveKey("deskbar.clock", key, Basin.Config.TomlValue.From(value), _log);
         _clock.Reconfigure(_config);
         _clockTimer?.UpdateTimer(ClockIntervalMs());
         InvalidateBars();
@@ -2783,7 +2574,7 @@ internal sealed class Manager
     internal void SetIconSize(int size)
     {
         _config.IconSize = size;
-        _config.SaveKey("deskbar", "icon-size", size.ToString(), _log);
+        _config.SaveKey("deskbar", "icon-size", Basin.Config.TomlValue.From((long)size), _log);
         InvalidateBars();
     }
 
@@ -2906,14 +2697,14 @@ internal sealed class Manager
         bool alignRight,
         bool alignBottom)
     {
-        if (_compositor is null || _shm is null || _layerShell is null || _scales is null
+        if (_surfaces is not { LayerShell: not null } surfaces || _scales is null
             || _scales.ProxyForName(output.WlOutputName) is not { } proxy)
         {
             return;
         }
 
         _menus.Add(new MenuSurface(
-            _compositor, _shm, _layerShell, proxy, output, _wm, items, origin, alignRight, alignBottom));
+            surfaces, proxy, output, _wm, items, origin, alignRight, alignBottom));
         _wm.RequestManage();
     }
 
@@ -2986,28 +2777,23 @@ internal sealed class Manager
         _log.Debug($"manage: {context.Windows.Count} window(s), {_outputs.Count} output(s), focus {_focusStack.Focused?.Window.Title ?? "none"}");
     }
 
-    private sealed class DragState(
-        ManagedWindow window,
-        PointerOperation op,
-        Edges edges,
-        int startX,
-        int startY,
-        int startWidth,
-        int startHeight)
+    private sealed class DragState(ManagedWindow window, WmDrag core)
     {
         public ManagedWindow Window { get; } = window;
 
-        public PointerOperation Op { get; } = op;
+        public WmDrag Core { get; } = core;
 
-        public Edges Edges { get; } = edges;
+        public PointerOperation Op => Core.Op;
 
-        public int StartX { get; } = startX;
+        public Edges Edges => Core.Edges;
 
-        public int StartY { get; } = startY;
+        public int StartX => Core.Start.X;
 
-        public int StartWidth { get; } = startWidth;
+        public int StartY => Core.Start.Y;
 
-        public int StartHeight { get; } = startHeight;
+        public int StartWidth => Core.Start.Width;
+
+        public int StartHeight => Core.Start.Height;
 
         public MagneticBorder Magnet { get; } = new();
 
@@ -3020,9 +2806,5 @@ internal sealed class Manager
         public StackDrop? StackTarget { get; set; }
 
         public TileDrop? TileTarget { get; set; }
-
-        public Size? LastProposed { get; set; }
-
-        public Size Desired { get; set; }
     }
 }

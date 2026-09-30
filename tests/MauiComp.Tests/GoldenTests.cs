@@ -46,11 +46,11 @@ public sealed class GoldenTests
         Assert.SkipWhen(chosen!.Split(' ')[1] != renderer, $"{renderer} fell back to {chosen.Split(' ')[1]}");
 
         await session.SendAsync("clock 12:00");
-        await Task.Delay(400, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
         await session.SendAsync($"shot {path}");
-        for (var i = 0; i < 50 && !File.Exists(path); i++)
+        for (var i = 0; i < 250 && !File.Exists(path); i++)
         {
-            await Task.Delay(100, TestContext.Current.CancellationToken);
+            await Task.Delay(20, TestContext.Current.CancellationToken);
         }
 
         Assert.True(File.Exists(path), "the compositor wrote the screenshot");

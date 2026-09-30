@@ -1,4 +1,3 @@
-using System.Xml.Linq;
 using Basin.Config;
 
 using Basin.Diagnostics;
@@ -60,54 +59,24 @@ internal sealed class RecentItems
         var folders = new List<(string, string)>();
         try
         {
-            var xbelPath = Path.Combine(
-                Environment.GetEnvironmentVariable("XDG_DATA_HOME")
-                    ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share"),
-                "recently-used.xbel");
-            if (!File.Exists(xbelPath))
+            foreach (var item in Basin.Freedesktop.RecentlyUsed.Read())
             {
-                return (documents, folders);
-            }
-
-            XNamespace mime = "http://www.freedesktop.org/standards/shared-mime-info";
-            var document = XDocument.Load(xbelPath);
-            var bookmarks = new List<(string Href, string? Mime, DateTime Modified)>();
-            foreach (var bookmark in document.Root?.Elements("bookmark") ?? [])
-            {
-                var href = bookmark.Attribute("href")?.Value;
-                if (href is null || !href.StartsWith("file://", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                var mimeType = bookmark.Descendants(mime + "mime-type").FirstOrDefault()?.Attribute("type")?.Value;
-                var modified = DateTime.TryParse(
-                    bookmark.Attribute("modified")?.Value, out var stamp)
-                    ? stamp
-                    : DateTime.MinValue;
-                bookmarks.Add((href, mimeType, modified));
-            }
-
-            bookmarks.Sort(static (a, b) => b.Modified.CompareTo(a.Modified));
-            foreach (var (href, mimeType, _) in bookmarks)
-            {
-                var path = Uri.UnescapeDataString(new Uri(href).LocalPath);
-                var label = Path.GetFileName(path);
+                var label = Path.GetFileName(item.Path);
                 if (label.Length == 0)
                 {
                     continue;
                 }
 
-                if (mimeType == "inode/directory")
+                if (item.IsDirectory)
                 {
                     if (folders.Count < folderCount)
                     {
-                        folders.Add((path, label));
+                        folders.Add((item.Path, label));
                     }
                 }
                 else if (documents.Count < documentCount)
                 {
-                    documents.Add((path, label));
+                    documents.Add((item.Path, label));
                 }
             }
         }

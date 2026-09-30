@@ -45,6 +45,32 @@ public sealed class SeatInjectorTests
     }
 
     [Fact]
+    public void Touch_reaches_the_touch_driver_and_is_refused_without_one()
+    {
+        using var host = new CompositorTestHost(200, 100);
+        var pointer = new LayoutPointer(host.Layout);
+        var cursor = new CursorController(host.Layout);
+        var binder = new SeatBinder(host.Seat, host.Layout, pointer, cursor);
+        var injector = new SeatInjector(binder, host.Seat, host.Layout, pointer);
+
+        Assert.False(injector.TouchDown(1, 0, 10, 10));
+
+        var downs = new List<(int Id, double X, double Y)>();
+        binder.TouchDown += (_, id, x, y) => downs.Add((id, x, y));
+        var ups = 0;
+        binder.TouchUp += (_, _) => ups++;
+        binder.TouchFrame += () => { };
+
+        Assert.True(injector.TouchDown(2, 3, 40, 50));
+        Assert.True(injector.TouchFrame());
+        Assert.True(injector.TouchUp(3, 3));
+        Assert.Equal([(3, 40.0, 50.0)], downs);
+        Assert.Equal(1, ups);
+        Assert.True((host.Seat.Capabilities & SeatCapability.Touch) != 0);
+        cursor.Dispose();
+    }
+
+    [Fact]
     public void MotionAbsolute_maps_the_extent_onto_the_layout_bounds()
     {
         using var host = new CompositorTestHost(200, 100);

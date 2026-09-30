@@ -66,16 +66,6 @@ internal sealed partial class TinyComp
         {
             _idle.NotifyActivity();
             RevealCursorForPointer();
-            if (dxu is { } unacceleratedDx && dyu is { } unacceleratedDy)
-            {
-                _relativePointer.NotifyMotion((ulong)time * 1000, dx, dy, unacceleratedDx, unacceleratedDy);
-            }
-
-            if (ActiveLock() is not null)
-            {
-                return;
-            }
-
             OnPointerPlaced(time);
         };
         _touchBinder!.Axis += (time, axis) =>

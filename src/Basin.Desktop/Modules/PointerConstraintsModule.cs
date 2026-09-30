@@ -9,6 +9,14 @@ public sealed class PointerConstraintsModule : DesktopModule<PointerConstraintsM
 
     public override int Version => PointerConstraintsManager.Version;
 
-    protected override PointerConstraintsManager Create(BasinServices services) =>
-        new(services.Display, services.Require<CompositorGlobal>(), services.Find<Seat.Seat>());
+    protected override PointerConstraintsManager Create(BasinServices services)
+    {
+        var manager = new PointerConstraintsManager(services.Display, services.Require<CompositorGlobal>(), services.Find<Seat.Seat>());
+        if (manager.Driver is { } driver)
+        {
+            services.Use(driver);
+        }
+
+        return manager;
+    }
 }

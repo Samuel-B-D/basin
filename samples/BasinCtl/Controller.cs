@@ -184,23 +184,7 @@ internal sealed class Controller(string? socketPath, bool raw, bool viaFd, bool 
 
         var captured = await client.CaptureOutputAsync(output, IpcCaptureTarget.Fd).ConfigureAwait(false);
         using var fd = captured.Fd ?? throw new IOException("the compositor sent no descriptor");
-        var pixels = new byte[captured.Stride * captured.Height];
-        _ = RandomAccess.Read(fd, pixels, 0);
-        var opaque = captured.Format?.StartsWith('x') == true;
-        var rgba = new byte[captured.Width * captured.Height * 4];
-        for (var y = 0; y < captured.Height; y++)
-        {
-            for (var x = 0; x < captured.Width; x++)
-            {
-                var pixel = BitConverter.ToUInt32(pixels, (y * captured.Stride) + (x * 4));
-                var i = ((y * captured.Width) + x) * 4;
-                rgba[i] = (byte)(pixel >> 16);
-                rgba[i + 1] = (byte)(pixel >> 8);
-                rgba[i + 2] = (byte)pixel;
-                rgba[i + 3] = opaque ? (byte)0xFF : (byte)(pixel >> 24);
-            }
-        }
-
+        var rgba = captured.ReadRgba();
         await File.WriteAllBytesAsync(file, PngCodec.Encode(rgba, captured.Width, captured.Height)).ConfigureAwait(false);
         Console.WriteLine($"{Path.GetFullPath(file)} {captured.Width}x{captured.Height} via fd");
         return Success;

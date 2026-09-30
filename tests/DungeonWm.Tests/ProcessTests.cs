@@ -22,17 +22,9 @@ public sealed class ProcessTests
         await session.SendAsync("face ssdwin");
         await Use(session);
         await session.SendAsync("move 640 360");
-        string? pick = null;
-        for (var attempt = 0; attempt < 20; attempt++)
-        {
-            var previous = pick;
-            pick = await session.WaitForAsync(line => line.StartsWith("PICK surface window=ssdwin at=128.0,", StringComparison.Ordinal), poke: "where", fresh: true);
-            Assert.NotNull(pick);
-            if (pick == previous)
-            {
-                break;
-            }
-        }
+        await session.SettleAsync();
+        var pick = await session.WaitForAsync(line => line.StartsWith("PICK surface window=ssdwin at=128.0,", StringComparison.Ordinal), poke: "where", fresh: true);
+        Assert.NotNull(pick);
 
         var y = double.Parse(pick![(pick!.IndexOf(',', StringComparison.Ordinal) + 1)..], System.Globalization.CultureInfo.InvariantCulture);
 
@@ -409,6 +401,34 @@ public sealed class ProcessTests
         await session.Quit();
     }
 
+    [Fact]
+    public async Task Every_window_past_the_sixty_fourth_keeps_its_toplevel_id()
+    {
+        const int count = 65;
+        var (compositor, client) = Prerequisites("gl", "ssdwin");
+        using var session = new Session(compositor, "gl", $"for i in $(seq {count}); do {client} & done; wait");
+        Assert.NotNull(await session.WaitForAsync(
+            _ => session.Lines.Count(line => line.StartsWith("MAPPED ssdwin", StringComparison.Ordinal)) >= count, attempts: 600));
+
+        var list = await session.WaitForAsync(line => line.StartsWith("OK windows/list ", StringComparison.Ordinal), poke: "ipc windows/list {}", fresh: true);
+        Assert.NotNull(list);
+        var ids = System.Text.RegularExpressions.Regex.Matches(list!, "\"id\":([0-9]+)")
+            .Select(match => match.Groups[1].Value)
+            .Where(id => id != "0")
+            .Distinct()
+            .ToList();
+        Assert.Equal(count, ids.Count);
+
+        foreach (var id in ids)
+        {
+            await session.SendAsync($"locate {id}");
+        }
+
+        Assert.NotNull(await session.WaitForAsync(line => line.StartsWith("OK windows/list ", StringComparison.Ordinal), poke: "ipc windows/list {}", fresh: true));
+        Assert.DoesNotContain(session.Lines, line => line.Contains("no window", StringComparison.Ordinal));
+        await session.Quit();
+    }
+
     internal static async Task Use(Session session)
     {
         Assert.NotNull(await session.WaitForAsync(line => line == "RETICLE use", poke: "mode"));
@@ -427,19 +447,9 @@ public sealed class ProcessTests
 
     private static async Task<(double X, double Y)> Settled(Session session, string part)
     {
-        string? line = null;
-        for (var attempt = 0; attempt < 20; attempt++)
-        {
-            var previous = line;
-            line = await session.WaitForAsync(l => l.StartsWith($"LOCATE ssdwin {part} ", StringComparison.Ordinal), poke: "locate ssdwin", fresh: true);
-            Assert.NotNull(line);
-            if (line == previous)
-            {
-                break;
-            }
-
-            await Task.Delay(100, TestContext.Current.CancellationToken);
-        }
+        await session.SettleAsync();
+        var line = await session.WaitForAsync(l => l.StartsWith($"LOCATE ssdwin {part} ", StringComparison.Ordinal), poke: "locate ssdwin", fresh: true);
+        Assert.NotNull(line);
 
         var fields = line!.Split(' ');
         return (double.Parse(fields[3], System.Globalization.CultureInfo.InvariantCulture), double.Parse(fields[4], System.Globalization.CultureInfo.InvariantCulture));
@@ -495,6 +505,7 @@ public sealed class ProcessTests
         private readonly Process _process;
         private readonly List<string> _lines = [];
         private readonly Lock _gate = new();
+        private TaskCompletionSource _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Session(string path, string row, string command, params string[] extra)
         {
@@ -522,10 +533,15 @@ public sealed class ProcessTests
             {
                 if (e.Data is not null)
                 {
+                    TaskCompletionSource arrived;
                     lock (_gate)
                     {
                         _lines.Add(e.Data);
+                        arrived = _arrived;
+                        _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     }
+
+                    arrived.TrySetResult();
                 }
             };
             _process.ErrorDataReceived += (_, _) => { };
@@ -556,10 +572,10 @@ public sealed class ProcessTests
             await _process.StandardInput.FlushAsync();
         }
 
-        public async Task<string?> WaitForAsync(Func<string, bool> predicate, string? poke = null, bool fresh = false, int attempts = 150)
+        public async Task<string?> WaitForAsync(Func<string, bool> predicate, string? poke = null, bool fresh = false, int attempts = 150, int? since = null)
         {
-            var floor = 0;
-            if (fresh)
+            var floor = since ?? 0;
+            if (fresh && since is null)
             {
                 lock (_gate)
                 {
@@ -567,28 +583,60 @@ public sealed class ProcessTests
                 }
             }
 
-            for (var i = 0; i < attempts; i++)
+            var deadline = Environment.TickCount64 + (attempts * 100L);
+            var cancel = TestContext.Current.CancellationToken;
+            while (true)
             {
                 if (poke is not null)
                 {
                     await SendAsync(poke);
                 }
 
-                lock (_gate)
+                var slotEnd = poke is null ? deadline : Math.Min(deadline, Environment.TickCount64 + 100);
+                while (true)
                 {
-                    for (var j = _lines.Count - 1; j >= floor; j--)
+                    Task next;
+                    lock (_gate)
                     {
-                        if (predicate(_lines[j]))
+                        for (var j = _lines.Count - 1; j >= floor; j--)
                         {
-                            return _lines[j];
+                            if (predicate(_lines[j]))
+                            {
+                                return _lines[j];
+                            }
                         }
+
+                        next = _arrived.Task;
                     }
+
+                    var remaining = slotEnd - Environment.TickCount64;
+                    if (remaining <= 0)
+                    {
+                        break;
+                    }
+
+                    await Task.WhenAny(next, Task.Delay((int)remaining, cancel));
+                    cancel.ThrowIfCancellationRequested();
                 }
 
-                await Task.Delay(100, TestContext.Current.CancellationToken);
+                if (Environment.TickCount64 >= deadline)
+                {
+                    return null;
+                }
+            }
+        }
+
+        public async Task SettleAsync()
+        {
+            int mark;
+            lock (_gate)
+            {
+                mark = _lines.Count;
             }
 
-            return null;
+            await SendAsync("settle");
+            var reply = await WaitForAsync(line => line.StartsWith("OK session/settle ", StringComparison.Ordinal) || line.StartsWith("ERR ", StringComparison.Ordinal), since: mark);
+            Assert.True(reply is not null && reply.StartsWith("OK ", StringComparison.Ordinal), $"settle answered [{reply}]");
         }
 
         public async Task Quit()

@@ -64,6 +64,32 @@ public sealed class DevicePixelBufferTests
     }
 
     [Theory]
+    [InlineData(1.7, 5)]
+    [InlineData(1.5, 4)]
+    [InlineData(1.25, 6)]
+    public void PlaceDevice_lands_a_buffer_on_the_device_box_it_names(double scale, int target)
+    {
+        using var host = new CompositorTestHost(96, 64);
+        using (var state = new OutputState())
+        {
+            Assert.True(host.Output.Commit(state.SetScale(scale)));
+        }
+
+        var art = Art();
+        var node = new SceneBuffer(host.Scene.Root);
+        node.SetBuffer(art);
+        node.SourceBox = new FBox(0, 0, Width, Height);
+        node.PlaceDevice(0, 0, scale, new Box(target, target, Width, Height));
+
+        host.RenderFrame();
+        Assert.Equal(0xffff0000u, host.Pixel(target, target));
+        Assert.Equal(0xff000000u, host.Pixel(target - 1, target));
+        Assert.Equal(0xff000000u, host.Pixel(target + Width, target));
+        node.Destroy();
+        art.Destroy();
+    }
+
+    [Theory]
     [InlineData(1.7, 7, 5)]
     [InlineData(1.5, 3, 9)]
     [InlineData(1.25, 11, 2)]

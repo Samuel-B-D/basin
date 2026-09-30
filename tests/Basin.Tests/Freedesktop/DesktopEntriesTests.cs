@@ -133,7 +133,7 @@ public sealed class DesktopEntriesTests : IDisposable
     [Fact]
     public void The_portal_resolver_names_what_it_can_and_declines_the_rest()
     {
-        var resolver = new BasinPortal.DesktopAppInfoResolver(Entries(), new IconSearch { Extensions = [".png"] });
+        var resolver = new DesktopAppInfoResolver(Entries(), new IconSearch { Extensions = [".png"] });
         InFixtureEnvironment(() =>
         {
             Assert.False(resolver.TryResolve("", out _));
@@ -159,6 +159,46 @@ public sealed class DesktopEntriesTests : IDisposable
             Environment.SetEnvironmentVariable("XDG_DATA_HOME", previous.Item1);
             Environment.SetEnvironmentVariable("XDG_DATA_DIRS", previous.Item2);
         }
+    }
+
+    [Fact]
+    public void A_watched_set_rescans_after_a_file_lands_in_a_subdirectory()
+    {
+        using var host = new CompositorTestHost();
+        using var watch = new DirectoryWatch(host.Loop);
+        var entries = Entries();
+        entries.Watch(watch);
+        Assert.DoesNotContain("kde4-new.desktop", entries.All().Select(e => e.Id));
+
+        var changed = 0;
+        entries.Changed += () => changed++;
+        Write("usr/share/applications/kde4/new.desktop", "[Desktop Entry]\nType=Application\nName=New\n");
+        var deadline = Environment.TickCount64 + 2000;
+        while (changed == 0 && Environment.TickCount64 < deadline)
+        {
+            host.Loop.Dispatch(50);
+        }
+
+        Assert.Equal(1, changed);
+        Assert.Contains("kde4-new.desktop", entries.All().Select(e => e.Id));
+    }
+
+    [Fact]
+    public void An_unwatched_set_ignores_the_watch()
+    {
+        using var watch = new DirectoryWatch();
+        var entries = Entries();
+        entries.Watch(watch);
+        _ = entries.All();
+        entries.Watch(null);
+
+        var changed = 0;
+        entries.Changed += () => changed++;
+        Write("usr/share/applications/later.desktop", "[Desktop Entry]\nType=Application\nName=Later\n");
+        Assert.True(watch.Read());
+        watch.Flush();
+
+        Assert.Equal(0, changed);
     }
 
     public void Dispose()

@@ -9,7 +9,7 @@ namespace Basin.Render3D.Vulkan;
 public sealed unsafe class VulkanWorldRenderer : IWorldRenderer
 {
     private const int MaxLights = 8;
-    private const int MaxJoints = 48;
+    private const int MaxJoints = Skeleton.MaxJoints;
     private const int MaxLevels = 32;
     private const int FrameSlots = 3;
     private const long WarmupFrames = 3;

@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="../Shared/*.cs" LinkBase="Shared" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Avalonia.Headless" />
     <PackageReference Include="Avalonia.Headless.XUnit" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
@@ -65,6 +69,8 @@
     <ProjectReference Include="../../src/Basin.Render.Pixman/Basin.Render.Pixman.csproj" />
     <ProjectReference Include="../../src/Basin.Render.Gl/Basin.Render.Gl.csproj" />
     <ProjectReference Include="../../src/Basin.Scene3D/Basin.Scene3D.csproj" />
+    <ProjectReference Include="../../src/Basin.Scene3D.Gltf/Basin.Scene3D.Gltf.csproj" />
+    <ProjectReference Include="../../src/Basin.Scene3D.Scene/Basin.Scene3D.Scene.csproj" />
     <ProjectReference Include="../../src/Basin.Render3D.Gl/Basin.Render3D.Gl.csproj" />
     <ProjectReference Include="../../src/Basin.Render3D.Vulkan/Basin.Render3D.Vulkan.csproj" />
     <ProjectReference Include="../../src/Basin.Render.Impeller/Basin.Render.Impeller.csproj" />

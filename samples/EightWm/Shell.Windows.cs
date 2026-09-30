@@ -617,6 +617,12 @@ internal sealed partial class Shell
         app.Slot.RaiseToTop();
         _capture.Stack.RaiseChanged();
         HomeOf(app).Host.Activate(app);
+        if (_locked)
+        {
+            _lockedFocus = app;
+            return;
+        }
+
         Seat.Keyboard.NotifyEnter(surface);
     }
 

@@ -435,7 +435,7 @@ public sealed class ProcessTests
             var player = Path.Combine(shared.FullName, "pw-play");
             File.WriteAllText(player, $"#!/bin/sh\necho \"$1\" >> '{played}'\n");
             File.SetUnixFileMode(player, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            var (session, _) = await StartAsync(new Dictionary<string, string> { ["PATH"] = $"{shared.FullName}:{Environment.GetEnvironmentVariable("PATH")}" });
+            var (session, _) = await StartAsync(new Dictionary<string, string> { ["PATH"] = $"{shared.FullName}:{Environment.GetEnvironmentVariable("PATH")}", ["BASIN_MUTE"] = "" });
             using (session)
             {
                 await session.SendAsync("panel Sound");
@@ -505,6 +505,60 @@ public sealed class ProcessTests
             await session.SendAsync("alert-choose OK");
             Assert.NotNull(await session.WaitForLineAsync("TRASH emptied"));
             Assert.False(File.Exists(Path.Combine(trash, "files", "old.txt")));
+            await session.QuitCleanlyAsync();
+        }
+    }
+
+    [Fact]
+    public async Task A_layer_shell_panel_maps_and_reserves_its_edge_below_the_menu_bar()
+    {
+        var panel = Prerequisites.WlClient("panel");
+        var (session, display) = await StartAsync();
+        using (session)
+        {
+            using (var client = session.StartClient(panel, display, null, "top", "32"))
+            {
+                Assert.NotNull(await client.WaitForLineAsync("PANEL 1024x32"));
+                Assert.NotNull(await session.WaitForLineAsync("LAYER + panel Top"));
+                Assert.Equal("WORKAREA 0,32,1024x736", await session.StateLineAsync("WORKAREA "));
+            }
+
+            Assert.NotNull(await session.WaitForLineAsync("LAYER - panel"));
+            Assert.Equal("WORKAREA 0,20,1024x748", await session.StateLineAsync("WORKAREA "));
+            await session.QuitCleanlyAsync();
+        }
+    }
+
+    [Fact]
+    public async Task A_session_lock_takes_the_keyboard_until_it_unlocks()
+    {
+        var ssdwin = Prerequisites.WlClient("ssdwin");
+        var script = Path.Combine(Prerequisites.RepoRoot() ?? string.Empty, "scripts", "session-lock.sh");
+        Assert.SkipUnless(File.Exists(script), "scripts/session-lock.sh is missing");
+        var (session, display) = await StartAsync();
+        using (session)
+        using (var window = session.StartClient(ssdwin, display, null, "server"))
+        {
+            await WindowAsync(session, "ssdwin");
+            await session.SendAsync("key 30 1");
+            await session.SendAsync("key 30 0");
+            Assert.NotNull(await window.WaitForLineAsync("KEY 30 1"));
+
+            using (var locker = session.StartClient(script, display, null, "2", "FF227744"))
+            {
+                Assert.NotNull(await session.WaitForLineAsync("LOCKED"));
+                Assert.Equal("LOCK on", await session.StateLineAsync("LOCK "));
+                var locked = window.Mark();
+                await session.SendAsync("key 31 1");
+                await session.SendAsync("key 31 0");
+                Assert.NotNull(await session.WaitForLineAsync("UNLOCKED"));
+                Assert.Equal(0, window.Count(line => line.StartsWith("KEY 31 ", StringComparison.Ordinal), locked));
+            }
+
+            Assert.Equal("LOCK off", await session.StateLineAsync("LOCK "));
+            await session.SendAsync("key 32 1");
+            await session.SendAsync("key 32 0");
+            Assert.NotNull(await window.WaitForLineAsync("KEY 32 1"));
             await session.QuitCleanlyAsync();
         }
     }

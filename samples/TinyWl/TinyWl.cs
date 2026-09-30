@@ -153,15 +153,23 @@ internal sealed class TinyWl : IDisposable
     public int Run(string? startupCommand, IpcChoice ipcChoice)
     {
         BasinReport.Line($"tinywl: running Wayland compositor on WAYLAND_DISPLAY={_socket}");
-        using var ipc = ipcChoice.Serve(_loop, new BasinServices(_loop).Freeze(), _socket, new Basin.Ipc.IpcSessionInfo { Compositor = "tinywl" });
-        using var startup = BasinDiagnostics.StartClient(startupCommand, _socket);
+        using var ipc = ipcChoice.Attach(_loop, new BasinServices(_loop).Freeze(), _socket, new Basin.Ipc.IpcSessionInfo { Compositor = "tinywl", Quit = () => _running = false });
+        new Basin.Ipc.IpcLineReport().AddLine(ipc.Methods, Basin.Ipc.IpcMethodNames.SessionQuit, "quit");
+        ipc.Start();
+        ipc.StartLineFront();
+        using var processes = new ProcessTracker(_loop, () => ProcessTracker.SessionEnvironment(_socket, null, null));
+        if (startupCommand is { Length: > 0 } && processes.SpawnShell(startupCommand, out var error) is null)
+        {
+            BasinReport.Line($"tinywl: cannot start '{startupCommand}': {error}");
+        }
+
         while (_running)
         {
             _backend?.Flush();
             _loop.Dispatch(-1);
         }
 
-        BasinDiagnostics.StopClient(startup);
+        processes.TerminateAll(TimeSpan.FromSeconds(2));
         return 0;
     }
 

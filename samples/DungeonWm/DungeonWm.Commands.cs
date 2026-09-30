@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Numerics;
 using Basin;
 using Basin.Diagnostics;
+using Basin.Host;
 using Basin.Ipc;
 using Basin.Scene;
 using Basin.Scene3D;
@@ -14,9 +15,11 @@ internal sealed partial class DungeonWm
 
     private readonly IpcLineReport _report = new();
     private IpcServer? _ipc;
+    private FrameSettle? _settle;
 
     private IpcServer? StartIpc()
     {
+        _settle = new FrameSettle(_outputs);
         _ipc = _options.Ipc.Attach(_host.Loop, _services, _host.Socket, new IpcSessionInfo
         {
             Compositor = "dungeon-wm",
@@ -24,6 +27,8 @@ internal sealed partial class DungeonWm
             Renderer = RendererName,
             XwaylandDisplay = () => _xServer?.DisplayName,
             Quit = Stop,
+            Settle = _settle,
+            Processes = _processes,
         });
         _ipc.SyntheticInput = _injector;
         foreach (var name in EventNames)
@@ -64,10 +69,8 @@ internal sealed partial class DungeonWm
 
     private void RegisterCommands(IpcMethodRegistry methods)
     {
-        _report.AddLine(methods, IpcMethodNames.InputPointerMove, "move {x:number} {y:number}");
-        _report.AddLine(methods, IpcMethodNames.InputPointerButton, "button {button:int} {pressed:bool}");
-        _report.AddLine(methods, IpcMethodNames.InputKey, "key {code:int} {pressed:bool}");
-        _report.AddLine(methods, IpcMethodNames.SessionQuit, "quit");
+        _report.AddInputLines(methods);
+        _report.AddSessionLines(methods);
 
         _report.Register(methods, "dungeonwm/shot", "shot {path}",
             Describe("Write the composited output under the pointer, world included, to a PNG.", IpcMethodTraits.ReadOnly),

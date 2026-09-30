@@ -1,13 +1,15 @@
-using Avalonia.Controls;
-using Avalonia.Threading;
-using Basin;
-using Basin.Diagnostics;
-using Basin.AppMenu;
-using Basin.Capabilities;
-using Basin.Freedesktop;
-using Basin.Session;
 using System7.Avalonia.Controls;
 using System7.Avalonia.Rendering;
+using Avalonia.Controls;
+using Avalonia.Threading;
+using Basin.Host;
+using Basin.AppMenu;
+using Basin.Capabilities;
+using Basin.Diagnostics;
+using Basin.Freedesktop;
+using Basin.Scene;
+using Basin.Session;
+using Basin;
 
 namespace System7Wm;
 
@@ -29,12 +31,11 @@ internal sealed partial class System7Shell
     ];
 
     private readonly DesktopEntries _desktopEntries = new();
-    private readonly ShellMenuSource _finderMenus = new();
+    private readonly LocalAppMenu _finderMenus = new();
     private readonly HashSet<uint> _consumedKeys = [];
     private MenuBar? _menuBar;
     private IconCache? _iconCache;
-    private IEventSource? _clockTimer;
-    private string? _frozenClock;
+    private ShellClock? _clock;
     private string _finderView = "icon";
 
     internal MenuBar? Bar => _menuBar;
@@ -52,6 +53,13 @@ internal sealed partial class System7Shell
             _outputs.ScheduleAll();
         };
         _menuBar.Resized += _outputs.ScheduleAll;
+        _desktopEntries.Watch(Watch);
+        _desktopEntries.Changed += () =>
+        {
+            _iconCache?.Clear();
+            BuildApple();
+            _outputs.ScheduleAll();
+        };
         BuildApple();
         BuildFinderMenus();
         RefreshMenus();
@@ -62,7 +70,7 @@ internal sealed partial class System7Shell
         if (MainView is { } view && _menuBar is { } bar)
         {
             var box = _layout.BoxOf(view.Output);
-            bar.Place(box.X, box.Y, view.Output.Scale, box, DevicePlacement.OutputDevice(view.Output));
+            bar.Place(box.X, box.Y, view.Output.Scale, box, DevicePlacement.OutputSize(view.Output));
         }
 
         UpdateAllFrames();
@@ -158,7 +166,7 @@ internal sealed partial class System7Shell
         bar.Rebuild();
     }
 
-    private IEnumerable<AppMenuItem> ApplicationItems(ShellMenuSource menu)
+    private IEnumerable<AppMenuItem> ApplicationItems(LocalAppMenu menu)
     {
         var entries = _desktopEntries.Listable();
         var groups = new List<AppMenuItem>();
@@ -180,7 +188,7 @@ internal sealed partial class System7Shell
         return groups;
     }
 
-    private IEnumerable<AppMenuItem> AppleMenuFolder(ShellMenuSource menu, string folder, int depth)
+    private IEnumerable<AppMenuItem> AppleMenuFolder(LocalAppMenu menu, string folder, int depth)
     {
         if (depth > 4 || !Directory.Exists(folder))
         {
@@ -395,73 +403,31 @@ internal sealed partial class System7Shell
 
     private void StartClock()
     {
-        _clockTimer = _host.Loop.AddTimer(OnClockTick);
-        OnClockTick();
+        _clock = new ShellClock(
+            _host.Loop,
+            now => _config.Clock ? now.ToString(_config.ClockFormat, System.Globalization.CultureInfo.CurrentCulture) : null,
+            text => _menuBar?.SetClock(text));
+        _clock.Refresh();
     }
 
     private void StopClock()
     {
-        _clockTimer?.Remove();
-        _clockTimer = null;
+        _clock?.Dispose();
+        _clock = null;
     }
 
-    private void OnClockTick()
-    {
-        if (_menuBar is not { } bar)
-        {
-            return;
-        }
-
-        if (!_config.Clock && _frozenClock is null)
-        {
-            bar.SetClock(null);
-            return;
-        }
-
-        var now = DateTime.Now;
-        bar.SetClock(_frozenClock ?? now.ToString(_config.ClockFormat, System.Globalization.CultureInfo.CurrentCulture));
-        _clockTimer?.UpdateTimer(Math.Max(1, ((60 - now.Second) * 1000) - now.Millisecond));
-    }
-
-    internal Basin.Config.Modifiers HeldModifiers
-    {
-        get
-        {
-            if (Seat.Keyboard.State is not { } state)
-            {
-                return Basin.Config.Modifiers.None;
-            }
-
-            var mask = Basin.Config.Modifiers.None;
-            if (state.IsModActive("Shift"))
-            {
-                mask |= Basin.Config.Modifiers.Shift;
-            }
-
-            if (state.IsModActive("Control"))
-            {
-                mask |= Basin.Config.Modifiers.Ctrl;
-            }
-
-            if (state.IsModActive("Mod1"))
-            {
-                mask |= Basin.Config.Modifiers.Mod1;
-            }
-
-            if (state.IsModActive("Mod4"))
-            {
-                mask |= Basin.Config.Modifiers.Mod4;
-            }
-
-            return mask;
-        }
-    }
+    internal Basin.Config.Modifiers HeldModifiers => Basin.Config.HeldModifiers.From(Seat.Keyboard.State);
 
     private bool OnKey(uint time, uint key, bool pressed)
     {
         if (!pressed)
         {
             return _consumedKeys.Remove(key);
+        }
+
+        if (_locked)
+        {
+            return false;
         }
 
         if (TryTerminalChord(key))
@@ -552,8 +518,16 @@ internal sealed partial class System7Shell
         }
     }
 
+    private static bool Muted => Environment.GetEnvironmentVariable("BASIN_MUTE") is { Length: > 0 } and not "0";
+
     private void PlaySound(string path, string name)
     {
+        if (Muted)
+        {
+            BasinReport.Line($"BEEP {name}");
+            return;
+        }
+
         if ((string[])["pw-play", "paplay", "aplay"] is var players && players.FirstOrDefault(OnPath) is not { } player)
         {
             _log.Warn($"no pw-play, paplay or aplay on PATH; the alert sound cannot play");

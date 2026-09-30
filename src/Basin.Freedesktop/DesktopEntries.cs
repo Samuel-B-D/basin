@@ -11,11 +11,31 @@ public sealed class DesktopEntries
     private readonly Dictionary<string, DesktopEntry?> _byAppId = new(StringComparer.Ordinal);
     private List<DesktopEntry>? _all;
     private Dictionary<string, DesktopEntry>? _byId;
+    private readonly HashSet<string> _watched = new(StringComparer.Ordinal);
+    private DirectoryWatch? _watch;
 
     public DesktopEntries(DesktopLocale? locale = null, IReadOnlyList<string>? dataDirectories = null)
     {
         _locale = locale ?? DesktopLocale.FromEnvironment();
         _dataDirectories = dataDirectories;
+    }
+
+    public event Action? Changed;
+
+    public void Watch(DirectoryWatch? watch)
+    {
+        if (_watch is not null)
+        {
+            _watch.Changed -= OnWatched;
+        }
+
+        _watched.Clear();
+        _watch = watch;
+        if (watch is not null)
+        {
+            watch.Changed += OnWatched;
+            WatchRoots();
+        }
     }
 
     public IReadOnlyList<DesktopEntry> All()
@@ -205,5 +225,55 @@ public sealed class DesktopEntries
         all.Sort(static (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         _byId = byId;
         _all = all;
+        WatchRoots();
+    }
+
+    private void WatchRoots()
+    {
+        if (_watch is not { Available: true } watch)
+        {
+            return;
+        }
+
+        foreach (var directory in _dataDirectories ?? XdgDirectories.DataDirectories())
+        {
+            var root = Path.Combine(directory, "applications");
+            if (!Directory.Exists(root))
+            {
+                continue;
+            }
+
+            Add(watch, root);
+            try
+            {
+                foreach (var child in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
+                {
+                    Add(watch, child);
+                }
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                Log.Debug($"{root}: watch walk stopped early ({error.Message})");
+            }
+        }
+    }
+
+    private void Add(DirectoryWatch watch, string path)
+    {
+        if (!_watched.Contains(path) && watch.Add(path))
+        {
+            _watched.Add(path);
+        }
+    }
+
+    private void OnWatched(string path)
+    {
+        if (!_watched.Contains(path))
+        {
+            return;
+        }
+
+        Invalidate();
+        Changed?.Invoke();
     }
 }

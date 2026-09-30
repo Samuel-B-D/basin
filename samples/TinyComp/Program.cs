@@ -37,11 +37,7 @@ internal static class Program
             Description = "draw one Prowl.Quill chrome mock beside the Skia chrome, on the gl renderer only",
         }, report: false);
 
-        var commandOption = cli.Add(new Option<string?>("--command", "-c")
-        {
-            Description = "run `sh -c <command>` on startup instead of the init executable",
-            HelpName = "CMD",
-        });
+        var commandOption = cli.Add(CommonOptions.Command("run `sh -c <command>` on startup instead of the init executable"));
 
         var framesOption = cli.Add(CommonOptions.Frames(), report: false);
         var transport = cli.Add(CommonOptions.Transport());
@@ -201,9 +197,9 @@ internal static class Program
             }
 
             BasinReport.Line(CompositorLines.Frames(rendered));
-            if (BasinCounters.Enabled && (BasinCounters.LiveObjects != 0 || BasinCounters.PendingFrees != 0))
+            if (CompositorLines.Census() is { } census)
             {
-                log.Error($"{BasinCounters.CensusReport()}");
+                log.Error($"{census}");
             }
 
             cli.ReportFrames(rendered);

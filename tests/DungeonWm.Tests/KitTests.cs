@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Xunit;
+using Basin.Scene3D.Gltf;
 
 namespace DungeonWm.Tests;
 
@@ -68,7 +69,7 @@ public sealed class KitTests
         var before = GC.GetAllocatedBytesForCurrentThread();
         var clock = Stopwatch.StartNew();
         var document = GlbDocument.Parse(Kit.ReadResource(KitManifest.Avatar));
-        var image = Kit.DecodeImage(document, 0);
+        var image = Kit.DecodeImage(document.ReadImage(0));
         clock.Stop();
         var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
         _output.WriteLine($"avatar: {clock.ElapsedMilliseconds} ms, {bytes / 1024} KB");

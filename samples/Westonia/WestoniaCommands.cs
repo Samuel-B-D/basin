@@ -8,9 +8,11 @@ internal sealed partial class Westonia
 {
     private readonly IpcLineReport _report = new();
     private IpcServer? _ipc;
+    private Basin.Host.FrameSettle? _settle;
 
     private void WireIpc()
     {
+        _settle = new Basin.Host.FrameSettle(_outputs, _uiDriver);
         _ipc = _options.Ipc.Attach(_host.Loop, _services, _host.Socket, new IpcSessionInfo
         {
             Compositor = "westonia",
@@ -18,6 +20,8 @@ internal sealed partial class Westonia
             Renderer = _options.Renderer,
             XwaylandDisplay = () => _xServer?.DisplayName,
             Quit = Stop,
+            Settle = _settle,
+            Processes = _processes,
         });
         _ipc.SyntheticInput = _seat?.Injector;
         RegisterCommands(_ipc.Methods);
@@ -27,10 +31,8 @@ internal sealed partial class Westonia
 
     private void RegisterCommands(IpcMethodRegistry methods)
     {
-        _report.AddLine(methods, IpcMethodNames.InputPointerMove, "move {x:number} {y:number}");
-        _report.AddLine(methods, IpcMethodNames.InputPointerButton, "button {button:int} {pressed:bool}");
-        _report.AddLine(methods, IpcMethodNames.InputKey, "key {code:int} {pressed:bool}");
-        _report.AddLine(methods, IpcMethodNames.SessionQuit, "quit");
+        _report.AddInputLines(methods);
+        _report.AddSessionLines(methods);
 
         _report.Register(methods, "westonia/shot", "shot {path}", (ref IpcParams p, IpcReply _) =>
         {
@@ -106,12 +108,7 @@ internal sealed partial class Westonia
     private void WritePresented(string path)
     {
         var buffer = _outputs.Views.FirstOrDefault()?.LastPresentedBuffer;
-        _report.Line(Basin.Scene.SceneScreenshot.WritePresented(buffer, _renderer, path) switch
-        {
-            Basin.Scene.ScreenshotOutcome.NoFrame => "SHOTRAW none",
-            Basin.Scene.ScreenshotOutcome.Unreadable => $"SHOTRAW unreadable {buffer!.Width}x{buffer.Height}",
-            _ => $"SHOTRAW {path} {buffer!.Width}x{buffer.Height}",
-        });
+        _report.Line(CompositorLines.ShotRaw(Basin.Scene.SceneScreenshot.WritePresented(buffer, _renderer, path), buffer, path));
     }
 
     private void PrintState()
@@ -120,7 +117,7 @@ internal sealed partial class Westonia
         foreach (var view in _outputs.Views)
         {
             var box = _layout.BoxOf(view.Output);
-            var work = _avalonia.WorkArea(box.X, box.Y, box.Width, box.Height);
+            var work = WorkAreaOf(view.Output, box);
             _report.Line($"AREA {view.Output.Name} output={box} work={work}");
         }
 

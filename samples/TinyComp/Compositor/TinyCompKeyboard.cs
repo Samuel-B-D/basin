@@ -158,47 +158,7 @@ internal sealed partial class TinyComp
 
     private Basin.Config.Modifiers _switcherModifiers;
 
-    private Basin.Config.Modifiers HeldModifiers()
-    {
-        var state = _seat.Keyboard.State;
-        if (state is null)
-        {
-            return Basin.Config.Modifiers.None;
-        }
-
-        var held = Basin.Config.Modifiers.None;
-        if (state.IsModActive("Shift"))
-        {
-            held |= Basin.Config.Modifiers.Shift;
-        }
-
-        if (state.IsModActive("Control"))
-        {
-            held |= Basin.Config.Modifiers.Ctrl;
-        }
-
-        if (state.IsModActive("Mod1"))
-        {
-            held |= Basin.Config.Modifiers.Mod1;
-        }
-
-        if (state.IsModActive("Mod3"))
-        {
-            held |= Basin.Config.Modifiers.Mod3;
-        }
-
-        if (state.IsModActive("Mod4"))
-        {
-            held |= Basin.Config.Modifiers.Mod4;
-        }
-
-        if (state.IsModActive("Mod5"))
-        {
-            held |= Basin.Config.Modifiers.Mod5;
-        }
-
-        return held;
-    }
+    private Basin.Config.Modifiers HeldModifiers() => Basin.Config.HeldModifiers.From(_seat.Keyboard.State);
 
     private bool ReleasesSwitcher(uint key)
     {
@@ -264,15 +224,13 @@ internal sealed partial class TinyComp
 
     private void Spawn(string[] command)
     {
-        try
+        if (_processes.SpawnShell(string.Join(' ', command), out var error) is null)
         {
-            Basin.Diagnostics.BasinDiagnostics.StartClient(string.Join(' ', command), _socket)?.Dispose();
-            _feedback?.OnSpawn(EffectTick());
+            _log.Error($"spawn failed: {error}");
+            return;
         }
-        catch (Exception e)
-        {
-            _log.Error($"spawn failed: {e.Message}");
-        }
+
+        _feedback?.OnSpawn(EffectTick());
     }
 
     private bool RunAction(KeyAction action, Basin.Config.Modifiers modifiers)

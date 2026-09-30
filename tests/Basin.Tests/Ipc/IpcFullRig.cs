@@ -31,7 +31,7 @@ internal static class IpcFullRig
                 devices.AddTouchpad();
                 services.Use<IInputDeviceConfiguration>(devices);
             },
-            new IpcSessionInfo { Compositor = "full", Quit = () => { } },
+            new IpcSessionInfo { Compositor = "full", Quit = () => { }, Settle = new ManualSettle() },
             path,
             listen);
         _ = rig.Own(selection);

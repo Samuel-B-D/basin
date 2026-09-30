@@ -6,11 +6,7 @@ namespace DeskbarWm;
 
 internal sealed class TabSurface : IDisposable
 {
-    private readonly WlSurface _surface;
-    private readonly WmDecoration _decoration;
-    private readonly ShmSlots _slots;
-    private readonly OutputScales _scales;
-    private readonly HashSet<WlOutput> _entered = [];
+    private readonly DecorationSurface _surface;
 
     private TabMetrics _metrics;
     private int _contentWidth;
@@ -19,7 +15,6 @@ internal sealed class TabSurface : IDisposable
     private int _bufferHeight;
     private int _scale = 1;
     private bool _dirty = true;
-    private bool _disposed;
 
     private string? _lastTitle;
     private bool _lastActive;
@@ -27,52 +22,17 @@ internal sealed class TabSurface : IDisposable
     private LookFlavor _lastFlavor;
     private Rect _lastTabRect;
     private string? _lastStrip;
-    private WmBackgroundEffects? _effects;
-    private Basin.Box _blurred;
 
-    internal TabSurface(WmWindow window, WlCompositor compositor, WlShm shm, OutputScales scales)
-    {
-        _scales = scales;
-        _surface = compositor.CreateSurface();
-        _surface.Enter += (_, e) =>
-        {
-            if (e.Output is not null)
-            {
-                _entered.Add(e.Output);
-            }
-        };
-        _surface.Leave += (_, e) =>
-        {
-            if (e.Output is not null)
-            {
-                _entered.Remove(e.Output);
-            }
-        };
-        _decoration = window.CreateDecorationAbove(_surface);
-        _slots = new ShmSlots(shm);
-    }
+    internal TabSurface(WmWindow window, WlCompositor compositor, WlShm shm, OutputScales scales) =>
+        _surface = new DecorationSurface(window, compositor, shm, scales, above: true);
 
-    public bool Mapped { get; private set; }
+    public bool Mapped => _surface.Mapped;
 
-    public uint SurfaceId => _surface.Id;
+    public uint SurfaceId => _surface.SurfaceId;
 
     public TabMetrics Metrics => _metrics;
 
-    public int ScaleFor(uint fallbackOutputName)
-    {
-        if (_entered.Count == 0)
-        {
-            return _scales.ScaleForName(fallbackOutputName);
-        }
-
-        var scale = 1;
-        foreach (var output in _entered)
-        {
-            scale = Math.Max(scale, _scales.ScaleFor(output));
-        }
-
-        return scale;
-    }
+    public int ScaleFor(uint fallbackOutputName) => _surface.ScaleFor(fallbackOutputName);
 
     public void EnsureBuffer(int contentWidth, int contentHeight, int scale, TabMetrics metrics)
     {
@@ -104,35 +64,19 @@ internal sealed class TabSurface : IDisposable
         _surface.SetBufferScale(scale);
     }
 
-    public void UpdateInputRegion(WlCompositor compositor, int stripCount = 0)
+    public void UpdateInputRegion(int stripCount = 0)
     {
         if (_metrics.FrameWidth <= 0 || _metrics.FrameHeight <= 0)
         {
             return;
         }
 
-        var region = compositor.CreateRegion();
-        if (stripCount > 1)
-        {
-            region.Add(0, 0, _metrics.FrameWidth, _metrics.TabHeight);
-        }
-        else
-        {
-            region.Add(_metrics.TabRect.X, 0, _metrics.TabRect.Width, _metrics.TabRect.Height);
-        }
-
-        region.Add(0, _metrics.TabHeight, _metrics.FrameWidth, _metrics.FrameHeight - _metrics.TabHeight);
-        if (_contentWidth > 0 && _contentHeight > 0)
-        {
-            region.Subtract(
-                _metrics.BorderWidth,
-                _metrics.TabHeight + _metrics.BorderWidth,
-                _contentWidth,
-                _contentHeight);
-        }
-
-        _surface.SetInputRegion(region);
-        region.Destroy();
+        var tab = stripCount > 1
+            ? new Rect(0, 0, _metrics.FrameWidth, _metrics.TabHeight)
+            : new Rect(_metrics.TabRect.X, 0, _metrics.TabRect.Width, _metrics.TabRect.Height);
+        var frame = new Rect(0, _metrics.TabHeight, _metrics.FrameWidth, _metrics.FrameHeight - _metrics.TabHeight);
+        var content = new Rect(_metrics.BorderWidth, _metrics.TabHeight + _metrics.BorderWidth, _contentWidth, _contentHeight);
+        _surface.SetInputRegion([tab, frame], _contentWidth > 0 && _contentHeight > 0 ? [content] : []);
     }
 
     public bool Render(
@@ -166,17 +110,13 @@ internal sealed class TabSurface : IDisposable
             return false;
         }
 
-        var stride = _bufferWidth * 4;
-        var pixels = _slots.Prepare(_bufferWidth, _bufferHeight, stride);
+        var pixels = _surface.Prepare(_bufferWidth, _bufferHeight);
         if (pixels == 0)
         {
             return false;
         }
 
-        _slots.CurrentBytes().Clear();
-
-        var info = new SKImageInfo(_bufferWidth, _bufferHeight, SKColorType.Bgra8888, SKAlphaType.Premul);
-        using var surface = SKSurface.Create(info, pixels, stride);
+        using var surface = Basin.WindowManager.Skia.DecorationCanvas.Create(_surface, pixels);
         if (surface is null)
         {
             return false;
@@ -191,70 +131,36 @@ internal sealed class TabSurface : IDisposable
 
     public void Blur(WmBackgroundEffects effects, bool on, int stripCount)
     {
-        _effects = effects;
         var box = !on || _metrics.FrameWidth <= 0
             ? default
             : stripCount > 1
                 ? new Basin.Box(0, 0, _metrics.FrameWidth, _metrics.TabHeight)
                 : new Basin.Box(_metrics.TabRect.X, 0, _metrics.TabRect.Width, _metrics.TabRect.Height);
-        if (box == _blurred)
+        if (_surface.SetBlur(effects, box))
         {
-            return;
+            _dirty = true;
         }
-
-        _blurred = box;
-        effects.SetBlurRegion(_surface, box.IsEmpty ? [] : [box]);
-        _dirty = true;
     }
 
     public void SetOffset() =>
-        _decoration.SetOffset(-_metrics.BorderWidth, -_metrics.BorderWidth - _metrics.TabHeight);
+        _surface.SetOffset(-_metrics.BorderWidth, -_metrics.BorderWidth - _metrics.TabHeight);
 
     public void Invalidate() => _dirty = true;
 
-    public void SyncNextCommit() => _decoration.SyncNextCommit();
+    public void SyncNextCommit() => _surface.SyncNextCommit();
 
-    public void Commit()
-    {
-        if (_slots.CurrentBuffer is not { } buffer)
-        {
-            return;
-        }
-
-        _surface.Attach(buffer, 0, 0);
-        _surface.DamageBuffer(0, 0, _bufferWidth, _bufferHeight);
-        _surface.Commit();
-        _slots.MarkAttached();
-        Mapped = true;
-    }
+    public void Commit() => _surface.Commit();
 
     public void Unmap()
     {
-        _surface.Attach(null, 0, 0);
-        _surface.Commit();
-        Mapped = false;
+        _surface.Unmap();
         _dirty = true;
         _lastTitle = null;
         _lastActive = false;
         _lastPressed = null;
     }
 
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _effects?.Forget(_surface);
-        _slots.Dispose();
-        _decoration.Dispose();
-        if (!_surface.IsDestroyed)
-        {
-            _surface.Destroy();
-        }
-    }
+    public void Dispose() => _surface.Dispose();
 
     private void Draw(
         SKCanvas canvas,

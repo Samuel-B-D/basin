@@ -44,6 +44,10 @@ public sealed partial class BasinIpcClient
     public Task QuitAsync(CancellationToken cancellationToken = default) =>
         CallAsync(IpcMethodNames.SessionQuit, Json.IpcEmpty, cancellationToken);
 
+    public async Task<long> SettleAsync(long? timeoutMs = null, CancellationToken cancellationToken = default) =>
+        (await CallAsync(IpcMethodNames.SessionSettle, new IpcSettleParams(timeoutMs), Json.IpcSettleParams, Json.IpcSettleResult, cancellationToken)
+            .ConfigureAwait(false)).Presented;
+
     public async Task<IReadOnlyList<IpcOutput>> ListOutputsAsync(CancellationToken cancellationToken = default) =>
         (await CallAsync(IpcMethodNames.OutputsList, Json.IpcOutputList, cancellationToken).ConfigureAwait(false)).Outputs.Items();
 

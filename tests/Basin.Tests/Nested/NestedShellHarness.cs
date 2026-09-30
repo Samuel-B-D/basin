@@ -34,7 +34,15 @@ internal sealed class NestedShellHarness : IDisposable
         CompositorTestHost.SkipWithoutWaylandClient();
         BasinCounters.Reset();
         settings ??= new ShellSettings();
-        Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "basin-tests", ConfigureServices = configure });
+        Host = new BasinCompositorHost(new BasinCompositorOptions
+        {
+            AppName = "basin-tests",
+            ConfigureServices = (host, services) =>
+            {
+                HostedDrivers.Without(host, services);
+                configure?.Invoke(host, services);
+            },
+        });
         View = Host.CreateViewOutput(width, height, scale, NestedShell.OutputKey);
         Shell = new NestedShell(
             Host,

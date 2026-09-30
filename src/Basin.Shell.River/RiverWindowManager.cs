@@ -499,54 +499,13 @@ public sealed class RiverWindowManager : IDisposable
             return true;
         }
 
-        return river.HandleButton(button, pressed, ModifiersOf(seat));
+        return river.HandleButton(button, pressed, RiverModifiers.From(seat.Keyboard));
     }
 
     public bool HasPointerOperation(Basin.Seat.Seat seat)
     {
         ArgumentNullException.ThrowIfNull(seat);
         return SeatFor(seat) is { OperationActive: true };
-    }
-
-    private static RiverSeatV1.Modifiers ModifiersOf(Basin.Seat.Seat seat)
-    {
-        if (seat.Keyboard.State is not { } state)
-        {
-            return RiverSeatV1.Modifiers.None;
-        }
-
-        var result = RiverSeatV1.Modifiers.None;
-        if (state.IsModActive("Shift"))
-        {
-            result |= RiverSeatV1.Modifiers.Shift;
-        }
-
-        if (state.IsModActive("Control"))
-        {
-            result |= RiverSeatV1.Modifiers.Ctrl;
-        }
-
-        if (state.IsModActive("Mod1"))
-        {
-            result |= RiverSeatV1.Modifiers.Mod1;
-        }
-
-        if (state.IsModActive("Mod3"))
-        {
-            result |= RiverSeatV1.Modifiers.Mod3;
-        }
-
-        if (state.IsModActive("Mod4"))
-        {
-            result |= RiverSeatV1.Modifiers.Mod4;
-        }
-
-        if (state.IsModActive("Mod5"))
-        {
-            result |= RiverSeatV1.Modifiers.Mod5;
-        }
-
-        return result;
     }
 
     internal RiverSeat? ResolveSeat(RiverSeatV1Resource? resource) =>

@@ -16,7 +16,7 @@ public sealed class ApplicationDepthTests
         var display = await session.DisplayAsync();
         using var client = session.StartClient(ssdwin, display, null, "server");
         Assert.NotNull(await session.WaitForPrefixAsync("WINDOW + "));
-        await Task.Delay(600, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
         var path = Path.Combine(session.Home, "shot.png");
         var mark = session.Mark();
         await session.SendAsync($"shotraw {path}");

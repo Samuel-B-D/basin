@@ -53,6 +53,7 @@ internal sealed partial class System7Shell
 
     private void OnX11Adopted(XWaylandWindow x11, SceneSurface scene, bool managed)
     {
+        RefreshSurfaceLuts();
         if (!managed || x11.Surface is not { } surface || !_x11Containers.TryGetValue(x11, out var container))
         {
             _outputs.ScheduleAll();

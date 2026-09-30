@@ -154,6 +154,7 @@ public sealed class ServiceRegistryTests
             .Use<IBell>(SilentBell.Instance)
             .Use<IColorTransformResolver>(luts)
             .Install(DesktopPack.Desktop)
+            .Without("ext_session_lock_manager_v1")
             .Freeze();
 
         Assert.NotNull(services.Require<Basin.Desktop.ScreencopyManager>());

@@ -1,6 +1,7 @@
 using Basin;
 using System.Runtime.InteropServices;
 using Basin.Cli;
+using Basin.WindowManager;
 using BlurClient.Protocol;
 using Wayland;
 
@@ -152,7 +153,7 @@ internal static class Program
             BasinReport.Line($"CAPABILITIES {capabilities} (1 = blur promised)");
         }
 
-        ShmBuffer? shown = null;
+        using var slots = new ShmSlots(shm);
         try
         {
             while (!closed)
@@ -160,15 +161,19 @@ internal static class Program
                 if (needRedraw)
                 {
                     needRedraw = false;
-                    var buffer = new ShmBuffer(shm, width, height);
-                    Paint(buffer);
-                    surface.Attach(buffer.Proxy, 0, 0);
+                    var data = slots.Prepare(width, height, width * 4);
+                    if (data == 0 || slots.CurrentBuffer is not { } buffer)
+                    {
+                        throw new InvalidOperationException("the shm pool could not be made");
+                    }
+
+                    Paint(data, width, height, width * 4);
+                    surface.Attach(buffer, 0, 0);
+                    slots.MarkAttached();
                     surface.Damage(0, 0, width, height);
                     surface.Commit();
                     display.Flush();
 
-                    buffer.Proxy.Release += (_, _) => buffer.Dispose();
-                    shown = buffer;
                     if (!drawn)
                     {
                         drawn = true;
@@ -184,7 +189,6 @@ internal static class Program
             log.Info($"the compositor closed the connection");
         }
 
-        shown?.Dispose();
         return 0;
     }
 
@@ -212,14 +216,14 @@ internal static class Program
         return edges;
     }
 
-    private static unsafe void Paint(ShmBuffer buffer)
+    private static unsafe void Paint(nint data, int width, int height, int stride)
     {
-        for (var y = 0; y < buffer.Height; y++)
+        for (var y = 0; y < height; y++)
         {
-            var row = (uint*)(buffer.Data + y * buffer.Stride);
-            for (var x = 0; x < buffer.Width; x++)
+            var row = (uint*)(data + y * stride);
+            for (var x = 0; x < width; x++)
             {
-                var onFrame = x < Frame || y < Frame || x >= buffer.Width - Frame || y >= buffer.Height - Frame;
+                var onFrame = x < Frame || y < Frame || x >= width - Frame || y >= height - Frame;
                 row[x] = onFrame ? 0xFF10131A : BodyColor;
             }
         }

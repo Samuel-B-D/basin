@@ -57,11 +57,7 @@ internal static class Program
         var framesOption = cli.Add(CommonOptions.Frames());
         var screenshotOption = cli.Add(CommonOptions.Screenshot());
         _ = IpcCli.AddOption(cli);
-        var commandOption = cli.Add(new Option<string?>("--command", "-c")
-        {
-            Description = "run `sh -c <command>` on startup instead of the init executable.",
-            HelpName = "CMD",
-        });
+        var commandOption = cli.Add(CommonOptions.Command("run `sh -c <command>` on startup instead of the init executable."));
 
         return cli.Run(args, result =>
         {
@@ -123,9 +119,9 @@ internal static class Program
         if (totalRendered >= 0)
         {
             BasinReport.Line(Basin.Cli.CompositorLines.Frames(totalRendered));
-            if (BasinCounters.Enabled && (BasinCounters.LiveObjects != 0 || BasinCounters.PendingFrees != 0))
+            if (CompositorLines.Census() is { } census)
             {
-                log.Error($"{BasinCounters.CensusReport()}");
+                log.Error($"{census}");
             }
         }
 
@@ -203,22 +199,15 @@ internal static class Program
         driver.ModesetRefused += card => log.Error($"modeset refused by {card.Name}");
         driver.ScaleRefused += (view, scale) =>
             log.Error($"scale {scale} refused by {view.Output.Name}");
-        driver.ScanoutChanged += (view, choice) => BasinReport.Line(choice switch
-        {
-            ScanoutChoice.DeviceBuffers =>
-                $"SCANOUT {view.Output.Name} device modifiers={view.SwapModifiers.Length}",
-            ScanoutChoice.DumbLinear =>
-                $"SCANOUT {view.Output.Name} dumb linear; every frame reads the framebuffer back",
-            _ =>
-                $"SCANOUT {view.Output.Name} device buffers refused by the plane; falling back to dumb linear",
-        });
+        driver.ScanoutChanged += (view, choice) =>
+            BasinReport.Line(CompositorLines.Scanout(view.Output.Name, choice, view.SwapModifiers.Length));
 
         if (drmBackend is not null)
         {
             libinput = new Basin.Backend.Libinput.LibinputBackend(loop, host.Session!);
         }
 
-        var colorPack = new Basin.Color.ColorCapabilityPack(layout, renderer);
+        var colorPack = new Basin.Desktop.ColorCapabilityPack(layout, renderer);
         var servicePack = new Basin.Desktop.DesktopServicePack(scene, layout, renderer, drmBackend);
         var capturePack = servicePack.Capture;
         driver.Capture = capturePack;
@@ -263,6 +252,8 @@ internal static class Program
 
         using var inputConfigurator = new Basin.Seat.Backends.InputConfigurator();
         services.UseDefault<Basin.Capabilities.IInputDeviceConfiguration>(inputConfigurator);
+        var lockDriver = new Basin.Desktop.SessionLockSceneDriver(services, sceneLayers.Lock, layout, sceneLayers.SetLocked);
+        var layerDriver = new Basin.Desktop.LayerShellSceneDriver(services, layout, sceneLayers);
         services.Freeze();
 
         if (blur is not null)
@@ -279,7 +270,6 @@ internal static class Program
         var frameClock = services.Require<Basin.Capabilities.IFrameClock>();
 
         services.Find<Basin.Desktop.LinuxDrmSyncobjManager>()?.DeclareRenderer(renderer);
-        var layerShell = services.Require<LayerShell>();
         var sessionLock = services.Require<Basin.Desktop.SessionLockManager>();
         var textInput = services.Find<Basin.Desktop.TextInputManager>();
         var inputMethod = services.Find<Basin.Desktop.InputMethodRelay>();
@@ -321,14 +311,15 @@ internal static class Program
             };
         }
 
-        var color = services.Require<Basin.Desktop.ColorManager>();
-        var outputColor = new Basin.Desktop.OutputColorDriver(color, colorPack.Configuration);
-        var luts = colorPack.Luts;
-        var lutDriver = new Basin.Desktop.SurfaceLutDriver(scene, color, luts);
-        lutDriver.CountChanged += attached => BasinReport.Line($"COLOR luts={attached}");
-        lutDriver.WatchToplevels(shell);
+        if (!colorPack.Attach(services, scene))
+        {
+            throw new InvalidOperationException("no color manager is registered");
+        }
 
-        void RefreshSurfaceLuts() => lutDriver.Refresh();
+        var color = colorPack.Manager;
+        colorPack.Surfaces.CountChanged += attached => BasinReport.Line(CompositorLines.Luts(attached));
+
+        void RefreshSurfaceLuts() => colorPack.RefreshSurfaces();
 
         var pointer = new LayoutPointer(layout);
 
@@ -400,11 +391,7 @@ internal static class Program
 
         compositor.SurfaceCreated += surface => fractionalScale.AnnounceScale(surface, MaxScale());
 
-        var lockDriver = new Basin.Desktop.SessionLockSceneDriver(
-            sessionLock, seat, sceneLayers.Lock, layout, sceneLayers.SetLocked)
-        {
-            TextInput = textInput,
-        };
+        lockDriver.TextInput = textInput;
         lockDriver.Locked += () => BasinReport.Line($"LOCKED");
         lockDriver.Unlocked += () => BasinReport.Line($"UNLOCKED");
         lockDriver.Abandoned += () => BasinReport.Line($"LOCK ABANDONED (staying blanked)");
@@ -414,13 +401,10 @@ internal static class Program
             fractionalScale.AnnounceScale(lockSurface.Surface, lockSurface.Output.Output.Scale);
         };
 
-        var layerDriver = new Basin.Desktop.LayerShellSceneDriver(layerShell, layout, sceneLayers)
-        {
-            Accept = _ => management.LayerShell.IsSupported && views.Count > 0,
-            DefaultOutput = _ => ((management.LayerShell.DefaultOutput is { } defaultOutput
-                ? driver.ViewOf(defaultOutput)
-                : null) ?? views[0]).Global,
-        };
+        layerDriver.Accept = _ => management.LayerShell.IsSupported && views.Count > 0;
+        layerDriver.DefaultOutput = _ => ((management.LayerShell.DefaultOutput is { } defaultOutput
+            ? driver.ViewOf(defaultOutput)
+            : null) ?? views[0]).Global;
         layerDriver.UsableAreaChanged += (output, usable) =>
         {
             var box = layout.BoxOf(output);
@@ -613,7 +597,11 @@ internal static class Program
 
         using var pointerRefresh = new PointerRefresh(scene, loop, () => PointerMoved((uint)Environment.TickCount));
 
-        var touchBinder = new Basin.Seat.Backends.SeatBinder(seat, layout, pointer, cursor);
+        var touchBinder = new Basin.Seat.Backends.SeatBinder(seat, layout, pointer, cursor)
+        {
+            RelativePointer = services.Find<Basin.Desktop.RelativePointerManager>(),
+            Constraints = services.Find<Basin.Desktop.PointerConstraintDriver>(),
+        };
         touchBinder.Key += (timeMs, key, pressed) => DeliverKey(timeMs, key, pressed);
         touchBinder.Motion += (timeMs, _, _, _, _) => PointerMoved(timeMs);
         touchBinder.Button += DeliverPointerButton;
@@ -660,7 +648,7 @@ internal static class Program
         {
             cursor.AddOutput(view.Output, view.Scene!);
             presenceTracker.AddOutput(view.Output, view.Global);
-            outputColor.Add(view.Global, view.Output, view.Scene);
+            colorPack.AddOutput(view.Global, view.Output, view.Scene);
             management.AddOutput(view.Global);
             if (view.Output is Basin.Backend.Drm.DrmOutput added)
             {
@@ -688,7 +676,7 @@ internal static class Program
 
             cursor.RemoveOutput(view.Output);
             presenceTracker.RemoveOutput(view.Output);
-            outputColor.Remove(view.Global);
+            colorPack.RemoveOutput(view.Global);
         };
         driver.LayoutChanged += () =>
         {
@@ -769,11 +757,7 @@ internal static class Program
         NestedSeam? seam = null;
         if (parent is not null)
         {
-            parent.KeyboardAdded += parentKeyboard =>
-            {
-                BasinReport.Line($"INPUT Keyboard host");
-                parentKeyboard.RepeatInfo += (rate, delay) => inputConfigurator.AdoptRepeatInfo(rate, delay);
-            };
+            parent.KeyboardAdded += _ => BasinReport.Line($"INPUT Keyboard host");
             parent.PointerAdded += _ => BasinReport.Line($"INPUT Pointer host");
             touchBinder.BindParent(parent);
             seam = new NestedSeam(
@@ -811,6 +795,13 @@ internal static class Program
         var injector = new Basin.Seat.Backends.SeatInjector(touchBinder, seat, layout, pointer)
         {
             Moved = PointerMoved,
+            DeliverButton = DeliverPointerButton,
+            DeliverKey = (timeMs, key, pressed) => DeliverKey(timeMs, key, pressed),
+            DeliverAxis = (timeMs, axis, value, source) =>
+            {
+                seat.Pointer.NotifyAxis(timeMs, new PointerAxis((Wayland.WlPointer.Axis)axis, value, Source: (Wayland.WlPointer.AxisSource)source));
+                seat.Pointer.NotifyFrame();
+            },
         };
         injectedInput.OnPointerMotionAbsolute = injector.MotionAbsolute;
         injectedInput.OnPointerButton = (timeMs, button, pressed) =>
@@ -835,19 +826,22 @@ internal static class Program
         management.WindowManagerUnresponsive += () => BasinReport.Line($"WM UNRESPONSIVE");
 
         BasinReport.Line(Basin.Cli.CompositorLines.Socket(socket));
-        using var ipc = ipcChoice.AttachIfListening(loop, services, socket, new IpcSessionInfo
+        using var settle = new Basin.Host.FrameSettle(driver);
+        using var ipc = ipcChoice.Attach(loop, services, socket, new IpcSessionInfo
         {
             Compositor = "inlet",
             Backend = drm ? "drm" : nested ? "nested" : "headless",
             Renderer = rendererName,
             XwaylandDisplay = () => xServer?.DisplayName,
             Quit = runLoop.Stop,
+            Settle = settle,
         });
-        if (ipc is not null)
-        {
-            ipc.SyntheticInput = injector;
-            ipc.Start();
-        }
+        ipc.SyntheticInput = injector;
+        var lineReport = new IpcLineReport();
+        lineReport.AddInputLines(ipc.Methods);
+        lineReport.AddSessionLines(ipc.Methods);
+        ipc.Start();
+        ipc.StartLineFront();
 
         var startup = init is null ? null : InitProcess.Start(init, socket, xServer?.DisplayName, log);
 
@@ -884,7 +878,7 @@ internal static class Program
         totalRendered = driver.PrimaryRendered;
 
         startup?.Stop(log);
-        luts.Dispose();
+        colorPack.Luts.Dispose();
         driver.Dispose();
         scene.Root.Destroy();
 

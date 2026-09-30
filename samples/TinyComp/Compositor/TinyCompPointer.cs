@@ -159,6 +159,11 @@ internal sealed partial class TinyComp
             return;
         }
 
+        if (_constraints.Constrain(_cursorX, _cursorY, ref x, ref y))
+        {
+            (_lastRawX, _lastRawY) = (x, y);
+        }
+
         _cursorX = x;
         _cursorY = y;
         _cursor.MoveTo(x, y);
@@ -269,29 +274,14 @@ internal sealed partial class TinyComp
         }
 
         _seat.Pointer.NotifyMotionAt(time, hit?.Surface, hit?.X ?? 0, hit?.Y ?? 0, x, y);
-        UpdateConstraint(hit?.Surface);
+        _constraints.Refresh();
     }
 
-    private Basin.Desktop.PointerConstraint? _activeConstraint;
-    private WaylandOutput? _parentLockOutput;
+    private Basin.Seat.Backends.ParentPointerLock? _parentPointerLock;
     private Basin.Desktop.PointerConstraint? _parentLockConstraint;
 
     private Basin.Desktop.PointerConstraint? ActiveLock() =>
-        _activeConstraint is { IsActive: true, Kind: Basin.Desktop.ConstraintKind.Lock } ? _activeConstraint : null;
-
-    private void UpdateConstraint(Surface? focused)
-    {
-        var next = focused is null || IsOnDeformedWindow(focused) ? null : _constraints.ConstraintFor(focused);
-        if (_activeConstraint == next)
-        {
-            return;
-        }
-
-        _activeConstraint?.Deactivate();
-        _activeConstraint = next;
-        next?.Activate();
-        SyncParentPointerLock();
-    }
+        _constraints is { IsLocked: true } constraints ? constraints.Active : null;
 
     private void SyncParentPointerLock()
     {
@@ -300,34 +290,24 @@ internal sealed partial class TinyComp
             return;
         }
 
-        var wanted = ActiveLock() is null
-            ? null
-            : _layout.OutputAt(_cursorX, _cursorY) as WaylandOutput;
-        if (ReferenceEquals(wanted, _parentLockOutput))
+        _parentPointerLock ??= new Basin.Seat.Backends.ParentPointerLock(_layout);
+        if (ActiveLock() is { } locked && _layout.OutputAt(_cursorX, _cursorY) is WaylandOutput wanted)
+        {
+            _parentLockConstraint = _parentPointerLock.Request(_constraints, wanted) ? locked : null;
+            return;
+        }
+
+        if (!_parentPointerLock.IsRequested(_constraints))
         {
             return;
         }
 
-        if (_parentLockOutput is { } previous)
+        var (releaseX, releaseY) = ParentLockRelease();
+        _parentPointerLock.Release(_constraints, releaseX, releaseY);
+        _parentLockConstraint = null;
+        if (releaseX != _cursorX || releaseY != _cursorY)
         {
-            var (releaseX, releaseY) = ParentLockRelease();
-            var box = _layout.BoxOf(previous);
-            previous.SetCursorPositionHint(
-                (releaseX - box.X) * previous.Scale,
-                (releaseY - box.Y) * previous.Scale);
-            previous.LockPointer(false);
-            if (releaseX != _cursorX || releaseY != _cursorY)
-            {
-                MoveCursor(releaseX, releaseY, (uint)Environment.TickCount);
-            }
-        }
-
-        _parentLockOutput = wanted;
-        _parentLockConstraint = wanted is null ? null : ActiveLock();
-        if (wanted is not null && !wanted.LockPointer(true))
-        {
-            _parentLockOutput = null;
-            _parentLockConstraint = null;
+            MoveCursor(releaseX, releaseY, (uint)Environment.TickCount);
         }
     }
 

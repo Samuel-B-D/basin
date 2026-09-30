@@ -11,6 +11,7 @@ internal sealed class DungeonWmWindow
     public DungeonWmWindow(XdgToplevelWindow toplevel, SceneSurface scene)
     {
         Toplevel = toplevel;
+        Handle = toplevel;
         Scene = scene;
         World = new WorldWindow { Tag = this };
     }
@@ -18,6 +19,7 @@ internal sealed class DungeonWmWindow
     public DungeonWmWindow(XWaylandWindow x, SceneSurface scene)
     {
         X = x;
+        Handle = x;
         Scene = scene;
         World = new WorldWindow { Tag = this };
     }
@@ -25,6 +27,8 @@ internal sealed class DungeonWmWindow
     public XdgToplevelWindow? Toplevel { get; }
 
     public XWaylandWindow? X { get; }
+
+    public Basin.Capabilities.IToplevelHandle Handle { get; }
 
     public SceneSurface Scene { get; }
 
@@ -56,9 +60,9 @@ internal sealed class DungeonWmWindow
 
     public ulong ToplevelId { get; set; }
 
-    public string AppId => Toplevel?.AppId ?? X?.Class ?? string.Empty;
+    public string AppId => Handle.AppId ?? string.Empty;
 
-    public string Title => Toplevel?.Title ?? X?.Title ?? string.Empty;
+    public string Title => Handle.Title ?? string.Empty;
 
     public int MinWidth => Toplevel?.MinWidth ?? X?.MinWidth ?? 0;
 
@@ -72,17 +76,7 @@ internal sealed class DungeonWmWindow
         ? toplevel.Xdg.EffectiveGeometry
         : new Box(0, 0, X?.Width ?? 1, X?.Height ?? 1);
 
-    public void SetActivated(bool activated)
-    {
-        if (Toplevel is { } toplevel)
-        {
-            toplevel.SetActivated(activated);
-        }
-        else if (activated)
-        {
-            X?.Activate();
-        }
-    }
+    public void SetActivated(bool activated) => Handle.SetActivated(activated);
 
     public void SetResizing(bool resizing) => Toplevel?.SetResizing(resizing);
 
@@ -114,31 +108,21 @@ internal sealed class DungeonWmWindow
         }
         else if (X is { } x)
         {
-            x.SetMaximized(fullscreen);
+            x.SetFullscreen(fullscreen);
             if (fullscreen)
             {
-                _restore = (x.X, x.Y, x.Width, x.Height);
+                _restore = _restore.Saving(new Box(x.X, x.Y, x.Width, x.Height));
                 x.Configure(area.X, area.Y, area.Width, area.Height);
             }
-            else if (_restore is { } restore)
+            else if (_restore.TryGet(out var restore))
             {
                 x.Configure(restore.X, restore.Y, restore.Width, restore.Height);
-                _restore = null;
+                _restore = RestoreGeometry.None;
             }
         }
     }
 
-    public void Close()
-    {
-        if (Toplevel is { } toplevel)
-        {
-            toplevel.Close();
-        }
-        else
-        {
-            X?.Close();
-        }
-    }
+    public void Close() => Handle.Close();
 
-    private (int X, int Y, int Width, int Height)? _restore;
+    private RestoreGeometry _restore;
 }

@@ -82,29 +82,32 @@ internal sealed class System7Config
 
     public static string Template()
     {
-        using var stream = typeof(System7Config).Assembly.GetManifestResourceStream("system7-wm.toml")
-            ?? throw new InvalidOperationException("system7-wm.toml is not embedded");
-        using var reader = new StreamReader(stream);
+        using var reader = new StreamReader(TemplateStream());
         return reader.ReadToEnd();
     }
 
+    private static Stream TemplateStream() =>
+        typeof(System7Config).Assembly.GetManifestResourceStream("system7-wm.toml")
+            ?? throw new InvalidOperationException("system7-wm.toml is not embedded");
+
     public static System7Config Load(string? path, bool none, BasinLogger log)
     {
+        var config = Load(path, none, log, out var fatal);
+        if (fatal is not null)
+        {
+            log.Warn($"{fatal}, keeping defaults");
+        }
+
+        return config;
+    }
+
+    public static System7Config Load(string? path, bool none, BasinLogger log, out string? fatal)
+    {
         var config = new System7Config();
-        if (none)
-        {
-            return config;
-        }
-
-        var named = path is { Length: > 0 };
-        var file = named ? path! : DefaultPath();
-        if (!named && !File.Exists(file))
-        {
-            Seed(file, log);
-        }
-
-        config.Path = file;
-        if (TomlConfig.Read(file, log) is not { } table)
+        var load = TomlConfig.Load(path, "system7-wm", none, TemplateStream, log);
+        fatal = load.Fatal;
+        config.Path = load.File ?? config.Path;
+        if (load.Table is not { } table)
         {
             return config;
         }
@@ -248,29 +251,6 @@ internal sealed class System7Config
         if (next.XWayland != XWayland)
         {
             yield return "windows.xwayland";
-        }
-    }
-
-    private static void Seed(string file, BasinLogger log)
-    {
-        try
-        {
-            if (System.IO.Path.GetDirectoryName(file) is { Length: > 0 } directory)
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            using (var stream = new FileStream(file, FileMode.CreateNew, FileAccess.Write))
-            {
-                using var writer = new StreamWriter(stream);
-                writer.Write(Template());
-            }
-
-            log.Info($"wrote the default configuration to {file}");
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            log.Warn($"cannot write {file}, keeping the built-in defaults: {error.Message}");
         }
     }
 

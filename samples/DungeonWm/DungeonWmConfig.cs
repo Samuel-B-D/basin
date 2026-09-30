@@ -39,40 +39,17 @@ internal static class DungeonWmConfig
 
     public static string DefaultPath() => TomlConfig.DefaultPath("dungeon-wm");
 
-    public static DungeonWmSettings Load(string? path, bool none, BasinLogger log, out string? used)
+    public static DungeonWmSettings Load(string? path, bool none, BasinLogger log, out string? used, out string? fatal)
     {
-        used = null;
         var settings = new DungeonWmSettings();
-        if (none)
+        var load = TomlConfig.Load(path, "dungeon-wm", none, TemplateStream, log);
+        fatal = load.Fatal;
+        used = load.Table is null ? null : load.File;
+        if (load.Table is { } table)
         {
-            return settings;
+            Apply(settings, new TomlReader(table, log));
         }
 
-        var named = path is { Length: > 0 };
-        var file = named ? path! : DefaultPath();
-        if (!named && !File.Exists(file))
-        {
-            Seed(file, log);
-        }
-
-        var table = TomlConfig.Read(file, out var failure);
-        if (table is null)
-        {
-            if (named)
-            {
-                throw new InvalidOperationException($"{file}: {failure}");
-            }
-
-            if (File.Exists(file))
-            {
-                log.Warn($"{file} did not parse, keeping defaults: {failure}");
-            }
-
-            return settings;
-        }
-
-        used = file;
-        Apply(settings, new TomlReader(table, log));
         return settings;
     }
 
@@ -85,11 +62,13 @@ internal static class DungeonWmConfig
 
     public static string Template()
     {
-        using var stream = typeof(DungeonWmConfig).Assembly.GetManifestResourceStream("dungeon-wm.toml")
-            ?? throw new InvalidOperationException("dungeon-wm.toml is not embedded");
-        using var reader = new StreamReader(stream);
+        using var reader = new StreamReader(TemplateStream());
         return reader.ReadToEnd();
     }
+
+    private static Stream TemplateStream() =>
+        typeof(DungeonWmConfig).Assembly.GetManifestResourceStream("dungeon-wm.toml")
+            ?? throw new InvalidOperationException("dungeon-wm.toml is not embedded");
 
     public static void Apply(DungeonWmSettings settings, TomlReader reader)
     {
@@ -239,9 +218,9 @@ internal static class DungeonWmConfig
             settings.Bindings.Clear();
             foreach (var (chord, action) in bindings)
             {
-                if (action is string name && DungeonWmBindings.IsAction(name))
+                if (action is not null && DungeonWmBindings.Accepts(action))
                 {
-                    settings.Bindings[chord] = name;
+                    settings.Bindings[chord] = action;
                 }
                 else
                 {
@@ -271,28 +250,5 @@ internal static class DungeonWmConfig
         }
 
         return new Vector4(((rgba >> 24) & 0xFF) / 255f, ((rgba >> 16) & 0xFF) / 255f, ((rgba >> 8) & 0xFF) / 255f, (rgba & 0xFF) / 255f);
-    }
-
-    private static void Seed(string file, BasinLogger log)
-    {
-        try
-        {
-            if (Path.GetDirectoryName(file) is { Length: > 0 } directory)
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            using (var stream = new FileStream(file, FileMode.CreateNew, FileAccess.Write))
-            {
-                using var writer = new StreamWriter(stream);
-                writer.Write(Template());
-            }
-
-            log.Info($"wrote the default configuration to {file}");
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            log.Warn($"cannot write {file}, keeping the built-in defaults: {error.Message}");
-        }
     }
 }

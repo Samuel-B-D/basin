@@ -24,7 +24,7 @@ internal sealed partial class TinyComp
 
     private void Reload()
     {
-        var loaded = Config.Load(_configPath, _log, out var fatal);
+        var loaded = Config.Load(_configPath ?? Config.DefaultPath(), _log, out var fatal);
         if (fatal is not null)
         {
             _log.Warn($"reload failed, keeping the running config: {fatal}");

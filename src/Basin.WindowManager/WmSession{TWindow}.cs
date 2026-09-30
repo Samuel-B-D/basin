@@ -32,6 +32,12 @@ public sealed class WmSession<TWindow>
 
     public IReadOnlyDictionary<WmWindow, TWindow> ByWindow => _byWindow;
 
+    public TWindow? ParentOf(TWindow window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        return window.Window.Parent is { } parent ? ByWindow.GetValueOrDefault(parent) : null;
+    }
+
     public TWindow? Lookup(WmWindow window) => _byWindow.GetValueOrDefault(window);
 
     public void ObserveSeats(ManageContext context)

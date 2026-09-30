@@ -29,7 +29,7 @@ internal sealed class AppGroup
 
     public bool Hidden { get; set; }
 
-    public ShellMenuSource Synthesized { get; } = new();
+    public LocalAppMenu Synthesized { get; } = new();
 
     public IAppMenuSource MenusFor(ShellWindow? window) =>
         window?.Imported is { IsReady: true } imported && ReferenceEquals(window.App, this) ? imported
@@ -37,7 +37,7 @@ internal sealed class AppGroup
 
     public string MenuKindFor(ShellWindow? window) => IsFinder ? "finder" : MenusFor(window) switch
     {
-        ShellMenuSource => "synth",
+        LocalAppMenu => "synth",
         { Kind: AppMenuAddressKind.GMenu } => "gmenu",
         _ => "dbusmenu",
     };

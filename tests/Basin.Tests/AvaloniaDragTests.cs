@@ -44,7 +44,7 @@ public sealed class AvaloniaDragTests
         {
             CompositorTestHost.SkipWithoutWaylandClient();
             BasinCounters.Reset();
-            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "waylonia-tests" });
+            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "waylonia-tests", ConfigureServices = HostedDrivers.ToplevelLayers });
             Manager = new ToplevelWindows(Host, action => action());
             Drag = new HostDrag(Host);
             Manager.AttachDrag(Drag);

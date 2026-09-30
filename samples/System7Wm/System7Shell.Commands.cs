@@ -13,8 +13,11 @@ internal sealed partial class System7Shell
     private string? _shotPath;
     private IpcPendingReply? _shotReply;
 
+    private FrameSettle? _settle;
+
     private void WireIpc()
     {
+        _settle = new FrameSettle(_outputs, _uiDriver);
         _ipc = _options.Ipc.Attach(_host.Loop, _services, _host.Socket, new IpcSessionInfo
         {
             Compositor = "system7-wm",
@@ -22,6 +25,8 @@ internal sealed partial class System7Shell
             Renderer = _options.Renderer,
             XwaylandDisplay = () => _xServer?.DisplayName,
             Quit = Stop,
+            Settle = _settle,
+            Processes = _processes,
         });
         _ipc.SyntheticInput = _seat.Injector;
         RegisterCommands(_ipc.Methods);
@@ -33,14 +38,14 @@ internal sealed partial class System7Shell
     {
         _ipc?.Dispose();
         _ipc = null;
+        _settle?.Dispose();
+        _settle = null;
     }
 
     private void RegisterCommands(IpcMethodRegistry methods)
     {
-        _report.AddLine(methods, IpcMethodNames.InputPointerMove, "move {x:number} {y:number}");
-        _report.AddLine(methods, IpcMethodNames.InputPointerButton, "button {button:int} {pressed:bool}");
-        _report.AddLine(methods, IpcMethodNames.InputKey, "key {code:int} {pressed:bool}");
-        _report.AddLine(methods, IpcMethodNames.SessionQuit, "quit");
+        _report.AddInputLines(methods);
+        _report.AddSessionLines(methods);
 
         _report.Register(methods, "system7wm/shot", "shot {path}", (ref IpcParams p, IpcReply _) =>
         {
@@ -104,12 +109,7 @@ internal sealed partial class System7Shell
 
         _shotPath = null;
         var buffer = driver.LastPresentedBuffer;
-        var line = SceneScreenshot.WritePresented(buffer, _renderer, path) switch
-        {
-            ScreenshotOutcome.NoFrame => "SHOTRAW none",
-            ScreenshotOutcome.Unreadable => $"SHOTRAW unreadable {buffer!.Width}x{buffer.Height}",
-            _ => $"SHOTRAW {path} {buffer!.Width}x{buffer.Height}",
-        };
+        var line = CompositorLines.ShotRaw(SceneScreenshot.WritePresented(buffer, _renderer, path), buffer, path);
         if (_shotReply is { } pending)
         {
             _shotReply = null;
@@ -128,9 +128,16 @@ internal sealed partial class System7Shell
         {
             var box = _layout.BoxOf(view.Output);
             var main = ReferenceEquals(view, MainView) ? " main" : "";
-            _report.Line($"OUTPUT {view.Output.Name} {box.X},{box.Y},{box.Width}x{box.Height} scale={view.Output.Scale:0.###} chrome={DevicePlacement.Chrome(view.Output.Scale)}{main}");
+            _report.Line($"OUTPUT {view.Output.Name} {box.X},{box.Y},{box.Width}x{box.Height} scale={view.Output.Scale:0.###} chrome={DevicePlacement.ChromeScale(view.Output.Scale)}{main}");
         }
 
+        if (MainView is { } mainView)
+        {
+            var area = WorkArea(mainView);
+            _report.Line($"WORKAREA {area.X},{area.Y},{area.Width}x{area.Height}");
+        }
+
+        _report.Line($"LOCK {(_locked ? "on" : "off")}");
         _report.Line($"DEPTH {ColorDepths.NameOf(_config.Depth)}");
         _report.Line($"CURSOR {_cursor.Showing} drawn={_cursor.DrawnBy}");
         PrintShellState();

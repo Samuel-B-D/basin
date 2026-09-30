@@ -101,98 +101,54 @@ internal static class McpWaitEvent
         }
 
         var main = bridge.Client!;
-        await using var waiter = await BasinIpcClient.ConnectAsync(main.Path, cancellationToken).ConfigureAwait(false);
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(timeout);
-        var subscribed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var stream = waiter.SubscribeAsync(events, subscribed.SetResult, deadline.Token).GetAsyncEnumerator(deadline.Token);
-        var matches = new List<(string Name, byte[] Data)>();
+        CallToolResult? failedThen = null;
         byte[]? thenJson = null;
-        Task<bool>? pending = null;
-        try
+        Func<CancellationToken, Task<bool>>? run = null;
+        if (thenEntry is not null)
         {
-            var first = stream.MoveNextAsync().AsTask();
-            pending = first;
-            var ready = await Task.WhenAny(subscribed.Task, first).ConfigureAwait(false);
-            if (ready == first && !subscribed.Task.IsCompleted)
+            run = async token =>
             {
-                _ = await first.ConfigureAwait(false);
-            }
-
-            if (thenEntry is not null)
-            {
-                var result = await bridge.InvokeAsync(main, thenEntry, ToDictionary(thenParams), cancellationToken).ConfigureAwait(false);
+                var result = await bridge.InvokeAsync(main, thenEntry, ToDictionary(thenParams), token).ConfigureAwait(false);
                 if (result.IsError == true)
                 {
-                    return result;
+                    failedThen = result;
+                    return false;
                 }
 
                 thenJson = result.StructuredContent is { } structured
                     ? McpJson.Serialize(structured)
                     : McpJson.Serialize(((TextContentBlock)result.Content[0]).Text);
-            }
+                return true;
+            };
+        }
 
-            var next = first;
-            var collecting = false;
-            while (true)
-            {
-                bool more;
-                try
-                {
-                    more = await next.ConfigureAwait(false);
-                    pending = null;
-                }
-                catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-                {
-                    pending = null;
-                    break;
-                }
-
-                if (!more)
-                {
-                    break;
-                }
-
-                var item = stream.Current;
-                var data = McpSafeIntegers.Rewrite(item.Data);
-                if (Matches(data, match))
-                {
-                    matches.Add((item.Name, data));
-                    if (collect == 0 || matches.Count >= MaxCollected)
-                    {
-                        break;
-                    }
-
-                    if (!collecting)
-                    {
-                        collecting = true;
-                        deadline.CancelAfter(TimeSpan.FromMilliseconds(collect));
-                    }
-                }
-
-                next = stream.MoveNextAsync().AsTask();
-                pending = next;
-            }
+        IpcEventWaitResult waited;
+        try
+        {
+            waited = await IpcEventWait.RunAsync(
+                main.Path,
+                events,
+                item => IpcEventMatch.Matches(McpSafeIntegers.Rewrite(item.Data), match),
+                run,
+                TimeSpan.FromMilliseconds(timeout),
+                TimeSpan.FromMilliseconds(collect),
+                MaxCollected,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (IpcCallException exception)
         {
             return McpCallMapper.Error(exception);
         }
-        finally
-        {
-            await deadline.CancelAsync().ConfigureAwait(false);
-            if (pending is not null)
-            {
-                try
-                {
-                    _ = await pending.ConfigureAwait(false);
-                }
-                catch (Exception exception) when (exception is OperationCanceledException or IpcCallException || McpBridge.IsConnectionFailure(exception))
-                {
-                }
-            }
 
-            await stream.DisposeAsync().ConfigureAwait(false);
+        if (failedThen is not null)
+        {
+            return failedThen;
+        }
+
+        var matches = new List<(string Name, byte[] Data)>(waited.Events.Count);
+        foreach (var item in waited.Events)
+        {
+            matches.Add((item.Name, McpSafeIntegers.Rewrite(item.Data)));
         }
 
         var caught = new McpCaughtEvent[matches.Count];
@@ -213,65 +169,6 @@ internal static class McpWaitEvent
         }
 
         return McpJson.TextResult(json);
-    }
-
-    internal static bool Matches(ReadOnlySpan<byte> data, JsonElement? match)
-    {
-        if (match is not { } wanted)
-        {
-            return true;
-        }
-
-        var reader = new Utf8JsonReader(data);
-        var root = JsonElement.ParseValue(ref reader);
-        if (root.ValueKind != JsonValueKind.Object)
-        {
-            return false;
-        }
-
-        foreach (var key in wanted.EnumerateObject())
-        {
-            if (!root.TryGetProperty(key.Name, out var value))
-            {
-                return false;
-            }
-
-            if (key.Value.ValueKind == JsonValueKind.String && value.ValueKind == JsonValueKind.String)
-            {
-                var pattern = key.Value.GetString()!;
-                var text = value.GetString()!;
-                if (pattern.Length >= 2 && pattern[0] == '*' && pattern[^1] == '*')
-                {
-                    if (!text.Contains(pattern[1..^1], StringComparison.Ordinal))
-                    {
-                        return false;
-                    }
-                }
-                else if (text != pattern)
-                {
-                    return false;
-                }
-
-                continue;
-            }
-
-            if (key.Value.ValueKind == JsonValueKind.String && value.ValueKind == JsonValueKind.Number)
-            {
-                if (key.Value.GetString() != value.GetRawText())
-                {
-                    return false;
-                }
-
-                continue;
-            }
-
-            if (!JsonElement.DeepEquals(key.Value, value))
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private static Dictionary<string, JsonElement>? ToDictionary(JsonElement? parameters)

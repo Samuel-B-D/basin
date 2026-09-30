@@ -9,7 +9,7 @@ namespace Basin.Render3D.Gl;
 public sealed unsafe class GlWorldRenderer : IWorldRenderer
 {
     private const int MaxLights = 8;
-    private const int MaxJoints = 48;
+    private const int MaxJoints = Skeleton.MaxJoints;
     private const int MaxLevels = 8;
     private const GLEnum MaxAnisotropy = (GLEnum)0x84FF;
     private const GLEnum TextureMaxAnisotropy = (GLEnum)0x84FE;

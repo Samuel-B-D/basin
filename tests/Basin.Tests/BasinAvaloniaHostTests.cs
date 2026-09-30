@@ -33,7 +33,7 @@ public sealed class BasinAvaloniaHostTests
         {
             CompositorTestHost.SkipWithoutWaylandClient();
             BasinCounters.Reset();
-            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "waylonia-tests" });
+            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "waylonia-tests", ConfigureServices = HostedDrivers.Without });
             Host.Services.Find<CompositorGlobal>();
             var compositor = Host.Services.Require<CompositorGlobal>();
             compositor.SurfaceCreated += surface =>

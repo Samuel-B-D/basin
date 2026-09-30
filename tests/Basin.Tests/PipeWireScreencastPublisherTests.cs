@@ -16,6 +16,56 @@ public sealed class PipeWireScreencastPublisherTests
         Assert.SkipUnless(PipeWireLibraryProbe.IsDaemonReachable(), "no PipeWire daemon: PIPEWIRE_REMOTE unset and $XDG_RUNTIME_DIR/pipewire-0 absent");
     }
 
+    private static void SkipWithoutSessionManager()
+    {
+        SkipWithoutPipeWire();
+        _sessionManager ??= HasSessionManager();
+        if (!_sessionManager.Value)
+        {
+            const string reason = "no PipeWire session manager: the daemon has no \"default\" metadata, so nothing links a consumer to a node. Start one with `systemctl --user start wireplumber`";
+            TestContext.Current.AddWarning(reason);
+            Assert.Skip(reason);
+        }
+    }
+
+    private static bool? _sessionManager;
+
+    private static bool HasSessionManager()
+    {
+        PipeWireLibrary.Init();
+        using var loop = PipeWireLoop.Create();
+        using var context = new PipeWireContext(loop);
+        using var core = context.Connect();
+        var registry = core.GetRegistry();
+        var found = false;
+        var done = false;
+        registry.GlobalAdded += (_, global) =>
+        {
+            if (global.Type.StartsWith("PipeWire:Interface:Metadata", StringComparison.Ordinal)
+                && global.GetProperty("metadata.name") == "default")
+            {
+                found = true;
+            }
+        };
+        var sequence = core.Sync(0, 0);
+        core.Done += (_, e) => done |= e.Id == 0 && e.Sequence == sequence;
+        var deadline = Environment.TickCount64 + 2000;
+        while (!done && !found && Environment.TickCount64 < deadline)
+        {
+            loop.Enter();
+            try
+            {
+                loop.Iterate(10);
+            }
+            finally
+            {
+                loop.Leave();
+            }
+        }
+
+        return found;
+    }
+
     private sealed class Consumer : IDisposable
     {
         private readonly PipeWireLoop _loop;
@@ -182,7 +232,7 @@ public sealed class PipeWireScreencastPublisherTests
     [Fact]
     public void A_published_output_delivers_frames_with_header_and_damage()
     {
-        SkipWithoutPipeWire();
+        SkipWithoutSessionManager();
         using var host = new CompositorTestHost(64, 48);
         _ = new SceneRect(host.Scene.Root, 64, 48, new RenderColor(1f, 0f, 0f, 1f));
         var capture = new SceneScreenCapture(host.Scene, host.Layout) { Renderer = host.Renderer, Background = RenderColor.Black };
@@ -241,7 +291,7 @@ public sealed class PipeWireScreencastPublisherTests
     [InlineData("vulkan")]
     public void A_gpu_row_offers_dmabuf(string renderer)
     {
-        SkipWithoutPipeWire();
+        SkipWithoutSessionManager();
         CompositorTestHost.SkipUnlessRunnable(renderer);
         using var host = new CompositorTestHost(64, 48, renderer);
         var allocator = host.DeviceAllocator;

@@ -3,9 +3,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Basin.Freedesktop;
-using Basin.Render.Skia;
-using SkiaSharp;
-using Svg.Skia;
+using Basin.Icons.Skia;
 
 namespace EightWm;
 
@@ -64,73 +62,18 @@ internal sealed class IconLoader : IDisposable
             return null;
         }
 
-        var raster = SkiaCensus.Track(new SKBitmap(new SKImageInfo(sizePx, sizePx, SKColorType.Bgra8888, SKAlphaType.Premul)));
-        try
-        {
-            return Rasterize(path, raster) ? Copy(raster) : null;
-        }
-        finally
-        {
-            SkiaCensus.Release(raster);
-        }
-    }
-
-    private static bool Rasterize(string path, SKBitmap target)
-    {
-        var sizePx = target.Width;
-        using var canvas = new SKCanvas(target);
-        canvas.Clear(SKColors.Transparent);
-        if (path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase))
-        {
-            using var svg = new SKSvg();
-            if (svg.Load(path) is not { } picture || picture.CullRect.Width <= 0 || picture.CullRect.Height <= 0)
-            {
-                return false;
-            }
-
-            var bounds = picture.CullRect;
-            var scale = Math.Min(sizePx / bounds.Width, sizePx / bounds.Height);
-            canvas.Translate(
-                (sizePx - (bounds.Width * scale)) / 2f,
-                (sizePx - (bounds.Height * scale)) / 2f);
-            canvas.Scale(scale);
-            canvas.Translate(-bounds.Left, -bounds.Top);
-            canvas.DrawPicture(picture);
-            canvas.Flush();
-            return true;
-        }
-
-        using var bitmap = SKBitmap.Decode(path);
-        if (bitmap is null || bitmap.Width <= 0 || bitmap.Height <= 0)
-        {
-            return false;
-        }
-
-        var fit = Math.Min(sizePx / (float)bitmap.Width, sizePx / (float)bitmap.Height);
-        var width = bitmap.Width * fit;
-        var height = bitmap.Height * fit;
-        using var image = SKImage.FromBitmap(bitmap);
-        using var paint = new SKPaint();
-        canvas.DrawImage(
-            image,
-            new SKRect((sizePx - width) / 2f, (sizePx - height) / 2f, (sizePx + width) / 2f, (sizePx + height) / 2f),
-            new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear),
-            paint);
-        canvas.Flush();
-        return true;
-    }
-
-    private static unsafe WriteableBitmap Copy(SKBitmap source)
-    {
         var bitmap = new WriteableBitmap(
-            new PixelSize(source.Width, source.Height), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Premul);
-        using var frame = bitmap.Lock();
-        var rowBytes = Math.Min(frame.RowBytes, source.RowBytes);
-        var from = (byte*)source.GetPixels();
-        var to = (byte*)frame.Address;
-        for (var row = 0; row < source.Height; row++)
+            new PixelSize(sizePx, sizePx), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Premul);
+        bool drawn;
+        using (var frame = bitmap.Lock())
         {
-            Buffer.MemoryCopy(from + (row * source.RowBytes), to + (row * frame.RowBytes), frame.RowBytes, rowBytes);
+            drawn = IconRasterizer.Draw(path, frame.Address, frame.RowBytes, sizePx);
+        }
+
+        if (!drawn)
+        {
+            bitmap.Dispose();
+            return null;
         }
 
         return bitmap;

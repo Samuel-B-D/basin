@@ -29,7 +29,11 @@ public sealed class UIDriver : IDisposable
 
     public IReadOnlyList<UISurfaceNode> Popups => _popups;
 
+    public long? NextDueMillis => _host.NextDueMillis;
+
     public event Action? Woken;
+
+    public event Action? Pumped;
 
     public event Action<IUISurface>? PopupAdded;
 
@@ -60,6 +64,7 @@ public sealed class UIDriver : IDisposable
         _host.Pump();
         SyncPopups();
         Schedule();
+        Pumped?.Invoke();
     }
 
     public void SyncPopups()

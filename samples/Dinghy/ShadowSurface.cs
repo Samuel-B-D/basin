@@ -6,56 +6,18 @@ namespace Dinghy;
 
 internal sealed class ShadowSurface : IDisposable
 {
-    private readonly WlSurface _surface;
-    private readonly WmDecoration _decoration;
-    private readonly ShmSlots _slots;
-    private readonly OutputScales _scales;
-    private readonly HashSet<WlOutput> _entered = [];
+    private readonly DecorationSurface _surface;
 
     private int _width;
     private int _height;
     private int _bufferWidth;
     private int _bufferHeight;
     private (int FrameWidth, int FrameHeight, int ShadowSize, uint Color, int Scale)? _lastKey;
-    private bool _disposed;
 
-    internal ShadowSurface(WmWindow window, WlCompositor compositor, WlShm shm, OutputScales scales)
-    {
-        _scales = scales;
-        _surface = compositor.CreateSurface();
-        _surface.Enter += (_, e) =>
-        {
-            if (e.Output is not null)
-            {
-                _entered.Add(e.Output);
-            }
-        };
-        _surface.Leave += (_, e) =>
-        {
-            if (e.Output is not null)
-            {
-                _entered.Remove(e.Output);
-            }
-        };
-        _decoration = window.CreateDecorationBelow(_surface);
-        _slots = new ShmSlots(shm);
-    }
+    internal ShadowSurface(WmWindow window, WlCompositor compositor, WlShm shm, OutputScales scales) =>
+        _surface = new DecorationSurface(window, compositor, shm, scales, above: false);
 
-    public int ScaleFor(uint fallbackOutputName)
-    {
-        if (_entered.Count == 0)
-        {
-            return _scales.ScaleForName(fallbackOutputName);
-        }
-
-        var scale = 1;
-        foreach (var output in _entered)
-        {
-            scale = Math.Max(scale, _scales.ScaleFor(output));
-        }
-
-        return scale;
-    }
+    public int ScaleFor(uint fallbackOutputName) => _surface.ScaleFor(fallbackOutputName);
 
     public void EnsureBuffer(int frameWidth, int frameHeight, int shadowSize, int scale)
     {
@@ -73,12 +35,7 @@ internal sealed class ShadowSurface : IDisposable
         _surface.SetBufferScale(scale);
     }
 
-    public void UpdateInputRegion(WlCompositor compositor)
-    {
-        var region = compositor.CreateRegion();
-        _surface.SetInputRegion(region);
-        region.Destroy();
-    }
+    public void UpdateInputRegion() => _surface.ClearInputRegion();
 
     public bool Render(int frameWidth, int frameHeight, int shadowSize, uint color, int scale)
     {
@@ -94,17 +51,13 @@ internal sealed class ShadowSurface : IDisposable
             return false;
         }
 
-        var stride = _bufferWidth * 4;
-        var pixels = _slots.Prepare(_bufferWidth, _bufferHeight, stride);
-        if (pixels == 0)
+        if (_surface.Prepare(_bufferWidth, _bufferHeight) == 0)
         {
             return false;
         }
 
-        var bytes = _slots.CurrentBytes();
-        bytes.Clear();
         ShadowNineSlice.Draw(
-            bytes,
+            _surface.Bytes,
             _bufferWidth,
             frameWidth,
             frameHeight,
@@ -117,38 +70,13 @@ internal sealed class ShadowSurface : IDisposable
         return true;
     }
 
-    public void SetOffset(int x, int y) => _decoration.SetOffset(x, y);
+    public void SetOffset(int x, int y) => _surface.SetOffset(x, y);
 
     public void Invalidate() => _lastKey = null;
 
-    public void SyncNextCommit() => _decoration.SyncNextCommit();
+    public void SyncNextCommit() => _surface.SyncNextCommit();
 
-    public void Commit()
-    {
-        if (_slots.CurrentBuffer is not { } buffer)
-        {
-            return;
-        }
+    public void Commit() => _surface.Commit();
 
-        _surface.Attach(buffer, 0, 0);
-        _surface.DamageBuffer(0, 0, _bufferWidth, _bufferHeight);
-        _surface.Commit();
-        _slots.MarkAttached();
-    }
-
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _slots.Dispose();
-        _decoration.Dispose();
-        if (!_surface.IsDestroyed)
-        {
-            _surface.Destroy();
-        }
-    }
+    public void Dispose() => _surface.Dispose();
 }

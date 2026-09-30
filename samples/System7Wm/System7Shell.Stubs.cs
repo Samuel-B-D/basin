@@ -60,9 +60,12 @@ internal sealed partial class System7Shell
             var text = p.GetString("text");
             if (!p.Failed)
             {
-                _frozenClock = text is "off" or "" ? null : text;
-                OnClockTick();
-                _report.Line($"CLOCK {_frozenClock ?? "live"}");
+                if (_clock is not null)
+                {
+                    _clock.Frozen = text is "off" or "" ? null : text;
+                }
+
+                _report.Line($"CLOCK {_clock?.Frozen ?? "live"}");
             }
         });
 

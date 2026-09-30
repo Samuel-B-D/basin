@@ -680,41 +680,26 @@ internal sealed partial class TinyComp
         return null;
     }
 
-    private void RecordDecorationPreference(Surface surface, bool serverSide)
-    {
-        if (_ssdPreference.TryAdd(surface, serverSide))
-        {
-            surface.Destroyed += () => _ssdPreference.Remove(surface);
-        }
-        else
-        {
-            _ssdPreference[surface] = serverSide;
-        }
+    internal bool IsServerDecorated(XdgToplevelWindow toplevel) => _decorationPreferences.IsServerSide(toplevel);
 
-        FindWindow(surface)?.SetDecorated(serverSide);
-    }
-
-    internal bool IsServerDecorated(XdgToplevelWindow toplevel) =>
-        _ssdPreference.TryGetValue(toplevel.Surface, out var serverSide)
-            ? serverSide
-            : _kdeDecorations.ModeOf(toplevel.Surface) == Basin.Desktop.KdeServerDecorationManager.DecorationMode.Server ||
-                _decorations.ModeOf(toplevel) == DecorationMode.ServerSide;
-
-    private void WireLayerShell()
+    private void CreateLayerDrivers()
     {
         _layerDriver = new Basin.Desktop.LayerShellSceneDriver(
-            _layerShell,
+            _services,
             _layout,
             layer => layer.Layer == LayerKind.Background
                 ? _wallpapers
-                : Basin.Desktop.LayerShellSceneDriver.TreeOf(_layers, layer.Layer))
-        {
-            DefaultOutput = _ => Views.Count > 0
-                ? (Views.FirstOrDefault(v => _layout.OutputAt(_cursorX, _cursorY) == v.Output) ?? Views[0]).Global
-                : null,
-            Confine = ConfineLayer,
-            ConfinedBox = ConfinedLayerBox,
-        };
+                : Basin.Desktop.LayerShellSceneDriver.TreeOf(_layers, layer.Layer));
+        _lockDriver = new Basin.Desktop.SessionLockSceneDriver(_services, _layers.Lock, _layout, _layers.SetLocked);
+    }
+
+    private void WireLayerShell()
+    {
+        _layerDriver.DefaultOutput = _ => Views.Count > 0
+            ? (Views.FirstOrDefault(v => _layout.OutputAt(_cursorX, _cursorY) == v.Output) ?? Views[0]).Global
+            : null;
+        _layerDriver.Confine = ConfineLayer;
+        _layerDriver.ConfinedBox = ConfinedLayerBox;
         _layerDriver.TrackPopups(_shell);
         _layerDriver.PopupSceneCreated += (_, _, _) => RefreshSurfaceLuts();
         _layerDriver.PopupBounds = _ =>
@@ -765,8 +750,6 @@ internal sealed partial class TinyComp
 
     private void WireSessionLock()
     {
-        _lockDriver = new Basin.Desktop.SessionLockSceneDriver(
-            _sessionLock, _seat, _layers.Lock, _layout, _layers.SetLocked);
         _lockDriver.Locked += () =>
         {
             CloseOverviewsNow();

@@ -10,10 +10,12 @@ internal sealed partial class TinyComp
 {
     private readonly IpcLineReport _report = new();
     private IpcServer? _ipc;
+    private Basin.Host.FrameSettle? _settle;
     private IpcPendingReply? _shotReply;
 
     private void WireIpc(Basin.Cli.IpcChoice choice, string backend, string renderer)
     {
+        _settle = new Basin.Host.FrameSettle(_driver);
         _ipc = choice.Attach(_loop, _services, _socket, new IpcSessionInfo
         {
             Compositor = "tinycomp",
@@ -21,6 +23,8 @@ internal sealed partial class TinyComp
             Renderer = renderer,
             XwaylandDisplay = () => _xwayland?.DisplayName,
             Quit = () => _runLoop.Stop(),
+            Settle = _settle,
+            Processes = _processes,
         });
         _ipc.SyntheticInput = new SyntheticInput(this);
         RegisterCommands(_ipc.Methods);
@@ -44,10 +48,8 @@ internal sealed partial class TinyComp
 
     private void RegisterCommands(IpcMethodRegistry methods)
     {
-        _report.AddLine(methods, IpcMethodNames.InputPointerMove, "move {x:number} {y:number}");
-        _report.AddLine(methods, IpcMethodNames.InputPointerButton, "button {button:int} {pressed:bool}");
-        _report.AddLine(methods, IpcMethodNames.InputKey, "key {code:int} {pressed:bool}");
-        _report.AddLine(methods, IpcMethodNames.SessionQuit, "quit");
+        _report.AddInputLines(methods);
+        _report.AddSessionLines(methods);
 
         _report.Register(methods, "tinycomp/shot", "shot {path} [{index:int}]", (ref IpcParams p, IpcReply reply) =>
         {

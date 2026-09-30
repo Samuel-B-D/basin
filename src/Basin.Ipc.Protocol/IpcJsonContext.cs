@@ -87,6 +87,8 @@ namespace Basin.Ipc;
 [JsonSerializable(typeof(IpcTouchParams))]
 [JsonSerializable(typeof(IpcVersion))]
 [JsonSerializable(typeof(IpcWaitParams))]
+[JsonSerializable(typeof(IpcSettleParams))]
+[JsonSerializable(typeof(IpcSettleResult))]
 [JsonSerializable(typeof(IpcWaitIdleParams))]
 [JsonSerializable(typeof(IpcWaitIdleResult))]
 [JsonSerializable(typeof(IpcWindow))]

@@ -1,4 +1,5 @@
 using Basin;
+using Basin.Desktop;
 using Basin.Scene;
 using Basin.Seat;
 using Basin.Shell.Xdg;
@@ -10,7 +11,7 @@ internal sealed partial class WestonShell
     private const int MoveSafety = 50;
 
     private readonly List<ShellWindow> _windows = [];
-    private readonly Dictionary<XdgSurfaceState, SceneSurface> _surfaceScenes = [];
+    private readonly NestedPopupPlacer _popups = new();
     private readonly ShellGrab _grab = new();
     private ShellWindow? _focused;
 
@@ -33,6 +34,8 @@ internal sealed partial class WestonShell
     public void Attach(XdgShell shell)
     {
         shell.NewToplevel += OnNewToplevel;
+        _popups.ConstrainBox = toplevel =>
+            WindowOwning(toplevel.Surface)?.Output is { } output ? OutputPlacement?.Invoke(output) : null;
         shell.NewPopup += OnNewPopup;
     }
 
@@ -480,7 +483,7 @@ internal sealed partial class WestonShell
     {
         var container = new SceneTree(WorkspaceTree?.Invoke() ?? _layers.Workspaces) { Enabled = false };
         var scene = new SceneSurface(container, window.Surface);
-        _surfaceScenes[window.Xdg] = scene;
+        _popups.Add(window.Xdg, scene);
         var shellWindow = new ShellWindow(window, container, scene);
 
         window.Xdg.Mapped += () =>
@@ -540,7 +543,7 @@ internal sealed partial class WestonShell
         {
             shellWindow.Frame?.Dispose();
             shellWindow.Frame = null;
-            _surfaceScenes.Remove(window.Xdg);
+            _popups.Remove(window.Xdg);
             _windows.Remove(shellWindow);
             if (!container.IsDestroyed)
             {
@@ -623,56 +626,5 @@ internal sealed partial class WestonShell
         window.MoveTo(x, y);
     }
 
-    private void OnNewPopup(XdgPopupWindow popup)
-    {
-        if (popup.Parent is not { } parent || !_surfaceScenes.TryGetValue(parent, out var parentScene))
-        {
-            return;
-        }
-
-        var scene = new SceneSurface(parentScene.Tree, popup.Surface);
-        _surfaceScenes[popup.Xdg] = scene;
-
-        void Place()
-        {
-            var origin = parent.EffectiveGeometry;
-            var offset = popup.SurfacePosition;
-            scene.Tree.SetPosition(origin.X + offset.X, origin.Y + offset.Y);
-        }
-
-        void Constrain()
-        {
-            var xdg = popup.Parent;
-            while (xdg?.Role is XdgPopupWindow parentPopup)
-            {
-                xdg = parentPopup.Parent;
-            }
-
-            if (xdg?.Role is not XdgToplevelWindow toplevel ||
-                WindowOwning(toplevel.Surface)?.Output is not { } output ||
-                OutputPlacement?.Invoke(output) is not { } box ||
-                !parentScene.Tree.TryMapSceneToLocal(0, 0, out var localX, out var localY))
-            {
-                return;
-            }
-
-            var origin = parent.EffectiveGeometry;
-            var originX = (int)-localX + origin.X;
-            var originY = (int)-localY + origin.Y;
-            popup.Unconstrain(new Box(box.X - originX, box.Y - originY, box.Width, box.Height));
-        }
-
-        Constrain();
-        Place();
-        popup.Xdg.Committed += Place;
-        popup.GeometryChanged += Place;
-        popup.Repositioned += Constrain;
-        popup.Destroyed += () =>
-        {
-            popup.Xdg.Committed -= Place;
-            popup.GeometryChanged -= Place;
-            popup.Repositioned -= Constrain;
-            _surfaceScenes.Remove(popup.Xdg);
-        };
-    }
+    private void OnNewPopup(XdgPopupWindow popup) => _popups.Attach(popup);
 }

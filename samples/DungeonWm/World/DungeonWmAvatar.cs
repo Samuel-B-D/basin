@@ -1,5 +1,6 @@
 using System.Numerics;
 using Basin.Scene3D;
+using Basin.Scene3D.Gltf;
 
 namespace DungeonWm;
 
@@ -23,7 +24,7 @@ internal sealed class DungeonWmAvatar
     private float _landTime = float.MaxValue;
     private bool _airborneState;
 
-    public DungeonWmAvatar(AvatarModel model, DungeonWmSettings settings, Action<string> report)
+    public DungeonWmAvatar(GlbAvatarModel model, DungeonWmSettings settings, Action<string> report)
     {
         Model = model;
         _settings = settings;
@@ -53,7 +54,7 @@ internal sealed class DungeonWmAvatar
         Evaluate(0, 0, false, true);
     }
 
-    public AvatarModel Model { get; }
+    public GlbAvatarModel Model { get; }
 
     public WorldAvatar Avatar { get; }
 

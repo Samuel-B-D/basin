@@ -104,6 +104,19 @@ public sealed class UISurfaceNode : IUISurfaceObserver, IDisposable
 
     public event Action<Exception>? Faulted;
 
+    public int PlaceDevice(int originX, int originY, double scale, in Box device)
+    {
+        var chrome = DevicePlacement.ChromeScale(scale);
+        var (x, nudgeX) = DevicePlacement.FromDevice(device.X, scale);
+        var (y, nudgeY) = DevicePlacement.FromDevice(device.Y, scale);
+        SetPosition(originX + x, originY + y);
+        OutputScale = scale;
+        InputScale = scale / chrome;
+        DeviceNudge = (nudgeX, nudgeY);
+        DevicePixels = (device.Width, device.Height);
+        return chrome;
+    }
+
     public void SetPosition(int x, int y)
     {
         X = x;

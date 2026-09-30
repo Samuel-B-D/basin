@@ -147,6 +147,26 @@ public sealed class ObserverTests
         Assert.Equal("s", info.Title);
     }
 
+    [Fact]
+    public void TryFind_matches_a_surface_past_any_fixed_buffer_size()
+    {
+        using var host = new CompositorTestHost();
+        var model = new TestToplevelModel();
+        for (var i = 0; i < 200; i++)
+        {
+            model.Add("filler", "filler");
+        }
+
+        var window = MappedToplevel.Map(host, host.Client, 20, 20, 0xFF0000FF);
+        var other = MappedToplevel.Map(host, host.Client, 20, 20, 0xFF00FF00);
+        var id = model.Add("a", "b", window.ServerSurface);
+
+        IToplevelModel toplevels = model;
+        Assert.True(toplevels.TryFind(window.ServerSurface, out var info));
+        Assert.Equal(id, info.Id);
+        Assert.False(toplevels.TryFind(other.ServerSurface, out _));
+    }
+
     private sealed class TestToplevelModelSource : IToplevelSource
     {
         private readonly ToplevelObservers _observers = new();

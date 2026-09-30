@@ -210,7 +210,11 @@ internal sealed partial class System7Shell
                 var value = (int)Math.Round(slider.Value);
                 _config.Volume = value;
                 SaveSetting("sound", "volume", TomlValue.From((long)value));
-                Spawn($"wpctl set-volume @DEFAULT_AUDIO_SINK@ {value / 7.0:0.00}");
+                if (!Muted)
+                {
+                    Spawn($"wpctl set-volume @DEFAULT_AUDIO_SINK@ {value / 7.0:0.00}");
+                }
+
                 BasinReport.Line($"VOLUME {value}");
             }
         };

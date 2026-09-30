@@ -150,4 +150,68 @@ public sealed class AppMenuTests
         PortalBusTests.PumpUntil(host, () => failed);
         Assert.False(reader.IsReady);
     }
+
+    [Fact]
+    public void The_import_ladder_takes_the_surface_address_then_the_x11_pair()
+    {
+        using var host = new CompositorTestHost();
+        var addresses = new AppMenuAddresses();
+        var surface = host.Client.Compositor.CreateSurface();
+        host.PumpToServer();
+        var server = host.Compositor.Surfaces.Single();
+
+        Assert.Null(AppMenuImport.Resolve(addresses, server));
+        Assert.Equal(AppMenuAddress.DbusMenu(":1.7", "/x11"), AppMenuImport.Resolve(addresses, server, ":1.7", "/x11"));
+        Assert.Null(AppMenuImport.Resolve(addresses, server, ":1.7", ""));
+
+        addresses.Set(server, AppMenuAddress.DbusMenu(":1.9", "/MenuBar/1"));
+        Assert.Equal(AppMenuAddress.DbusMenu(":1.9", "/MenuBar/1"), AppMenuImport.Resolve(addresses, server, ":1.7", "/x11"));
+        surface.Dispose();
+    }
+
+    [Fact]
+    public void An_import_whose_reader_fails_drops_the_reader_and_keeps_the_address()
+    {
+        using var daemon = PrivateBus.Start();
+        using var host = new CompositorTestHost();
+        using var bus = new AppMenuBus(host.Loop, daemon.Address);
+        using var import = new AppMenuImport(bus);
+        var address = AppMenuAddress.DbusMenu("org.example.Nobody", "/MenuBar/1");
+        AppMenuAddress? failed = null;
+        import.Failed += a => failed = a;
+
+        Assert.True(import.Import(address));
+        Assert.NotNull(import.Source);
+        PortalBusTests.PumpUntil(host, () => failed is not null);
+
+        Assert.Equal(address, failed);
+        Assert.Null(import.Source);
+        Assert.Equal(address, import.Address);
+        Assert.False(import.Import(address));
+
+        var cleared = false;
+        import.Cleared += () => cleared = true;
+        Assert.True(import.Import(null));
+        Assert.True(cleared);
+    }
+
+    [Fact]
+    public void A_local_menu_runs_its_actions_and_names_its_command_modifier()
+    {
+        var menu = new LocalAppMenu(AppMenuModifiers.Super);
+        var ran = 0;
+        var opened = 0;
+        var item = menu.Item("Open", () => ran++, 'O');
+        var disabled = menu.Item("Print", null, 'P');
+        var submenu = menu.Submenu("File", [item, disabled], () => opened++);
+        menu.Set(submenu);
+
+        Assert.Equal(new AppMenuShortcut(AppMenuModifiers.Super, "o"), item.Shortcut);
+        Assert.False(disabled.Enabled);
+        menu.AboutToShow(submenu);
+        menu.Activate(item, 0);
+        menu.Activate(disabled, 0);
+        Assert.Equal((1, 1), (ran, opened));
+        Assert.Same(submenu, Assert.Single(menu.Menu.Items));
+    }
 }

@@ -40,9 +40,9 @@ internal sealed class MenuBar : IDisposable
         _menu.Closed += (_, _) => Dispatcher.UIThread.Post(OnClosed, DispatcherPriority.Background);
     }
 
-    public ShellMenuSource Apple { get; } = new();
+    public LocalAppMenu Apple { get; } = new();
 
-    public ShellMenuSource Application { get; } = new();
+    public LocalAppMenu Application { get; } = new();
 
     public IAppMenuSource? App
     {
@@ -447,7 +447,7 @@ internal sealed class MenuBar : IDisposable
             return;
         }
 
-        var chrome = DevicePlacement.Chrome(_scale);
+        var chrome = DevicePlacement.ChromeScale(_scale);
         var width = _device.Width;
         var height = _grown ? _device.Height : Height * chrome;
         _surface.Place(_originX, _originY, _scale, new Box(0, 0, width, height));

@@ -4,6 +4,10 @@ namespace Basin.WindowManager;
 
 public readonly record struct DimensionsHint(Size Minimum, Size Maximum)
 {
+    public bool IsFixed =>
+        Minimum.Width > 0 && Minimum.Width == Maximum.Width
+        && Minimum.Height > 0 && Minimum.Height == Maximum.Height;
+
     public Size Clamp(Size size)
     {
         var width = size.Width;

@@ -66,9 +66,9 @@ internal sealed class ShellWindow
 
     public bool IsShell => ShellSurface is not null;
 
-    public Basin.AppMenu.IAppMenuSource? Imported { get; set; }
+    public Basin.AppMenu.AppMenuImport? MenuImport { get; set; }
 
-    public Basin.AppMenu.AppMenuAddress? ImportedAddress { get; set; }
+    public Basin.AppMenu.IAppMenuSource? Imported => MenuImport?.Source;
 
     public WindowKind Kind { get; set; } = WindowKind.Document;
 

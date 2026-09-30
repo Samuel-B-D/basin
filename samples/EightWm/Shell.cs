@@ -27,7 +27,8 @@ internal sealed partial class Shell : IDisposable
     private readonly SceneCapturePack _capture;
     private FifoManager? _fifo;
     private readonly OutputDriver _outputs;
-    private Basin.Color.ColorCapabilityPack _colorPack = null!;
+    private readonly ProcessTracker _processes;
+    private Basin.Desktop.ColorCapabilityPack _colorPack = null!;
     private readonly CompositorRunLoop _loop;
     private readonly List<ShellView> _shellViews = [];
     private string? _shotPath;
@@ -69,9 +70,9 @@ internal sealed partial class Shell : IDisposable
         }
 
         BasinReport.Line(CompositorLines.Frames(rendered));
-        if (BasinCounters.Enabled && (BasinCounters.LiveObjects != 0 || BasinCounters.PendingFrees != 0))
+        if (CompositorLines.Census() is { } census)
         {
-            log.Error($"{BasinCounters.CensusReport()}");
+            log.Error($"{census}");
         }
 
         return status;
@@ -92,9 +93,10 @@ internal sealed partial class Shell : IDisposable
             {
                 SocketFd = options.SocketFd,
             });
+        _processes = new ProcessTracker(_host.Loop, () => ProcessTracker.SessionEnvironment(_host.Socket, _xServer?.DisplayName, _ipc?.Path));
 
         _popups = new Basin.Desktop.PopupPlacer(_layout);
-        _colorPack = new Basin.Color.ColorCapabilityPack(_layout, _renderer);
+        _colorPack = new Basin.Desktop.ColorCapabilityPack(_layout, _renderer);
         var servicePack = new DesktopServicePack(_scene, _layout, _renderer, _host.Drm);
         _capture = servicePack.Capture;
         var cursorTheme = servicePack.CursorTheme;
@@ -119,6 +121,8 @@ internal sealed partial class Shell : IDisposable
         }
 
         _services.UseDefault<Basin.Capabilities.IInputDeviceConfiguration>(_inputConfigurator);
+        CreateLayerDriver();
+        CreateLockDriver();
         _services.Freeze();
 
         Seat = _services.Require<Basin.Seat.Seat>();
@@ -170,15 +174,8 @@ internal sealed partial class Shell : IDisposable
         _outputs.ModesetRefused += card =>
             log.Error($"modeset refused by {card.Name} in every mode");
         _outputs.ModeChanged += driver => _report.Line($"MODE {driver.Output.Name} {driver.Width}x{driver.Height}");
-        _outputs.ScanoutChanged += (driver, choice) => _report.Line(choice switch
-        {
-            ScanoutChoice.DeviceBuffers =>
-                $"SCANOUT {driver.Output.Name} device modifiers={driver.SwapModifiers.Length}",
-            ScanoutChoice.DumbLinear =>
-                $"SCANOUT {driver.Output.Name} dumb linear; every frame reads the framebuffer back",
-            _ =>
-                $"SCANOUT {driver.Output.Name} device buffers refused by the plane; falling back to dumb linear",
-        });
+        _outputs.ScanoutChanged += (driver, choice) =>
+            _report.Line(CompositorLines.Scanout(driver.Output.Name, choice, driver.SwapModifiers.Length));
         _outputs.Painted += TakeShot;
         _outputs.LayoutChanged += () =>
         {
@@ -230,6 +227,7 @@ internal sealed partial class Shell : IDisposable
         _outputs.Added += driver => AttachTitle(ViewOf(driver));
         _outputs.Added += driver => AttachSwitcher(ViewOf(driver));
         _outputs.Added += _ => _popupLayer.RaiseToTop();
+        AttachSessionLock();
         _outputs.CreateInitialOutputs();
         if (_options.Backend == BackendKind.Drm && Views.Count == 0)
         {
@@ -378,25 +376,9 @@ internal sealed partial class Shell : IDisposable
 
     internal void Spawn(string command)
     {
-        try
+        if (_processes.SpawnShell(command, out var error) is null)
         {
-            var info = new System.Diagnostics.ProcessStartInfo("/bin/sh")
-            {
-                UseShellExecute = false,
-            };
-            info.ArgumentList.Add("-c");
-            info.ArgumentList.Add(command);
-            info.Environment["WAYLAND_DISPLAY"] = _host.Socket;
-            if (_xServer?.DisplayName is { Length: > 0 } display)
-            {
-                info.Environment["DISPLAY"] = display;
-            }
-
-            System.Diagnostics.Process.Start(info);
-        }
-        catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException)
-        {
-            _log.Warn($"cannot start '{command}': {error.Message}");
+            _log.Warn($"cannot start '{command}': {error}");
         }
     }
 
@@ -418,6 +400,9 @@ internal sealed partial class Shell : IDisposable
     public void Dispose()
     {
         _host.DisconnectClients();
+        _processes.TerminateAll(TimeSpan.FromMilliseconds(500));
+        _processes.Dispose();
+        _desktopWatch?.Dispose();
         _colorPack?.Luts.Dispose();
         ReleaseChrome();
         _uiDriver.Dispose();

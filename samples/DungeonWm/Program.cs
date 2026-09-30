@@ -21,11 +21,7 @@ internal static class Program
         {
             Description = "start Xwayland so X11 clients can connect",
         });
-        var command = cli.Add(new Option<string?>("--command", "-c")
-        {
-            Description = "run `sh -c <command>` on startup",
-            HelpName = "CMD",
-        });
+        var command = cli.Add(CommonOptions.Command());
         var screenshot = cli.Add(CommonOptions.Screenshot());
         var frames = cli.Add(CommonOptions.Frames());
         _ = IpcCli.AddOption(cli);
@@ -37,7 +33,13 @@ internal static class Program
             var log = BasinLog.For("DungeonWm");
             var configValue = result.GetValue(config);
             var noConfig = string.Equals(configValue, "false", StringComparison.OrdinalIgnoreCase);
-            var settings = DungeonWmConfig.Load(noConfig ? null : configValue, noConfig, log, out var configPath);
+            var settings = DungeonWmConfig.Load(noConfig ? null : configValue, noConfig, log, out var configPath, out var fatal);
+            if (fatal is not null)
+            {
+                log.Error($"{fatal}");
+                return 1;
+            }
+
             var rendererName = Environment.GetEnvironmentVariable("BASIN_RENDERER") is { Length: > 0 }
                 ? result.GetValue(renderer)!
                 : BasinCommand.Effective(result, renderer, settings.Renderer)!;

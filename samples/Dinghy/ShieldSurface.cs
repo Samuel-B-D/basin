@@ -11,16 +11,13 @@ internal sealed class ShieldSurface : IDisposable
     private readonly ManagerSurface _surface;
 
     internal ShieldSurface(
-        WlCompositor compositor,
-        WlShm shm,
-        ZwlrLayerShellV1 layerShell,
+        ManagerSurfaceHost host,
         WlOutput output,
         WmOutput wmOutput,
         RiverWindowManager wm)
     {
         Output = wmOutput;
-        _surface = new ManagerSurface(
-            compositor, shm, layerShell, output, ZwlrLayerShellV1.Layer.Overlay, "dinghy-shield");
+        _surface = host.Create(output, ZwlrLayerShellV1.Layer.Overlay, "dinghy-shield");
         _surface.SetAnchor(
             ZwlrLayerSurfaceV1.Anchor.Top | ZwlrLayerSurfaceV1.Anchor.Bottom
             | ZwlrLayerSurfaceV1.Anchor.Left | ZwlrLayerSurfaceV1.Anchor.Right);

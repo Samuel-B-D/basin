@@ -18,16 +18,20 @@ internal sealed partial class Shell
 {
     private readonly IpcLineReport _report = new();
     private IpcServer? _ipc;
+    private Basin.Host.FrameSettle? _settle;
     private IpcPendingReply? _shotReply;
 
     private void WireIpc()
     {
+        _settle = new Basin.Host.FrameSettle(_outputs, _uiDriver);
         _ipc = _options.Ipc.Attach(_host.Loop, _services, _host.Socket, new IpcSessionInfo
         {
             Compositor = "eight-wm",
             Backend = _options.Backend.ToString().ToLowerInvariant(),
             Renderer = _options.Renderer,
             Quit = Stop,
+            Settle = _settle,
+            Processes = _processes,
         });
         _ipc.SyntheticInput = _seat.Injector;
         RegisterCommands(_ipc.Methods);
@@ -38,6 +42,7 @@ internal sealed partial class Shell
     private void UnwireIpc()
     {
         _ipc?.Dispose();
+        _settle?.Dispose();
         _ipc = null;
     }
 
@@ -47,7 +52,7 @@ internal sealed partial class Shell
 
     private void RegisterCommands(IpcMethodRegistry methods)
     {
-        _report.AddLine(methods, IpcMethodNames.SessionQuit, "quit");
+        _report.AddSessionLines(methods);
 
         _report.Register(methods, "eightwm/start", "start", () => ToggleStart(CommandView));
         _report.Register(methods, "eightwm/close", "close", CloseFocused);
@@ -449,6 +454,8 @@ internal sealed partial class Shell
         {
             _report.Line($"  app {app.AppId} cell={app.Cell.X},{app.Cell.Y},{app.Cell.Width}x{app.Cell.Height} " + $"slot={app.Slot.X},{app.Slot.Y} enabled={app.Slot.Enabled} parked={app.IsParked}");
         }
+
+        _report.Line($"LOCK {(_locked ? "on" : "off")}");
     }
 
     private void PrintCells()

@@ -15,7 +15,6 @@ internal sealed partial class DungeonWm
     private bool _crosshair;
     private bool _crosshairBeforeTakeover;
     private string _reticle = string.Empty;
-    private WaylandOutput? _parentLock;
     private SceneOutput? _reticleScene;
 
     private bool WantsCrosshair =>
@@ -131,21 +130,18 @@ internal sealed partial class DungeonWm
 
         _cursor.Hide();
         _reticleScene = CrosshairView()?.Scene;
-        if (_host.Parent.SupportsPointerLock && CrosshairView()?.Output is WaylandOutput output && output.LockPointer(true))
+        if (_binder.ParentLock is { } parentLock && CrosshairView()?.Output is WaylandOutput output)
         {
-            _parentLock = output;
+            parentLock.Request(this, output);
         }
     }
 
     private void UnlockParent()
     {
-        if (_parentLock is { } output)
+        if (_binder.ParentLock is { } parentLock && parentLock.IsRequested(this))
         {
             var (x, y) = LockPoint();
-            var box = _layout.BoxOf(output);
-            output.SetCursorPositionHint((x - box.X) * output.Scale, (y - box.Y) * output.Scale);
-            output.LockPointer(false);
-            _parentLock = null;
+            parentLock.Release(this, x, y);
         }
 
         if (_reticleScene is { } scene)
@@ -158,10 +154,7 @@ internal sealed partial class DungeonWm
 
     private void ForgetCrosshairOutput(OutputView view)
     {
-        if (ReferenceEquals(_parentLock, view.Output))
-        {
-            _parentLock = null;
-        }
+        _binder?.ParentLock?.Forget(view.Output);
 
         if (ReferenceEquals(_reticleScene, view.Scene))
         {
@@ -349,18 +342,16 @@ internal sealed partial class DungeonWm
 
     private void Aim(double x, double y)
     {
-        if (ViewAt(x, y) is not { } view || _layout.Bounds.IsEmpty)
+        if (!_camera.TryRayAt(_layout, x, y, out var aimed))
         {
             return;
         }
 
-        var wanted = _camera.ViewOf(_layout.Bounds, _layout.BoxOf(view.Output)).RayAt(x, y).Direction;
+        var wanted = aimed.Direction;
         for (var i = 0; i < 4; i++)
         {
             var (cx, cy) = LockPoint();
-            var center = ViewAt(cx, cy) is { } lockView
-                ? _camera.ViewOf(_layout.Bounds, _layout.BoxOf(lockView.Output)).RayAt(cx, cy).Direction
-                : wanted;
+            var center = _camera.TryRayAt(_layout, cx, cy, out var locked) ? locked.Direction : wanted;
             var yaw = MathF.Atan2(-wanted.X, -wanted.Z) - MathF.Atan2(-center.X, -center.Z);
             yaw = MathF.IEEERemainder(yaw, 2 * MathF.PI);
             var pitch = MathF.Asin(Math.Clamp(Vector3.Normalize(wanted).Y, -1, 1)) - MathF.Asin(Math.Clamp(Vector3.Normalize(center).Y, -1, 1));

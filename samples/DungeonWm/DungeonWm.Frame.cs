@@ -2,12 +2,12 @@ using Basin;
 using Basin.Diagnostics;
 using Basin.Host;
 using Basin.Scene3D;
+using Basin.Scene3D.Scene;
 
 namespace DungeonWm;
 
 internal sealed partial class DungeonWm
 {
-    private const long SlowFrameDoneNanos = 1_000_000_000;
 
     private void OnBeforeRepaint(OutputView view)
     {
@@ -51,7 +51,7 @@ internal sealed partial class DungeonWm
 
         var tick = new FrameTick(Math.Max(view.Scheduler?.PredictedVblankNanos ?? now, now), refresh);
         var slice = _layout.BoxOf(view.Output);
-        output.Render(_worldRenderer, _world.World, _camera, _layout.Bounds, slice, tick, _settings.Render);
+        output.Render(_worldRenderer, _world.World, _camera, _layout.Bounds, slice, tick, _settings.Render, view.Width, view.Height, view.SwapModifiers);
         if (animating || _options.Frames > 0)
         {
             view.Scheduler?.ScheduleRepaint();
@@ -63,17 +63,11 @@ internal sealed partial class DungeonWm
         var time = (uint)Environment.TickCount;
         if (_worldOutputs.TryGetValue(view, out var output) && _takeover is null)
         {
-            var surfaces = output.Visible.Surfaces;
-            for (var i = 0; i < surfaces.Count; i++)
-            {
-                surfaces[i].SendFrameDone(time);
-            }
+            WorldFrameCallbacks.SendVisible(output.Visible, time);
         }
 
-        var now = MonotonicClock.Nanos;
-        if (now - _lastSlowFrameDone > SlowFrameDoneNanos)
+        if (_frameCallbacks.FloorDue(MonotonicClock.Nanos))
         {
-            _lastSlowFrameDone = now;
             foreach (var window in _windows)
             {
                 if (!ReferenceEquals(window, _takeover))
@@ -91,12 +85,7 @@ internal sealed partial class DungeonWm
         _scene.CollectSurfaces(_presenceScratch);
         foreach (var (view, output) in _worldOutputs)
         {
-            var box = _layout.BoxOf(view.Output);
-            var surfaces = output.Visible.Surfaces;
-            for (var i = 0; i < surfaces.Count; i++)
-            {
-                _presenceScratch.Add(new SurfaceBox(surfaces[i], box));
-            }
+            WorldFrameCallbacks.AddPresence(_presenceScratch, output.Visible, _layout.BoxOf(view.Output));
         }
 
         _presence.Update(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_presenceScratch));

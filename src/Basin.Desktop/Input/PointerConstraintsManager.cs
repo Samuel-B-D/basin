@@ -10,35 +10,32 @@ public sealed class PointerConstraintsManager : IDisposable
 
     private readonly WlGlobal _global;
     private readonly CompositorGlobal _compositor;
-    private readonly Seat.Seat? _seat;
     private readonly Dictionary<Surface, PointerConstraint> _bySurface = [];
-    private readonly List<PointerConstraint> _sweep = [];
 
     public PointerConstraintsManager(WlServerDisplay display, CompositorGlobal compositor, Seat.Seat? seat = null)
     {
         _compositor = compositor;
-        _seat = seat;
         _global = display.CreateGlobal(ZwpPointerConstraintsV1.Interface, Version, OnBind);
-        if (_seat is { } focused)
+        if (seat is not null)
         {
-            focused.Pointer.FocusChanged += FollowFocus;
+            Driver = new PointerConstraintDriver(this, seat);
         }
     }
+
+    public PointerConstraintDriver? Driver { get; }
 
     public event Action<PointerConstraint>? ConstraintCreated;
 
     public event Action<PointerConstraint>? ConstraintActivated;
+
+    public event Action<PointerConstraint>? ConstraintRemoved;
 
     public PointerConstraint? ConstraintFor(Surface surface) =>
         _bySurface.TryGetValue(surface, out var constraint) ? constraint : null;
 
     public void Dispose()
     {
-        if (_seat is { } focused)
-        {
-            focused.Pointer.FocusChanged -= FollowFocus;
-        }
-
+        Driver?.Dispose();
         var live = new PointerConstraint[_bySurface.Count];
         _bySurface.Values.CopyTo(live, 0);
         foreach (var constraint in live)
@@ -50,14 +47,16 @@ public sealed class PointerConstraintsManager : IDisposable
         _global.Dispose();
     }
 
+    internal Region? ResolveRegion(WlRegionResource? resource) => _compositor.ResolveRegion(resource);
+
     private void OnBind(WlClient client, uint version, uint id)
     {
         var manager = new ZwpPointerConstraintsV1Resource(client, version, id);
-        manager.LockPointer += (_, e) => Create(client, manager.Version, e.Id, e.Surface, ConstraintKind.Lock, (uint)e.Lifetime, lockResource: null);
-        manager.ConfinePointer += (_, e) => Create(client, manager.Version, e.Id, e.Surface, ConstraintKind.Confine, (uint)e.Lifetime, lockResource: null);
+        manager.LockPointer += (_, e) => Create(client, manager.Version, e.Id, e.Surface, e.Region, ConstraintKind.Lock, (uint)e.Lifetime);
+        manager.ConfinePointer += (_, e) => Create(client, manager.Version, e.Id, e.Surface, e.Region, ConstraintKind.Confine, (uint)e.Lifetime);
     }
 
-    private void Create(WlClient client, uint version, uint id, WlSurfaceResource? surfaceResource, ConstraintKind kind, uint lifetime, object? lockResource)
+    private void Create(WlClient client, uint version, uint id, WlSurfaceResource? surfaceResource, WlRegionResource? region, ConstraintKind kind, uint lifetime)
     {
         var surface = _compositor.ResolveSurface(surfaceResource);
         if (surface is null)
@@ -81,35 +80,21 @@ public sealed class PointerConstraintsManager : IDisposable
             return;
         }
 
-        var constraint = new PointerConstraint(this, surface, kind, lifetime == 2, client, version, id);
+        var constraint = new PointerConstraint(this, surface, kind, lifetime == 2, _compositor.ResolveRegion(region), client, version, id);
         _bySurface[surface] = constraint;
         ConstraintCreated?.Invoke(constraint);
-        if (_seat?.Pointer.Focus == surface)
-        {
-            constraint.Activate();
-        }
-    }
-
-    private void FollowFocus(Surface? surface)
-    {
-        _sweep.Clear();
-        _sweep.AddRange(_bySurface.Values);
-        foreach (var constraint in _sweep)
-        {
-            if (constraint.Surface != surface && constraint.IsActive)
-            {
-                constraint.Deactivate();
-            }
-        }
-
-        _sweep.Clear();
-        if (surface is not null && _bySurface.TryGetValue(surface, out var focused))
-        {
-            focused.Activate();
-        }
+        Driver?.Refresh();
     }
 
     internal void NotifyActivated(PointerConstraint constraint) => ConstraintActivated?.Invoke(constraint);
 
-    internal void Remove(Surface surface) => _bySurface.Remove(surface);
+    internal void Remove(PointerConstraint constraint)
+    {
+        if (_bySurface.TryGetValue(constraint.Surface, out var held) && held == constraint)
+        {
+            _bySurface.Remove(constraint.Surface);
+        }
+
+        ConstraintRemoved?.Invoke(constraint);
+    }
 }

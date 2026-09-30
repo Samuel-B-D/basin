@@ -14,14 +14,10 @@ internal sealed partial class DungeonWm
             return;
         }
 
-        DungeonWmSettings loaded;
-        try
+        var loaded = DungeonWmConfig.Load(path, none: false, _log, out _, out var fatal);
+        if (fatal is not null)
         {
-            loaded = DungeonWmConfig.Load(path, none: false, _log, out _);
-        }
-        catch (InvalidOperationException error)
-        {
-            _log.Warn($"reload failed, keeping the running config: {error.Message}");
+            _log.Warn($"reload failed, keeping the running config: {fatal}");
             BasinReport.Line("RELOAD failed");
             return;
         }

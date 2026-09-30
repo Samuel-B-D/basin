@@ -44,6 +44,12 @@ internal sealed class DamView
 
     public (int Width, int Height) GeometrySize() => Handle.NaturalSize;
 
+    public (int X, int Y) GeometryOrigin() => Xdg is { } xdg
+        ? (xdg.Xdg.EffectiveGeometry.X, xdg.Xdg.EffectiveGeometry.Y)
+        : (0, 0);
+
+    public (int X, int Y, int Width, int Height) Placed { get; set; }
+
     public void SetActivated(bool activated) => Handle.SetActivated(activated);
 
     public void Maximize(int x, int y, int width, int height)

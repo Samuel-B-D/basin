@@ -22,7 +22,7 @@ internal sealed class GrayOutline : IDisposable
 
     public void Show(int originX, int originY, double scale, int outputWidth, int outputHeight, in Box device, int titleHeight)
     {
-        var chrome = DevicePlacement.Chrome(scale);
+        var chrome = DevicePlacement.ChromeScale(scale);
         Ensure(outputWidth, outputHeight, chrome);
         Device = device;
         Visible = true;

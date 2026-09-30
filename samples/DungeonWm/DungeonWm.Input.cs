@@ -3,6 +3,7 @@ using Basin;
 using Basin.Config;
 using Basin.Diagnostics;
 using Basin.Scene3D;
+using Basin.Scene3D.Scene;
 using Basin.Seat.Backends;
 
 namespace DungeonWm;
@@ -45,7 +46,14 @@ internal sealed partial class DungeonWm
         {
             PointerFrozen = () => _looking || _crosshair || Rotating,
             Drm = _host.Drm,
+            RelativePointer = _services.Find<Basin.Desktop.RelativePointerManager>(),
+            Constraints = _services.Find<Basin.Desktop.PointerConstraintDriver>(),
         };
+        if (_binder.Constraints is { } constraints)
+        {
+            constraints.Allow = constraint => constraint.Kind == Basin.Desktop.ConstraintKind.Lock || _takeover is not null;
+        }
+
         _binder.Key += OnKey;
         _binder.Motion += OnMotion;
         _binder.Button += OnButton;
@@ -250,25 +258,9 @@ internal sealed partial class DungeonWm
 
     private bool MapToSurface(Surface surface, double x, double y, out double surfaceX, out double surfaceY)
     {
-        foreach (var window in _windows)
+        if (_takeover is null && WorldSurfaceMapper.TryMap(_world.World, _camera, _layout, surface, x, y, out surfaceX, out surfaceY))
         {
-            var layers = window.World.Layers;
-            for (var i = 0; i < layers.Length; i++)
-            {
-                if (!ReferenceEquals(layers[i].Surface, surface))
-                {
-                    continue;
-                }
-
-                if (_takeover is not null || _outputs.Views.Count == 0)
-                {
-                    break;
-                }
-
-                var view = ViewAt(x, y)!;
-                var ray = _camera.ViewOf(_layout.Bounds, _layout.BoxOf(view.Output)).RayAt(x, y);
-                return WorldPicker.TryOnPlane(window.World, i, ray, out surfaceX, out surfaceY);
-            }
+            return true;
         }
 
         return _scene.TryMapToSurface(surface, x, y, out surfaceX, out surfaceY);
@@ -431,12 +423,11 @@ internal sealed partial class DungeonWm
 
     private void ContinueResize(DungeonWmWindow window)
     {
-        if (ViewAt(_pointer.X, _pointer.Y) is not { } view || _resizeMetersPerPixel <= 0)
+        if (_resizeMetersPerPixel <= 0 || !_camera.TryRayAt(_layout, _pointer.X, _pointer.Y, out var ray))
         {
             return;
         }
 
-        var ray = _camera.ViewOf(_layout.Bounds, _layout.BoxOf(view.Output)).RayAt(_pointer.X, _pointer.Y);
         var normal = Vector3.Transform(Vector3.UnitZ, _resizeOrientation);
         if (!ray.TryPlane(_resizeAnchor, normal, out var distance))
         {
@@ -492,20 +483,28 @@ internal sealed partial class DungeonWm
         if (pressed && !_locked)
         {
             var symbol = _seat.Keyboard.RawKeysymFor(key).Value;
-            if (_bindings.Match(symbol, held) is { } action && !(LayerHoldsKeyboard && action == _layerOpener) && Applies(action))
+            if (_bindings.Match(symbol, held) is { } hotkey && !(LayerHoldsKeyboard && ReferenceEquals(hotkey, _layerOpener)) && Applies(hotkey))
             {
                 _swallowed.Add(key);
-                if (action is "use" or "rotate")
+                if (hotkey.Action is "use" or "rotate")
                 {
                     _withheld.Add(key);
                 }
 
-                if (action == "rotate")
+                if (hotkey.Action == "rotate")
                 {
                     _rotateKey = key;
                 }
 
-                RunAction(action);
+                if (hotkey.Command is { } command)
+                {
+                    Spawn(hotkey, command);
+                }
+                else
+                {
+                    RunAction(hotkey.Action!);
+                }
+
                 return;
             }
 
@@ -527,7 +526,7 @@ internal sealed partial class DungeonWm
         _seat.Keyboard.NotifyKey(time, key, pressed);
     }
 
-    private bool Applies(string action) => action switch
+    private bool Applies(Basin.Config.Hotkey hotkey) => hotkey.Action is not { } action || action switch
     {
         "use" => _crosshair,
         "release" => _focused is not null,
@@ -609,9 +608,6 @@ internal sealed partial class DungeonWm
             case "look-reset":
                 _camera.Pitch = 0;
                 ScheduleAll();
-                break;
-            case var spawn when spawn.StartsWith("spawn ", StringComparison.Ordinal):
-                Spawn(spawn, spawn[6..].Trim());
                 break;
         }
     }

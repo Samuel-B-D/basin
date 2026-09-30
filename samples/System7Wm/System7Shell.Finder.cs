@@ -1,13 +1,14 @@
-using Avalonia;
+using System7.Avalonia.Rendering;
+using System7.Avalonia;
 using Avalonia.Controls;
-using Basin;
+using Avalonia;
 using Basin.Config;
 using Basin.Diagnostics;
 using Basin.Freedesktop;
 using Basin.Host;
+using Basin.Scene;
+using Basin;
 using Point = Avalonia.Point;
-using System7.Avalonia;
-using System7.Avalonia.Rendering;
 
 namespace System7Wm;
 
@@ -105,7 +106,7 @@ internal sealed partial class System7Shell
 
         var box = _layout.BoxOf(view.Output);
         var scale = view.Output.Scale;
-        var (deviceWidth, deviceHeight) = DevicePlacement.OutputDevice(view.Output);
+        var (deviceWidth, deviceHeight) = DevicePlacement.OutputSize(view.Output);
         _desktopSurface.Place(box.X, box.Y, scale, new Box(0, 0, deviceWidth, deviceHeight));
         LoadDesktopIcons();
     }
@@ -119,7 +120,7 @@ internal sealed partial class System7Shell
 
         var box = _layout.BoxOf(view.Output);
         var scale = view.Output.Scale;
-        var n = DevicePlacement.Chrome(scale);
+        var n = DevicePlacement.ChromeScale(scale);
         return new Point(box.X + (point.X * n / scale), box.Y + (point.Y * n / scale));
     }
 
@@ -387,7 +388,7 @@ internal sealed partial class System7Shell
         var view = ViewOf(window);
         var box = _layout.BoxOf(view.Output);
         var scale = view.Output.Scale;
-        var n = DevicePlacement.Chrome(scale);
+        var n = DevicePlacement.ChromeScale(scale);
         var content = window.ShellDevice;
         return new Rect(
             box.X + ((content.X + (local.X * n)) / scale),
@@ -859,7 +860,7 @@ internal sealed partial class System7Shell
 
         var box = _layout.BoxOf(view.Output);
         var scale = view.Output.Scale;
-        var n = DevicePlacement.Chrome(scale);
+        var n = DevicePlacement.ChromeScale(scale);
         var px = (int)Math.Floor((x - box.X) * scale);
         var py = (int)Math.Floor((y - box.Y) * scale);
         var mode = view.Output.CurrentMode;
@@ -902,7 +903,7 @@ internal sealed partial class System7Shell
             window.ShellKey.StartsWith("finder:", StringComparison.Ordinal) &&
             _finderViews.GetValueOrDefault(window.ShellKey["finder:".Length..]) is { } finder)
         {
-            var n = DevicePlacement.Chrome(view.Output.Scale);
+            var n = DevicePlacement.ChromeScale(view.Output.Scale);
             var content = window.ShellDevice;
             return (finder, new Point((dx - content.X) / (double)n, (dy - content.Y) / (double)n));
         }
@@ -920,7 +921,7 @@ internal sealed partial class System7Shell
         if (_desktop is { } desktop && MainView is { } main)
         {
             var box = _layout.BoxOf(main.Output);
-            var n = DevicePlacement.Chrome(main.Output.Scale);
+            var n = DevicePlacement.ChromeScale(main.Output.Scale);
             var point = new Point((x - box.X) * main.Output.Scale / n, (y - box.Y) * main.Output.Scale / n);
             return desktop.IconAt(point) switch
             {
@@ -982,7 +983,7 @@ internal sealed partial class System7Shell
         if (folder == DesktopFolder && MainView is { } main && WindowAt(x, y, out _, out _, out _) is null)
         {
             var box = _layout.BoxOf(main.Output);
-            var n = DevicePlacement.Chrome(main.Output.Scale);
+            var n = DevicePlacement.ChromeScale(main.Output.Scale);
             var point = new Point((x - box.X) * main.Output.Scale / n, (y - box.Y) * main.Output.Scale / n);
             for (var i = 0; i < moved.Count; i++)
             {

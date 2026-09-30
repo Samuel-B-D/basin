@@ -91,8 +91,7 @@ internal sealed partial class TinyComp
             return false;
         }
 
-        var horizontal = axis.Axis == Wayland.WlPointer.Axis.HorizontalScroll;
-        return router.PointerAxis(time, horizontal ? axis.Value : 0, horizontal ? 0 : axis.Value);
+        return router.PointerAxis(time, axis);
     }
 
     private bool RouteUIKey(uint time, uint key, bool pressed)

@@ -20,8 +20,6 @@ internal sealed partial class ShellSeat :
     ITouchActivitySink,
     IEdgeSwipeHandler
 {
-    private static readonly XkbKeysym SwitchVt1 = XkbKeysym.FromName("XF86Switch_VT_1");
-    private static readonly XkbKeysym SwitchVt12 = XkbKeysym.FromName("XF86Switch_VT_12");
 
     private readonly Basin.Host.BasinHost _host;
     private readonly Shell _shell;
@@ -74,12 +72,14 @@ internal sealed partial class ShellSeat :
         };
         _cursor.Shapes.CursorRequested += _cursor.ShowImage;
         _cursor.ColorProfiles = services.Find<Basin.Capabilities.IColorProfileService>();
-        _delivery = new PointerDelivery(_seat, _cursor) { RelativePointer = services.Require<RelativePointerManager>() };
+        _delivery = new PointerDelivery(_seat, _cursor);
         _idle = (services.Find<IIdleSource>() as SeatIdleSource)!;
         _binder = new SeatBinder(_seat, layout, _pointer, _cursor)
         {
             Drm = host.Drm,
             Theme = cursorTheme,
+            RelativePointer = services.Find<RelativePointerManager>(),
+            Constraints = services.Find<PointerConstraintDriver>(),
         };
         _binder.DeviceAdded += device => BasinReport.Line($"INPUT + {device.Name} keyboard={device.HasKeyboard} pointer={device.HasPointer} " + $"touch={device.HasTouch}");
         _binder.DeviceRemoved += device => BasinReport.Line($"INPUT - {device.Name}");
@@ -257,15 +257,15 @@ internal sealed partial class ShellSeat :
     {
         _idle.NotifyActivity();
         var symbol = _seat.Keyboard.KeysymFor(key);
+        if (_shell.IsLocked)
+        {
+            _seat.Keyboard.NotifyKey(timeMs, key, pressed);
+            return;
+        }
+
         var view = _shell.ViewAt(_pointer.X, _pointer.Y);
         if (pressed)
         {
-            if (HandleChord(key))
-            {
-                _seat.Keyboard.NotifyKeyConsumed(key, pressed);
-                return;
-            }
-
             if (_shell.HandleChord(view, symbol, SuperHeld, ShiftHeld, AltHeld, ControlHeld))
             {
                 _seat.Keyboard.NotifyKeyConsumed(key, pressed);
@@ -287,30 +287,25 @@ internal sealed partial class ShellSeat :
         _seat.Keyboard.NotifyKey(timeMs, key, pressed);
     }
 
-    private bool HandleChord(uint key)
-    {
-        var symbol = _seat.Keyboard.KeysymFor(key);
-        if (symbol.Value >= SwitchVt1.Value && symbol.Value <= SwitchVt12.Value)
-        {
-            try
-            {
-                _host.Session?.SwitchSession((int)(symbol.Value - SwitchVt1.Value + 1));
-            }
-            catch (NotSupportedException)
-            {
-                _log.Debug($"no seat manager to switch sessions");
-            }
-
-            return true;
-        }
-
-        return false;
-    }
-
     private void ProcessCursorMotion(
         uint timeMs, double dx = 0, double dy = 0, double? unaccelDx = null, double? unaccelDy = null,
         bool fromMotion = true)
     {
+        if (_shell.IsLocked)
+        {
+            _pointerEdge = false;
+            if (fromMotion)
+            {
+                UsePointer();
+            }
+
+            _cursor.MoveTo(_pointer.X, _pointer.Y);
+            var locked = _scene.SurfaceAt(_pointer.X, _pointer.Y);
+            _delivery.Motion(timeMs, locked?.Surface, locked?.X ?? 0, locked?.Y ?? 0, _pointer.X, _pointer.Y);
+            _idle.NotifyActivity();
+            return;
+        }
+
         if (_pointerEdge)
         {
             switch (_touch.Router.SyntheticMotion(PointerTouchId, timeMs, _pointer.X, _pointer.Y))
@@ -392,7 +387,6 @@ internal sealed partial class ShellSeat :
         }
 
         _delivery.Motion(timeMs, hit?.Surface, hit?.X ?? 0, hit?.Y ?? 0, _pointer.X, _pointer.Y);
-        _delivery.Relative(timeMs, dx, dy, unaccelDx, unaccelDy);
 
         _idle.NotifyActivity();
     }
@@ -434,6 +428,15 @@ internal sealed partial class ShellSeat :
 
     internal void OnButton(uint timeMs, uint button, bool pressed)
     {
+        if (_shell.IsLocked)
+        {
+            _pointerEdge = false;
+            _idle.NotifyActivity();
+            _seat.Pointer.NotifyButton(timeMs, button, pressed);
+            _seat.Pointer.NotifyFrame();
+            return;
+        }
+
         if (button == InputCodes.BtnLeft && pressed && !_pointerEdge &&
             _touch.Router.SyntheticDown(PointerTouchId, timeMs, _pointer.X, _pointer.Y) ==
             TouchGestureVerdict.Withhold)
@@ -567,9 +570,8 @@ internal sealed partial class ShellSeat :
     private void OnAxis(uint timeMs, PointerAxis axis)
     {
         _idle.NotifyActivity();
-        var horizontal = axis.Axis == Wayland.WlPointer.Axis.HorizontalScroll;
-        if (_buttonSurface is null && _shell.Router.Hovered is { } surface &&
-            _shell.Router.PointerAxis(timeMs, horizontal ? axis.Value : 0, horizontal ? 0 : axis.Value, surface))
+        if (_buttonSurface is null && !_shell.IsLocked && _shell.Router.Hovered is { } surface &&
+            _shell.Router.PointerAxis(timeMs, axis, surface))
         {
             return;
         }
@@ -596,6 +598,11 @@ internal sealed partial class ShellSeat :
 
     bool ITouchChrome.TryPress(int id, uint timeMs, double x, double y)
     {
+        if (_shell.IsLocked)
+        {
+            return false;
+        }
+
         var view = _shell.ViewAt(x, y);
         if (_shell.ChromePress(view, x - view.Box.X, y - view.Box.Y, id))
         {
@@ -681,6 +688,12 @@ internal sealed partial class ShellSeat :
 
     bool IEdgeSwipeHandler.TryArea(double layoutX, double layoutY, out EdgeSwipeArea area)
     {
+        if (_shell.IsLocked)
+        {
+            area = default;
+            return false;
+        }
+
         var view = _shell.ViewAt(layoutX, layoutY);
         _edgeView = view;
         _edgeGesture.Recognizer.BandWidth = _shell.EdgeBandNow;

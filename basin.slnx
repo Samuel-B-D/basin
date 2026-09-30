@@ -60,13 +60,17 @@
     <Project Path="src/Basin.Render.Impeller/Basin.Render.Impeller.csproj" />
     <Project Path="src/Basin.Render.Pixman/Basin.Render.Pixman.csproj" />
     <Project Path="src/Basin.Render.Skia/Basin.Render.Skia.csproj" />
+    <Project Path="src/Basin.Icons.Skia/Basin.Icons.Skia.csproj" />
     <Project Path="src/Basin.Render.Skia.Gpu/Basin.Render.Skia.Gpu.csproj" />
     <Project Path="src/Basin.Render.Vulkan/Basin.Render.Vulkan.csproj" />
     <Project Path="src/Basin.Renderers/Basin.Renderers.csproj" />
+    <Project Path="src/Basin.Renderers.Quill/Basin.Renderers.Quill.csproj" />
     <Project Path="src/Basin.Effects/Basin.Effects.csproj" />
     <Project Path="src/Basin.Eis/Basin.Eis.csproj" />
     <Project Path="src/Basin.Kinematics/Basin.Kinematics.csproj" />
     <Project Path="src/Basin.Scene3D/Basin.Scene3D.csproj" />
+    <Project Path="src/Basin.Scene3D.Gltf/Basin.Scene3D.Gltf.csproj" />
+    <Project Path="src/Basin.Scene3D.Scene/Basin.Scene3D.Scene.csproj" />
     <Project Path="src/Basin.Render3D.Gl/Basin.Render3D.Gl.csproj" />
     <Project Path="src/Basin.Render3D.Vulkan/Basin.Render3D.Vulkan.csproj" />
     <Project Path="src/Basin.Physics/Basin.Physics.csproj" />
@@ -112,5 +116,6 @@
     <Project Path="tests/EightWm.Tests/EightWm.Tests.csproj" />
     <Project Path="tests/System7Wm.Tests/System7Wm.Tests.csproj" />
     <Project Path="tests/DungeonWm.Tests/DungeonWm.Tests.csproj" />
+    <Project Path="tests/TinyComp.Tests/TinyComp.Tests.csproj" />
   </Folder>
 </Solution>

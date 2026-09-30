@@ -84,7 +84,7 @@ internal sealed class ClientFrame : IDisposable
         _originY = originY;
         _scale = scale;
         _client = client;
-        Chrome = DevicePlacement.Chrome(scale);
+        Chrome = DevicePlacement.ChromeScale(scale);
         var n = Chrome;
         _title.Title = title;
         _title.IsActive = active;

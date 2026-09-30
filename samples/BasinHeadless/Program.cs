@@ -124,14 +124,7 @@ internal static class Program
         var frameState = new OutputState();
         var sceneSurfaces = new List<SceneSurface>();
         var shell = new XdgShell(display, compositorGlobal);
-        using var dmabufGlobal = gpu
-            ? new LinuxDmabufGlobal(
-                display,
-                buffers,
-                new Basin.Transport.Waypipe.WaypipeGlobals(gpu, decoder is not null).Formats,
-                Basin.Transport.Waypipe.WaypipeGlobals.SyntheticMainDevice,
-                compositor: compositorGlobal)
-            : null;
+        using var adoption = new Basin.Transport.Waypipe.WaypipeAdoption(display, buffers, compositorGlobal, hostHasDmabuf: false);
 
         var placement = 40;
         shell.ToplevelMapped += surface =>
@@ -169,14 +162,18 @@ internal static class Program
         }
 
         using var ipcServices = new BasinServices(loop).Freeze();
-        using var ipc = ipcChoice.Serve(loop, ipcServices, socket, new Basin.Ipc.IpcSessionInfo
+        using var ipc = ipcChoice.Attach(loop, ipcServices, socket, new Basin.Ipc.IpcSessionInfo
         {
             Compositor = "basin-headless",
             Backend = "headless",
             Renderer = rendererName,
             Quit = () => running = false,
         });
-        var client = BasinDiagnostics.StartClient(clientCommand, socket);
+        new Basin.Ipc.IpcLineReport().AddLine(ipc.Methods, Basin.Ipc.IpcMethodNames.SessionQuit, "quit");
+        ipc.Start();
+        ipc.StartLineFront();
+        using var processes = new ProcessTracker(loop, () => ProcessTracker.SessionEnvironment(socket, null, ipc.Path));
+        var client = clientCommand is null ? null : processes.SpawnShell(clientCommand, out _);
         if (clientCommand is not null && client is null)
         {
             throw new InvalidOperationException($"failed to start '{clientCommand}'");
@@ -185,14 +182,7 @@ internal static class Program
         Basin.Transport.Waypipe.WaypipeChannel? channel = null;
         if (channelEndpoint is not null)
         {
-            System.Net.EndPoint endpoint = channelEndpoint.Contains(':', StringComparison.Ordinal)
-                ? System.Net.IPEndPoint.Parse(channelEndpoint)
-                : new System.Net.Sockets.UnixDomainSocketEndPoint(channelEndpoint);
-            if (endpoint is System.Net.Sockets.UnixDomainSocketEndPoint && File.Exists(channelEndpoint))
-            {
-                File.Delete(channelEndpoint);
-            }
-
+            var endpoint = Basin.Transport.Waypipe.WaypipeEndpoint.ForListening(channelEndpoint);
             log.Info($"waiting for a waypipe channel on {endpoint}, replayed over the managed transport");
             channel = Basin.Transport.Waypipe.WaypipeChannel.Listen(
                 endpoint,
@@ -209,7 +199,7 @@ internal static class Program
                     VideoDecoder = decoder,
                 });
             channel.Ended += failure => log.Info($"channel ended{(failure is null ? string.Empty : $": {failure.Message}")}");
-            display.CreateClient(channel.Transport);
+            adoption.Adopt(channel);
             log.Info($"channel attached; replaying it as one client");
         }
 
@@ -219,7 +209,7 @@ internal static class Program
         while (running && (frames == 0 || rendered < frames))
         {
             loop.Dispatch(frames == 0 ? -1 : 16);
-            if (client is not null && client.HasExited)
+            if (client is { IsRunning: false })
             {
                 log.Error($"client exited prematurely with code {client.ExitCode}");
                 renderedFrames = rendered;
@@ -247,7 +237,7 @@ internal static class Program
 
         if (client is not null)
         {
-            BasinDiagnostics.StopClient(client);
+            processes.TerminateAll(TimeSpan.FromSeconds(2));
 
             var drain = Stopwatch.StartNew();
             while (compositorGlobal.Surfaces.Count > 0 && drain.ElapsedMilliseconds < 2000)
@@ -257,6 +247,8 @@ internal static class Program
         }
 
         host.DisconnectClients();
+        adoption.Dispose();
+        processes.Dispose();
         interrupt.Remove();
         terminate.Remove();
         ipc?.Dispose();

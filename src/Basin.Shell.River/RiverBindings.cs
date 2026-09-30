@@ -52,7 +52,7 @@ internal sealed class RiverBindings : IDisposable
             return false;
         }
 
-        var modifiers = CurrentModifiers(keyboard);
+        var modifiers = RiverModifiers.From(keyboard);
         var seatState = SeatStateFor(seat);
 
         if (!pressed)
@@ -120,7 +120,7 @@ internal sealed class RiverBindings : IDisposable
             return;
         }
 
-        var current = CurrentModifiers(seat.Seat.Keyboard);
+        var current = RiverModifiers.From(seat.Seat.Keyboard);
         if (current == seatState.LastModifiers)
         {
             return;
@@ -213,48 +213,6 @@ internal sealed class RiverBindings : IDisposable
         return syms.Length == 0;
     }
 
-    private static RiverSeatV1.Modifiers CurrentModifiers(Basin.Seat.SeatKeyboard keyboard)
-    {
-        var state = keyboard.State;
-        if (state is null)
-        {
-            return RiverSeatV1.Modifiers.None;
-        }
-
-        var result = RiverSeatV1.Modifiers.None;
-        if (state.IsModActive("Shift"))
-        {
-            result |= RiverSeatV1.Modifiers.Shift;
-        }
-
-        if (state.IsModActive("Control"))
-        {
-            result |= RiverSeatV1.Modifiers.Ctrl;
-        }
-
-        if (state.IsModActive("Mod1"))
-        {
-            result |= RiverSeatV1.Modifiers.Mod1;
-        }
-
-        if (state.IsModActive("Mod3"))
-        {
-            result |= RiverSeatV1.Modifiers.Mod3;
-        }
-
-        if (state.IsModActive("Mod4"))
-        {
-            result |= RiverSeatV1.Modifiers.Mod4;
-        }
-
-        if (state.IsModActive("Mod5"))
-        {
-            result |= RiverSeatV1.Modifiers.Mod5;
-        }
-
-        return result;
-    }
-
     private BindingSeat SeatStateFor(RiverSeat seat)
     {
         if (!_seats.TryGetValue(seat, out var state))
@@ -302,7 +260,7 @@ internal sealed class RiverBindings : IDisposable
 
             var seatResource = new RiverXkbBindingsSeatV1Resource(client, version, e.Id);
             seatState.Resource = seatResource;
-            seatState.LastModifiers = CurrentModifiers(seat.Seat.Keyboard);
+            seatState.LastModifiers = RiverModifiers.From(seat.Seat.Keyboard);
 
             seatResource.EnsureNextKeyEaten += (_, _) =>
             {
@@ -323,7 +281,7 @@ internal sealed class RiverBindings : IDisposable
                 if (_manager.EnsureWindowing())
                 {
                     seatState.Watched = e2.Modifiers;
-                    seatState.LastModifiers = CurrentModifiers(seat.Seat.Keyboard);
+                    seatState.LastModifiers = RiverModifiers.From(seat.Seat.Keyboard);
                 }
             };
             seatResource.DestroyRequest += (_, _) => seatState.Resource = null;

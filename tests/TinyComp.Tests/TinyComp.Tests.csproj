@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>TinyComp.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../samples/TinyComp/TinyComp.csproj" />
+    <ProjectReference Include="../../src/Basin.Core/Basin.Core.csproj" />
+    <ProjectReference Include="../../src/Basin.Effects/Basin.Effects.csproj" />
+    <ProjectReference Include="../../src/Basin.Renderers/Basin.Renderers.csproj" />
+    <ProjectReference Include="../../src/Basin.Render.Vulkan/Basin.Render.Vulkan.csproj" />
+    <ProjectReference Include="../../src/Basin.Shell.Xdg/Basin.Shell.Xdg.csproj" />
+    <ProjectReference Include="../../src/Basin.Desktop/Basin.Desktop.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../Shared/*.cs" LinkBase="Shared" />
+    <Compile Include="../Basin.Tests/ShmTestClient.cs" Link="Shared/ShmTestClient.cs" />
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

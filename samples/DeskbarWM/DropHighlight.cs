@@ -8,70 +8,32 @@ namespace DeskbarWm;
 
 internal sealed class DropHighlight : IDisposable
 {
-    private readonly ManagerSurface _surface;
-    private Rect _lastRegion;
+    private readonly OverlayRectSurface _overlay;
 
-    internal DropHighlight(
-        WlCompositor compositor,
-        WlShm shm,
-        ZwlrLayerShellV1 layerShell,
-        WlOutput wlOutput,
-        WmOutput output,
-        RiverWindowManager wm)
+    internal DropHighlight(ManagerSurfaceHost host, WlOutput wlOutput, WmOutput output)
     {
-        Output = output;
-        _surface = new ManagerSurface(
-            compositor, shm, layerShell, wlOutput, ZwlrLayerShellV1.Layer.Overlay, "deskbar-drop");
-        _surface.SetExclusiveZone(-1);
-        _surface.SetAnchor(
-            ZwlrLayerSurfaceV1.Anchor.Top | ZwlrLayerSurfaceV1.Anchor.Bottom
-            | ZwlrLayerSurfaceV1.Anchor.Left | ZwlrLayerSurfaceV1.Anchor.Right);
-        _surface.Configured += wm.RequestManage;
-        _surface.CommitInitial();
+        _overlay = new OverlayRectSurface(host, wlOutput, output, ZwlrLayerShellV1.Layer.Overlay, "deskbar-drop");
+        _overlay.Paint += Draw;
     }
 
-    public WmOutput Output { get; }
+    public WmOutput Output => _overlay.Output;
 
-    public bool Render(Rect region, int scale)
+    public void Show(Rect region, int scale) =>
+        _overlay.Show(new Rect(region.X - Output.Area.X, region.Y - Output.Area.Y, region.Width, region.Height), scale);
+
+    public void Dispose() => _overlay.Dispose();
+
+    private static void Draw(SKCanvas canvas, int width, int height, int scale)
     {
-        if (!_surface.IsConfigured || _surface.ConfiguredSize.IsEmpty || region == _lastRegion)
-        {
-            return false;
-        }
-
-        var size = _surface.ConfiguredSize;
-        var pixels = _surface.Prepare(size.Width, size.Height, scale);
-        if (pixels == 0)
-        {
-            return false;
-        }
-
-        using var canvas = _surface.CreateCanvas(pixels);
-        if (canvas is null)
-        {
-            return false;
-        }
-
-        canvas.Canvas.Scale(scale);
-        canvas.Canvas.Clear(SKColors.Transparent);
-        var local = new Rect(
-            region.X - Output.Area.X, region.Y - Output.Area.Y, region.Width, region.Height);
+        canvas.Scale(scale);
+        canvas.Clear(SKColors.Transparent);
         using var paint = new SKPaint();
         paint.IsAntialias = false;
         paint.Color = new SKColor(51, 102, 152, 90);
-        canvas.Canvas.DrawRect(local.X, local.Y, local.Width, local.Height, paint);
+        canvas.DrawRect(0, 0, width, height, paint);
         paint.Style = SKPaintStyle.Stroke;
         paint.StrokeWidth = 2;
         paint.Color = new SKColor(51, 102, 152);
-        canvas.Canvas.DrawRect(local.X + 1, local.Y + 1, local.Width - 2, local.Height - 2, paint);
-        paint.Style = SKPaintStyle.Fill;
-        canvas.Canvas.Flush();
-        _surface.SetInputRegion(Rect.Empty);
-        _lastRegion = region;
-        return true;
+        canvas.DrawRect(1, 1, width - 2, height - 2, paint);
     }
-
-    public void Commit() => _surface.Commit();
-
-    public void Dispose() => _surface.Dispose();
 }

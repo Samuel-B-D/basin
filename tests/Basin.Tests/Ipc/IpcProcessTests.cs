@@ -94,7 +94,7 @@ public sealed class IpcProcessTests : IDisposable
     {
         using var rig = IpcFullRig.Create();
         var tracker = rig.Server.Processes;
-        var process = tracker.Spawn(new IpcLaunch(["sleep", "30"]), out var error);
+        var process = tracker.Spawn(new ProcessLaunch(["sleep", "30"]), out var error);
         Assert.NotNull(process);
         Assert.Null(error);
         Assert.True(process.IsRunning);

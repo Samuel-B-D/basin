@@ -14,9 +14,9 @@
     <ProjectReference Include="../Basin.Portal/Basin.Portal.csproj" />
     <ProjectReference Include="../Basin.UI.Avalonia/Basin.UI.Avalonia.csproj" />
     <ProjectReference Include="../Basin.Config/Basin.Config.csproj" />
+    <ProjectReference Include="../Basin.Icons.Skia/Basin.Icons.Skia.csproj" />
     <PackageReference Include="Avalonia" />
     <PackageReference Include="SkiaSharp" />
-    <PackageReference Include="Svg.Skia" />
   </ItemGroup>
 
 </Project>

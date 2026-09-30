@@ -7,15 +7,15 @@ internal sealed class DungeonWmBindings
 {
     public static readonly string[] Actions = ["leave-takeover", "next-room", "previous-room", "takeover", "close", "throw-back", "look-reset", "use", "release", "rotate", "square"];
 
-    private readonly List<(uint Keysym, Modifiers Mask, string Action)> _bindings = [];
+    private readonly List<Hotkey> _bindings = [];
 
-    public DungeonWmBindings(IReadOnlyDictionary<string, string> table, BasinLogger log)
+    public DungeonWmBindings(IReadOnlyDictionary<string, object> table, BasinLogger log)
     {
-        foreach (var (chord, action) in table)
+        foreach (var (chord, value) in table)
         {
-            if (HotkeyParser.TryParseChord(chord, log, out var keysym, out var mask))
+            if (ToHotkey(chord, value, log) is { } hotkey)
             {
-                _bindings.Add((new Xkb.XkbKeysym(keysym).ToLower().Value, mask, action));
+                _bindings.Add(hotkey with { Keysym = new Xkb.XkbKeysym(hotkey.Keysym).ToLower().Value });
             }
         }
 
@@ -31,54 +31,47 @@ internal sealed class DungeonWmBindings
         var keysym = new Xkb.XkbKeysym(key).Value;
         if (!_bindings.Exists(binding => binding.Action == action) && Match(keysym, mask) is null)
         {
-            _bindings.Add((keysym, mask, action));
+            _bindings.Add(new Hotkey(keysym, mask, action, null));
         }
     }
 
     public static bool IsAction(string name) =>
-        Array.IndexOf(Actions, name) >= 0 || (name.StartsWith("spawn ", StringComparison.Ordinal) && name.AsSpan(6).Trim().Length > 0);
+        Array.IndexOf(Actions, name) >= 0 || SpawnCommand(name) is not null;
 
-    public string? Match(uint keysym, Modifiers held)
+    public static bool Accepts(object value) => value switch
     {
-        foreach (var (symbol, mask, action) in _bindings)
+        string name => IsAction(name),
+        Tomlyn.Model.TomlArray array => array.Count > 0 && array.All(part => part is string { Length: > 0 }),
+        _ => false,
+    };
+
+    public Hotkey? Match(uint keysym, Modifiers held)
+    {
+        foreach (var hotkey in _bindings)
         {
-            if (symbol == keysym && mask == held)
+            if (hotkey.Keysym == keysym && hotkey.ModifierMask == held)
             {
-                return action;
+                return hotkey;
             }
         }
 
         return null;
     }
 
-    public static Modifiers Held(Basin.Seat.SeatKeyboard keyboard)
+    public static Modifiers Held(Basin.Seat.SeatKeyboard keyboard) => HeldModifiers.From(keyboard.State);
+
+    private static Hotkey? ToHotkey(string chord, object value, BasinLogger log)
     {
-        if (keyboard.State is not { } state)
+        if (value is string text && SpawnCommand(text) is { } command)
         {
-            return Modifiers.None;
+            return HotkeyParser.TryParseChord(chord, log, out var keysym, out var mask)
+                ? new Hotkey(keysym, mask, null, ["/bin/sh", "-c", command])
+                : null;
         }
 
-        var held = Modifiers.None;
-        if (state.IsModActive("Shift"))
-        {
-            held |= Modifiers.Shift;
-        }
-
-        if (state.IsModActive("Control"))
-        {
-            held |= Modifiers.Ctrl;
-        }
-
-        if (state.IsModActive("Mod1"))
-        {
-            held |= Modifiers.Mod1;
-        }
-
-        if (state.IsModActive("Mod4"))
-        {
-            held |= Modifiers.Mod4;
-        }
-
-        return held;
+        return HotkeyParser.Parse(chord, value, log, static name => Array.IndexOf(Actions, name) >= 0);
     }
+
+    private static string? SpawnCommand(string text) =>
+        text.StartsWith("spawn ", StringComparison.Ordinal) && text.AsSpan(6).Trim().Length > 0 ? text[6..].Trim() : null;
 }

@@ -1,5 +1,6 @@
 using System.Numerics;
 using Basin.Diagnostics;
+using Basin.Scene3D.Gltf;
 
 namespace DungeonWm;
 
@@ -22,7 +23,7 @@ internal sealed partial class DungeonWm
         try
         {
             var bytes = path is { Length: > 0 } ? File.ReadAllBytes(path) : Kit.ReadResource(KitManifest.Avatar);
-            var model = AvatarLoader.Load(bytes, _settings.AvatarSampleHz, _settings.AvatarShow);
+            var model = GlbAvatar.Load(bytes, _settings.AvatarSampleHz, _settings.AvatarShow, Kit.DecodeImage);
             return new DungeonWmAvatar(model, _settings, message => BasinReport.Line($"AVATAR {message}"));
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or NotSupportedException or System.Text.Json.JsonException)

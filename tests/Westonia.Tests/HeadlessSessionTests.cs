@@ -38,7 +38,8 @@ public sealed class HeadlessSessionTests
             app.Kill(entireProcessTree: true);
         }
 
-        await Task.Delay(500, TestContext.Current.CancellationToken);
+        app.WaitForExit(5000);
+        await session.SettleAsync();
         await session.SendAsync("quit");
         var frames = await session.WaitForAsync(line => line.StartsWith("FRAMES ", StringComparison.Ordinal));
         Assert.NotNull(frames);
@@ -79,7 +80,7 @@ public sealed class HeadlessSessionTests
         Assert.Equal(Field(area, "Height = "), Field(mapped, "Height = "));
 
         await Chord(session, 33);
-        var restored = await Geometry(session);
+        var restored = await Geometry(session, holding: "fullscreen=False");
         Assert.NotNull(restored);
         Assert.Contains("fullscreen=False", restored!, StringComparison.Ordinal);
         Assert.Contains("kind=Normal", restored, StringComparison.Ordinal);
@@ -150,11 +151,11 @@ public sealed class HeadlessSessionTests
         Assert.NotNull(mapped);
 
         await Chord(session, 50);
-        var maximized = await Geometry(session);
+        var maximized = await Geometry(session, holding: "maximized=True");
         Assert.NotNull(maximized);
         Assert.Contains("maximized=True", maximized!, StringComparison.Ordinal);
 
-        await ModifierDrag(session, 600, 400, 700, 500);
+        await ModifierDrag(session, 600, 400, 700, 500, grab: false);
         var held = await Geometry(session);
         Assert.NotNull(held);
         Assert.Contains("maximized=True", held!, StringComparison.Ordinal);
@@ -162,12 +163,12 @@ public sealed class HeadlessSessionTests
         Assert.Equal(Field(maximized, "Y = "), Field(held, "Y = "));
 
         await Chord(session, 50);
-        var restored = await Geometry(session);
+        var restored = await Geometry(session, holding: "maximized=False");
         Assert.NotNull(restored);
         Assert.Contains("maximized=False", restored!, StringComparison.Ordinal);
 
         await ModifierDrag(session, 600, 400, 700, 500);
-        var moved = await Geometry(session);
+        var moved = await Geometry(session, changedFrom: restored);
         Assert.NotNull(moved);
         Assert.Equal(Field(restored, "X = ") + 100, Field(moved, "X = "));
         Assert.Equal(Field(restored, "Y = ") + 100, Field(moved, "Y = "));
@@ -198,23 +199,23 @@ public sealed class HeadlessSessionTests
         Assert.NotNull(mapped);
 
         await Chord(session, 50);
-        var maximized = await Geometry(session);
+        var maximized = await Geometry(session, holding: "maximized=True");
         Assert.NotNull(maximized);
         Assert.Contains("maximized=True", maximized!, StringComparison.Ordinal);
 
-        await ModifierDrag(session, 900, 600, 700, 400, button: 273);
+        await ModifierDrag(session, 900, 600, 700, 400, button: 273, grab: false);
         var held = await Geometry(session);
         Assert.NotNull(held);
         Assert.Equal(Field(maximized, "Width = "), Field(held!, "Width = "));
         Assert.Equal(Field(maximized, "Height = "), Field(held, "Height = "));
 
         await Chord(session, 50);
-        var restored = await Geometry(session);
+        var restored = await Geometry(session, holding: "maximized=False");
         Assert.NotNull(restored);
         Assert.Contains("maximized=False", restored!, StringComparison.Ordinal);
 
         await ModifierDrag(session, 700, 400, 900, 600, button: 273);
-        var resized = await Geometry(session);
+        var resized = await Geometry(session, changedFrom: restored);
         Assert.NotNull(resized);
         Assert.True(Field(resized!, "Width = ") > Field(restored, "Width = "));
         Assert.True(Field(resized, "Height = ") > Field(restored, "Height = "));
@@ -245,12 +246,12 @@ public sealed class HeadlessSessionTests
         Assert.NotNull(mapped);
 
         await Chord(session, 105);
-        var tiled = await Geometry(session);
+        var tiled = await Geometry(session, holding: "tiled=Left");
         Assert.NotNull(tiled);
         Assert.Contains("tiled=Left", tiled!, StringComparison.Ordinal);
 
         await ModifierDrag(session, 300, 400, 400, 500);
-        var moved = await Geometry(session);
+        var moved = await Geometry(session, holding: "tiled=None");
         Assert.NotNull(moved);
         Assert.Contains("tiled=None", moved!, StringComparison.Ordinal);
         Assert.Equal(Field(tiled, "X = ") + 100, Field(moved, "X = "));
@@ -284,7 +285,7 @@ public sealed class HeadlessSessionTests
         await session.SendAsync("button 272 1");
         await session.SendAsync("move 600 114");
         await session.SendAsync("button 272 0");
-        await Task.Delay(400, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
 
         var grab = await session.WaitForAsync(
             line => line.StartsWith("GRAB ", StringComparison.Ordinal),
@@ -297,9 +298,9 @@ public sealed class HeadlessSessionTests
         await session.SendAsync("button 272 1");
         await session.SendAsync("move 700 214");
         await session.SendAsync("button 272 0");
-        await Task.Delay(500, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
 
-        var after = await Geometry(session);
+        var after = await Geometry(session, changedFrom: before);
         Assert.NotEqual(before, after);
 
         if (!app.HasExited)
@@ -387,10 +388,10 @@ public sealed class HeadlessSessionTests
 
         y = Field(clamped!, "Y = ");
         await session.SendAsync("key 125 1");
-        await Task.Delay(150, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
         await Drag(session, x + 100, y + height - 20, x + 100, 0);
         await session.SendAsync("key 125 0");
-        await Task.Delay(150, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
 
         var pushed = await Geometry(session);
         Assert.NotNull(pushed);
@@ -418,9 +419,7 @@ public sealed class HeadlessSessionTests
         Assert.NotNull(socket);
 
         using var app = Start(client!, socket!.Split(' ')[1]);
-        var placed = await session.WaitForAsync(
-            line => line.StartsWith("WINDOW ", StringComparison.Ordinal),
-            poke: "where");
+        var placed = await Geometry(session);
         Assert.NotNull(placed);
 
         var x = Field(placed!, "X = ");
@@ -432,7 +431,7 @@ public sealed class HeadlessSessionTests
         var grabY = y - FrameModel.TitlebarHeight + 2;
         await Drag(session, grabX, grabY, grabX - 60, grabY - 60);
 
-        var resized = await Geometry(session);
+        var resized = await Geometry(session, changedFrom: placed);
         Assert.NotNull(resized);
         Assert.NotEqual(placed, resized);
         Assert.Equal(right, Field(resized!, "Right = "));
@@ -474,11 +473,11 @@ public sealed class HeadlessSessionTests
         var x = Field(top!, "X = ") - FrameModel.Margin - FrameModel.BorderWidth + (FrameModel.Margin / 2);
         var y = Field(top!, "Y = ") + (Field(top!, "Height = ") / 2);
         await session.SendAsync($"move {x} {y}");
-        await Task.Delay(200, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
         await session.SendAsync("button 272 1");
-        await Task.Delay(200, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
         await session.SendAsync("button 272 0");
-        await Task.Delay(400, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
 
         var raised = await session.WaitForAsync(
             line => line.StartsWith("WINDOW \"below\"", StringComparison.Ordinal),
@@ -549,7 +548,7 @@ public sealed class HeadlessSessionTests
             Assert.Contains("ws=1", restored!, StringComparison.Ordinal);
 
             await session.SendAsync("move 640 360");
-            await Task.Delay(300, TestContext.Current.CancellationToken);
+            await session.SettleAsync();
             var hit = await session.WaitForAsync(
                 line => line.StartsWith("HIT ", StringComparison.Ordinal),
                 poke: "where",
@@ -568,21 +567,122 @@ public sealed class HeadlessSessionTests
         }
     }
 
+    [Fact]
+    public async Task A_layer_shell_panel_maps_takes_the_keyboard_and_shrinks_the_work_area()
+    {
+        Assert.SkipUnless(OperatingSystem.IsLinux(), "the compositor half is Linux only");
+        var compositor = Locate("westonia");
+        Assert.SkipWhen(compositor is null, "westonia has not been built beside the tests");
+        var panel = WlClient("panel");
+        Assert.SkipWhen(panel is null, "scripts/wlclients/bin/panel has not been built");
+
+        using var session = new Session(compositor!);
+        var socket = await session.WaitForAsync(line => line.StartsWith("SOCKET ", StringComparison.Ordinal));
+        Assert.NotNull(socket);
+        var output = new List<string>();
+        using (var client = StartListening(panel!, socket!.Split(' ')[1], output, "bottom", "40", "keyboard"))
+        {
+            Assert.True(await WaitForLineAsync(output, "PANEL 1280x40"), "the panel was never configured");
+            Assert.NotNull(await session.WaitForAsync(line => line == "LAYER + panel Top"));
+            Assert.True(await WaitForLineAsync(output, "KEYBOARD enter"), "the panel did not get the keyboard");
+            await session.SendAsync("key 30 1");
+            await session.SendAsync("key 30 0");
+            Assert.True(await WaitForLineAsync(output, "KEY 30 1"), "the key did not reach the panel");
+            var area = await session.WaitForAsync(line => line.StartsWith("AREA ", StringComparison.Ordinal), poke: "where", fresh: true);
+            Assert.Contains("work=Box { X = 0, Y = 32, Width = 1280, Height = 648,", area!, StringComparison.Ordinal);
+            client.Kill(entireProcessTree: true);
+        }
+
+        Assert.NotNull(await session.WaitForAsync(line => line == "LAYER - panel"));
+        var restored = await session.WaitForAsync(line => line.StartsWith("AREA ", StringComparison.Ordinal), poke: "where", fresh: true);
+        Assert.Contains("work=Box { X = 0, Y = 32, Width = 1280, Height = 688,", restored!, StringComparison.Ordinal);
+        await session.SendAsync("quit");
+        var frames = await session.WaitForAsync(line => line.StartsWith("FRAMES ", StringComparison.Ordinal));
+        Assert.NotNull(frames);
+        var live = frames!.Split(' ');
+        Assert.Equal("LIVE", live[2]);
+        if (live[3] != "untracked")
+        {
+            Assert.Equal("0", live[3]);
+        }
+    }
+
+    private static Process StartListening(string path, string display, List<string> lines, params string[] arguments)
+    {
+        var info = new ProcessStartInfo(path) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var argument in arguments)
+        {
+            info.ArgumentList.Add(argument);
+        }
+
+        info.Environment["WAYLAND_DISPLAY"] = display;
+        var process = Process.Start(info)!;
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data is not null)
+            {
+                lock (lines)
+                {
+                    lines.Add(e.Data);
+                }
+            }
+        };
+        process.ErrorDataReceived += (_, _) => { };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        return process;
+    }
+
+    private static async Task<bool> WaitForLineAsync(List<string> lines, string exact)
+    {
+        for (var i = 0; i < 500; i++)
+        {
+            lock (lines)
+            {
+                if (lines.Contains(exact))
+                {
+                    return true;
+                }
+            }
+
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
+
+        return false;
+    }
+
+    private static string? WlClient(string name)
+    {
+        var directory = AppContext.BaseDirectory;
+        for (var i = 0; i < 10 && directory is not null; i++)
+        {
+            var candidate = Path.Combine(directory, "scripts", "wlclients", "bin", name);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = Path.GetDirectoryName(directory.TrimEnd(Path.DirectorySeparatorChar));
+        }
+
+        return null;
+    }
+
     private static async Task Chord(Session session, params int[] codes)
     {
         foreach (var code in codes)
         {
             await session.SendAsync($"key {code} 1");
-            await Task.Delay(80, TestContext.Current.CancellationToken);
+            await session.SettleAsync();
         }
 
         for (var i = codes.Length - 1; i >= 0; i--)
         {
             await session.SendAsync($"key {codes[i]} 0");
-            await Task.Delay(80, TestContext.Current.CancellationToken);
+            await session.SettleAsync();
         }
 
-        await Task.Delay(500, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
     }
 
     private static int Field(string line, string name)
@@ -599,20 +699,33 @@ public sealed class HeadlessSessionTests
 
     private static async Task Drag(Session session, int sx, int sy, int ex, int ey)
     {
+        var before = await Geometry(session);
         await session.SendAsync($"move {sx} {sy}");
-        await Task.Delay(150, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
         await session.SendAsync("button 272 1");
-        await Task.Delay(200, TestContext.Current.CancellationToken);
+        await Grabbed(session);
         await session.SendAsync($"move {ex} {ey}");
-        await Task.Delay(200, TestContext.Current.CancellationToken);
+        await Geometry(session, changedFrom: before);
         await session.SendAsync("button 272 0");
-        await Task.Delay(400, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
     }
 
     private static async Task<string?> DragAndRead(Session session, int sx, int sy, int ex, int ey)
     {
-        await Drag(session, sx, sy, ex, ey);
-        return await Geometry(session);
+        var before = await Geometry(session);
+        await session.SendAsync($"move {sx} {sy}");
+        await session.SettleAsync();
+        await session.SendAsync("button 272 1");
+        Assert.NotNull(await session.WaitForAsync(
+            line => line.StartsWith("GRAB kind=Move ", StringComparison.Ordinal),
+            poke: "where",
+            fresh: true));
+        await session.SendAsync($"move {ex} {ey}");
+        await session.SendAsync("button 272 0");
+        await session.SettleAsync();
+        var after = await Geometry(session, changedFrom: before);
+        Assert.NotNull(after);
+        return after;
     }
 
     private static async Task Chord(Session session, int key)
@@ -623,30 +736,63 @@ public sealed class HeadlessSessionTests
         await session.SendAsync($"key {key} 0");
         await session.SendAsync("key 42 0");
         await session.SendAsync("key 125 0");
-        await Task.Delay(500, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
     }
 
-    private static async Task ModifierDrag(Session session, int sx, int sy, int ex, int ey, int button = 272)
+    private static async Task ModifierDrag(Session session, int sx, int sy, int ex, int ey, int button = 272, bool grab = true)
     {
+        var before = await Geometry(session);
         await session.SendAsync("key 125 1");
         await session.SendAsync($"move {sx} {sy}");
-        await Task.Delay(150, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
         await session.SendAsync($"button {button} 1");
-        await Task.Delay(200, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
+        if (grab)
+        {
+            await Grabbed(session);
+        }
+
         await session.SendAsync($"move {ex} {ey}");
-        await Task.Delay(200, TestContext.Current.CancellationToken);
+        if (grab)
+        {
+            await Geometry(session, changedFrom: before);
+        }
+        else
+        {
+            await session.SettleAsync();
+        }
+
         await session.SendAsync($"button {button} 0");
         await session.SendAsync("key 125 0");
-        await Task.Delay(400, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
     }
 
-    private static async Task<string?> Geometry(Session session)
-    {
-        var line = await session.WaitForAsync(
-            l => l.StartsWith("WINDOW ", StringComparison.Ordinal),
+    private static async Task Grabbed(Session session) =>
+        Assert.NotNull(await session.WaitForAsync(
+            line => line.StartsWith("GRAB kind=", StringComparison.Ordinal) &&
+                    !line.StartsWith("GRAB kind=None ", StringComparison.Ordinal),
             poke: "where",
-            fresh: true);
-        return line;
+            fresh: true));
+
+    private static async Task<string?> Geometry(Session session, string? changedFrom = null, string? holding = null)
+    {
+        var deadline = Environment.TickCount64 + 10_000;
+        string? previous = null;
+        while (Environment.TickCount64 < deadline)
+        {
+            await session.SettleAsync();
+            var line = await session.WaitForAsync(l => l.StartsWith("WINDOW ", StringComparison.Ordinal), poke: "where", fresh: true);
+            if (line is not null && line == previous &&
+                (changedFrom is null || line != changedFrom) &&
+                (holding is null || line.Contains(holding, StringComparison.Ordinal)))
+            {
+                return line;
+            }
+
+            previous = line;
+        }
+
+        return null;
     }
 
     private static Process Start(string path, string display, params string[] arguments)
@@ -696,6 +842,7 @@ public sealed class HeadlessSessionTests
         private readonly Process _process;
         private readonly List<string> _lines = [];
         private readonly Lock _gate = new();
+        private TaskCompletionSource _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Session(string path, string config = "false")
         {
@@ -719,10 +866,15 @@ public sealed class HeadlessSessionTests
             {
                 if (e.Data is not null)
                 {
+                    TaskCompletionSource arrived;
                     lock (_gate)
                     {
                         _lines.Add(e.Data);
+                        arrived = _arrived;
+                        _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     }
+
+                    arrived.TrySetResult();
                 }
             };
             _process.ErrorDataReceived += (_, _) => { };
@@ -736,12 +888,30 @@ public sealed class HeadlessSessionTests
             await _process.StandardInput.FlushAsync();
         }
 
+        public int Mark()
+        {
+            lock (_gate)
+            {
+                return _lines.Count;
+            }
+        }
+
+        public async Task SettleAsync()
+        {
+            var mark = Mark();
+            await SendAsync("settle");
+            var reply = await WaitForAsync(
+                line => line.StartsWith("OK session/settle ", StringComparison.Ordinal) || line.StartsWith("ERR ", StringComparison.Ordinal),
+                since: mark);
+            Assert.True(reply is not null && reply.StartsWith("OK ", StringComparison.Ordinal), $"settle answered [{reply}]");
+        }
+
         public async Task<string?> WaitForAsync(
             Func<string, bool> predicate,
             string? poke = null,
-            bool fresh = false)
+            bool fresh = false, int since = 0)
         {
-            var floor = 0;
+            var floor = since;
             if (fresh)
             {
                 lock (_gate)
@@ -750,28 +920,47 @@ public sealed class HeadlessSessionTests
                 }
             }
 
-            for (var i = 0; i < 100; i++)
+            var deadline = Environment.TickCount64 + (100 * 100L);
+            var cancel = TestContext.Current.CancellationToken;
+            while (true)
             {
                 if (poke is not null)
                 {
                     await SendAsync(poke);
                 }
 
-                lock (_gate)
+                var slotEnd = poke is null ? deadline : Math.Min(deadline, Environment.TickCount64 + 100);
+                while (true)
                 {
-                    for (var j = _lines.Count - 1; j >= floor; j--)
+                    Task next;
+                    lock (_gate)
                     {
-                        if (predicate(_lines[j]))
+                        for (var j = _lines.Count - 1; j >= floor; j--)
                         {
-                            return _lines[j];
+                            if (predicate(_lines[j]))
+                            {
+                                return _lines[j];
+                            }
                         }
+
+                        next = _arrived.Task;
                     }
+
+                    var remaining = slotEnd - Environment.TickCount64;
+                    if (remaining <= 0)
+                    {
+                        break;
+                    }
+
+                    await Task.WhenAny(next, Task.Delay((int)remaining, cancel));
+                    cancel.ThrowIfCancellationRequested();
                 }
 
-                await Task.Delay(100, TestContext.Current.CancellationToken);
+                if (Environment.TickCount64 >= deadline)
+                {
+                    return null;
+                }
             }
-
-            return null;
         }
 
         public void Dispose()

@@ -1,42 +1,33 @@
+using System7.Avalonia.Controls;
+using System7.Avalonia.Rendering;
+using System7.Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Styling;
-using Basin;
 using Basin.Backend.Wayland;
 using Basin.Capabilities;
+using Basin.Scene;
 using Basin.UI.Avalonia;
+using Basin;
 using Pixman;
-using System7.Avalonia;
-using System7.Avalonia.Controls;
-using System7.Avalonia.Rendering;
 
 namespace System7Wm;
 
-internal sealed class HostWindow : IUISurfaceObserver, IDisposable
+internal sealed class HostWindow : HostFrameChrome, IUISurfaceObserver
 {
     private const uint LeftButton = 0x110;
 
-    private readonly WaylandHostFrame _frame;
-    private readonly AvaloniaUIHost _host;
     private readonly Action _close;
     private readonly System7WindowFrame _window;
     private readonly LayoutTransformControl _zoom;
     private HostFrameInsets _insets;
     private readonly string _title;
-    private AvaloniaUISurface? _surface;
     private System7ColorDepth _depth;
-    private int _shownWidth;
-    private int _shownHeight;
-    private double _shownScale;
-    private double _pointerX;
-    private double _pointerY;
     private bool _forwarding;
-    private bool _disposed;
 
     public HostWindow(WaylandHostFrame frame, AvaloniaUIHost host, string title, System7ColorDepth depth, Action close)
+        : base(frame, host)
     {
-        _frame = frame;
-        _host = host;
         _title = title;
         _depth = depth;
         _close = close;
@@ -57,98 +48,66 @@ internal sealed class HostWindow : IUISurfaceObserver, IDisposable
             Child = _window,
         };
         _window.CloseRequested += (_, _) => _close();
-        _window.ZoomRequested += (_, _) => _frame.SetMaximized(!_frame.Maximized);
-        _frame.StateChanged += Relayout;
-        _frame.PointerEnter += OnPointerEnter;
-        _frame.PointerMotion += OnPointerMotion;
-        _frame.PointerButton += OnPointerButton;
-        _frame.PointerLeave += OnPointerLeave;
+        _window.ZoomRequested += (_, _) => Frame.SetMaximized(!Frame.Maximized);
         Relayout();
     }
+
+    private AvaloniaUISurface? AvaloniaSurface => Surface as AvaloniaUISurface;
 
     public void SetDepth(System7ColorDepth depth)
     {
         _depth = depth;
-        if (_surface?.Content is Control root)
+        if ((Surface as AvaloniaUISurface)?.Content is Control root)
         {
             System7Theme.SetColorDepth(root, depth);
         }
     }
 
-    public void OnOutputChanged(OutputStateFields fields)
-    {
-        if (_surface is null || _shownWidth != _frame.OuterWidth || _shownHeight != _frame.OuterHeight || _shownScale != _frame.Scale)
-        {
-            Relayout();
-        }
-    }
-
     public void OnSurfaceDamaged(IUISurface surface, PixmanRegion32 damage)
     {
-        if (_disposed || !ReferenceEquals(surface, _surface) || !surface.TryAcquire(out var produced))
+        if (ReferenceEquals(surface, Surface))
+        {
+            Present();
+        }
+    }
+
+    public void OnSurfaceDestroyed(IUISurface surface) => ForgetSurface(surface);
+
+    protected override void OnSurfaceCreated(IUISurface surface)
+    {
+        surface.AddObserver(this);
+        var root = new Panel { Background = null, Children = { _zoom } };
+        root.Styles.Add(new Style(x => x.Is<Layoutable>())
+        {
+            Setters = { new Setter(Layoutable.UseLayoutRoundingProperty, false) },
+        });
+        System7Theme.SetColorDepth(root, _depth);
+        ((AvaloniaUISurface)surface).Content = root;
+    }
+
+    protected override void OnDisposingSurface(IUISurface surface) => surface.RemoveObserver(this);
+
+    protected override void Relayout()
+    {
+        if (IsDisposed)
         {
             return;
         }
 
-        using (produced)
-        {
-            if (produced.Buffer is { } buffer)
-            {
-                _frame.Attach(buffer, produced.Damage);
-            }
-        }
-    }
-
-    public void OnSurfaceDestroyed(IUISurface surface)
-    {
-        if (ReferenceEquals(surface, _surface))
-        {
-            _surface = null;
-        }
-    }
-
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _frame.StateChanged -= Relayout;
-        _frame.PointerEnter -= OnPointerEnter;
-        _frame.PointerMotion -= OnPointerMotion;
-        _frame.PointerButton -= OnPointerButton;
-        _frame.PointerLeave -= OnPointerLeave;
-        if (_surface is { } surface)
-        {
-            surface.RemoveObserver(this);
-            surface.Dispose();
-            _surface = null;
-        }
-    }
-
-    private void Relayout()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        var chrome = DevicePlacement.Chrome(_frame.Scale);
-        var zoom = chrome / _frame.Scale;
-        int Fit(int dip, int slack) => (int)Math.Ceiling(((dip * chrome) + slack) / _frame.Scale - 1e-9);
-        var slack = chrome == _frame.Scale ? 0 : chrome - 1;
-        var insets = _frame.Fullscreen ? default : new HostFrameInsets(Fit(ClientFrame.TitleHeight, 0), Fit(2, slack), Fit(2, slack), Fit(1, 0));
+        var chrome = DevicePlacement.ChromeScale(Frame.Scale);
+        var zoom = chrome / Frame.Scale;
+        int Fit(int dip, int slack) => (int)Math.Ceiling(((dip * chrome) + slack) / Frame.Scale - 1e-9);
+        var slack = chrome == Frame.Scale ? 0 : chrome - 1;
+        var insets = Frame.Fullscreen ? default : new HostFrameInsets(Fit(ClientFrame.TitleHeight, 0), Fit(2, slack), Fit(2, slack), Fit(1, 0));
         _insets = insets;
-        if (!_frame.SetInsets(insets) || insets.IsEmpty)
+        if (!Frame.SetInsets(insets) || insets.IsEmpty)
         {
             return;
         }
 
-        _window.IsActive = _frame.Activated;
-        var width = _frame.OuterWidth;
-        var height = _frame.OuterHeight;
+        _window.IsActive = Frame.Activated;
+        var width = Frame.OuterWidth;
+        var height = Frame.OuterHeight;
         if (width <= 0 || height <= 0)
         {
             return;
@@ -157,75 +116,39 @@ internal sealed class HostWindow : IUISurfaceObserver, IDisposable
         _zoom.LayoutTransform = new Avalonia.Media.ScaleTransform(zoom, zoom);
         _window.Width = Math.Floor(width / zoom);
         _window.Height = Math.Floor(height / zoom);
-
-        if (_surface is null)
-        {
-            var target = (_host.Produces & UITargetKind.Dmabuf) != 0 ? UITargetKind.Dmabuf : UITargetKind.Memory;
-            _surface = _host.CreateSurface(new UISurfaceOptions { Target = target, Width = width, Height = height, Scale = _frame.Scale }) as AvaloniaUISurface;
-            if (_surface is null)
-            {
-                return;
-            }
-
-            _surface.AddObserver(this);
-            var root = new Panel { Background = null, Children = { _zoom } };
-            root.Styles.Add(new Style(x => x.Is<Layoutable>())
-            {
-                Setters = { new Setter(Layoutable.UseLayoutRoundingProperty, false) },
-            });
-            System7Theme.SetColorDepth(root, _depth);
-            _surface.Content = root;
-        }
-        else
-        {
-            _surface.Configure(width, height, _frame.Scale);
-        }
-
-        _shownWidth = width;
-        _shownHeight = height;
-        _shownScale = _frame.Scale;
+        _ = EnsureSurface();
     }
 
     private System7WindowPart PartAt(double x, double y)
     {
-        var zoom = DevicePlacement.Chrome(_frame.Scale) / _frame.Scale;
+        var zoom = DevicePlacement.ChromeScale(Frame.Scale) / Frame.Scale;
         return System7WindowGeometry.HitTest(System7WindowKind.Document, (int)_window.Width, (int)_window.Height,
-            (int)(x / zoom), (int)(y / zoom), _frame.Activated, true, true, false);
+            (int)(x / zoom), (int)(y / zoom), Frame.Activated, true, true, false);
     }
 
     private HostFrameEdges EdgesAt(double x, double y)
     {
-        var right = x >= _frame.OuterWidth - _insets.Right;
-        var bottom = y >= _frame.OuterHeight - _insets.Bottom;
-        var nearRight = x >= _frame.OuterWidth - 16;
-        var nearBottom = y >= _frame.OuterHeight - 16;
+        var right = x >= Frame.OuterWidth - _insets.Right;
+        var bottom = y >= Frame.OuterHeight - _insets.Bottom;
+        var nearRight = x >= Frame.OuterWidth - 16;
+        var nearBottom = y >= Frame.OuterHeight - 16;
         return (right && nearBottom) || (bottom && nearRight) ? HostFrameEdges.BottomRight
             : right ? HostFrameEdges.Right
             : bottom ? HostFrameEdges.Bottom
             : HostFrameEdges.None;
     }
 
-    private void OnPointerEnter(double x, double y)
-    {
-        _pointerX = x;
-        _pointerY = y;
-        _surface?.NotifyPointerEnter(x, y);
-    }
+    protected override void OnPointerEnter(double x, double y) => AvaloniaSurface?.NotifyPointerEnter(x, y);
 
-    private void OnPointerMotion(uint timeMs, double x, double y)
-    {
-        _pointerX = x;
-        _pointerY = y;
-        _surface?.NotifyPointerMotion(timeMs, x, y);
-    }
+    protected override void OnPointerMotion(uint timeMs, double x, double y) => AvaloniaSurface?.NotifyPointerMotion(timeMs, x, y);
 
-    private void OnPointerLeave()
+    protected override void OnPointerLeave()
     {
         _forwarding = false;
-        _surface?.NotifyPointerLeave();
+        AvaloniaSurface?.NotifyPointerLeave();
     }
 
-    private void OnPointerButton(uint timeMs, uint button, bool pressed)
+    protected override void OnPointerButton(uint timeMs, uint button, bool pressed)
     {
         if (button != LeftButton)
         {
@@ -237,26 +160,26 @@ internal sealed class HostWindow : IUISurfaceObserver, IDisposable
             if (_forwarding)
             {
                 _forwarding = false;
-                _surface?.NotifyPointerButton(timeMs, button, false);
+                AvaloniaSurface?.NotifyPointerButton(timeMs, button, false);
             }
 
             return;
         }
 
-        if (EdgesAt(_pointerX, _pointerY) is var edges and not HostFrameEdges.None)
+        if (EdgesAt(PointerX, PointerY) is var edges and not HostFrameEdges.None)
         {
-            _frame.StartResize(edges);
+            Frame.StartResize(edges);
             return;
         }
 
-        switch (PartAt(_pointerX, _pointerY))
+        switch (PartAt(PointerX, PointerY))
         {
             case System7WindowPart.Close or System7WindowPart.Zoom:
                 _forwarding = true;
-                _surface?.NotifyPointerButton(timeMs, button, true);
+                AvaloniaSurface?.NotifyPointerButton(timeMs, button, true);
                 break;
             case System7WindowPart.TitleBar:
-                _frame.StartMove();
+                Frame.StartMove();
                 break;
         }
     }

@@ -1,41 +1,26 @@
-using Basin;
-using Basin.Capabilities;
-using Basin.Color;
-using Basin.Desktop;
-using Basin.Host;
-
+using Basin.Cli;
 using Basin.Diagnostics;
+using Basin.Host;
 
 namespace Dam;
 
 internal sealed partial class Dam
 {
-    private ColorManager? _color;
-    private OutputColorDriver? _outputColor;
-    private SurfaceLutDriver? _lutDriver;
-
     private void WireColor()
     {
-        if (_services.Find<ColorManager>() is not { } color)
+        if (!_colorPack.Attach(_services, _scene))
         {
             return;
         }
 
-        _color = color;
-        _outputColor = new OutputColorDriver(color, _colorPack.Configuration);
-        _lutDriver = new SurfaceLutDriver(_scene, color, _colorPack.Luts);
-        _lutDriver.CountChanged += attached =>
-        {
-            BasinReport.Line($"COLOR luts={attached}");
-        };
-        _lutDriver.WatchToplevels(_services.Require<Basin.Shell.Xdg.XdgShell>());
+        _colorPack.Surfaces.CountChanged += attached => BasinReport.Line(CompositorLines.Luts(attached));
         _outputs.Added += DescribeOutput;
-        _outputs.Removed += view => _outputColor.Remove(view.Global);
+        _outputs.Removed += view => _colorPack.RemoveOutput(view.Global);
         foreach (var view in _outputs.Views)
         {
             DescribeOutput(view);
         }
     }
 
-    private void DescribeOutput(OutputView view) => _outputColor?.Add(view.Global, view.Output, view.Scene);
+    private void DescribeOutput(OutputView view) => _colorPack.AddOutput(view.Global, view.Output, view.Scene);
 }

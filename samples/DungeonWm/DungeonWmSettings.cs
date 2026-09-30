@@ -90,7 +90,7 @@ internal sealed class DungeonWmSettings
         ["interact"] = "Interact",
     };
 
-    public Dictionary<string, string> Bindings { get; } = new(StringComparer.Ordinal)
+    public Dictionary<string, object> Bindings { get; } = new(StringComparer.Ordinal)
     {
         ["Super+Escape"] = "leave-takeover",
         ["Super+Tab"] = "next-room",

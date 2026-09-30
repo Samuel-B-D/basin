@@ -9,7 +9,7 @@ internal sealed partial class MauiComp
 
     private void Reload()
     {
-        var loaded = MauiCompConfig.Load(_options.ConfigPath, _log, out var fatal);
+        var loaded = MauiCompConfig.Load(_options.ConfigPath ?? MauiCompConfig.DefaultPath(), _log, out var fatal);
         if (fatal is not null)
         {
             _log.Warn($"reload failed, keeping the running config: {fatal}");

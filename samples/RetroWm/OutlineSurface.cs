@@ -8,85 +8,21 @@ namespace RetroWm;
 
 internal sealed class OutlineSurface : IDisposable
 {
-    private readonly ManagerSurface _surface;
-    private Rect _rect;
-    private int _lastScale = -1;
-    private bool _started;
-    private bool _drawn;
+    private readonly OverlayRectSurface _overlay;
 
-    internal OutlineSurface(
-        WlCompositor compositor,
-        WlShm shm,
-        ZwlrLayerShellV1 layerShell,
-        WlOutput wlOutput,
-        WmOutput output,
-        RiverWindowManager wm)
+    internal OutlineSurface(ManagerSurfaceHost host, WlOutput wlOutput, WmOutput output)
     {
-        Output = output;
-        _surface = new ManagerSurface(
-            compositor, shm, layerShell, wlOutput, ZwlrLayerShellV1.Layer.Overlay, "retro-wm-outline");
-        _surface.SetAnchor(ZwlrLayerSurfaceV1.Anchor.Top | ZwlrLayerSurfaceV1.Anchor.Left);
-        _surface.Configured += wm.RequestManage;
+        _overlay = new OverlayRectSurface(host, wlOutput, output, ZwlrLayerShellV1.Layer.Overlay, "retro-wm-outline");
+        _overlay.Paint += Draw;
     }
 
-    public WmOutput Output { get; }
+    public WmOutput Output => _overlay.Output;
 
-    public void Show(Rect rect, int scale)
-    {
-        scale = Math.Max(scale, 1);
-        if (rect.IsEmpty)
-        {
-            return;
-        }
+    public void Show(Rect rect, int scale) => _overlay.Show(rect, scale);
 
-        if (!_started)
-        {
-            _started = true;
-            _rect = rect;
-            _surface.SetSize(rect.Width, rect.Height);
-            _surface.SetMargin(rect.Y, rect.X);
-            _surface.CommitInitial();
-            return;
-        }
+    public void Dispose() => _overlay.Dispose();
 
-        if (!_surface.IsConfigured)
-        {
-            _rect = rect;
-            return;
-        }
-
-        var redraw = !_drawn || rect.Width != _rect.Width || rect.Height != _rect.Height
-            || scale != _lastScale;
-        _rect = rect;
-        if (redraw)
-        {
-            _surface.SetSize(rect.Width, rect.Height);
-            var pixels = _surface.Prepare(rect.Width, rect.Height, scale);
-            if (pixels == 0)
-            {
-                return;
-            }
-
-            using var surface = _surface.CreateCanvas(pixels);
-            if (surface is null)
-            {
-                return;
-            }
-
-            Draw(surface.Canvas, rect.Width, rect.Height, scale);
-            surface.Canvas.Flush();
-            _surface.SetInputRegion(Rect.Empty);
-            _drawn = true;
-            _lastScale = scale;
-        }
-
-        _surface.SetMargin(rect.Y, rect.X);
-        _surface.Commit();
-    }
-
-    public void Dispose() => _surface.Dispose();
-
-    private void Draw(SKCanvas canvas, int width, int height, int scale)
+    private static void Draw(SKCanvas canvas, int width, int height, int scale)
     {
         var w = width * scale;
         var h = height * scale;

@@ -143,7 +143,7 @@ internal sealed partial class Shell
 
     private bool TypeOnStart(ShellView view, XkbKeysym symbol, bool shift)
     {
-        if (view.Start is null || !view.Background.Enabled)
+        if (view.Start is null || !view.Background.Enabled || LayerHasKeyboard)
         {
             return false;
         }

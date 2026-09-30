@@ -78,6 +78,9 @@ internal static class IpcSchemas
 
         Add(IpcMethodNames.SessionDescribe, ReadOnly, "Describe the session: the compositor, its backend and renderer, its sockets, the output count and its pid.", Empty);
         Add(IpcMethodNames.SessionQuit, Destructive, "Stop the compositor. Every client in the session loses its display.", Empty);
+        Add(IpcMethodNames.SessionSettle, ReadOnly, "Wait until every output has presented what it was asked to draw and the compositor's own chrome has nothing due, and answer with the count of presented frames. It answers at once when nothing is pending, and failed at the timeout.", """
+            {"type":"object","properties":{"timeout_ms":{"type":"integer","minimum":1,"maximum":3600000,"description":"The default is 5000."}},"examples":[{"timeout_ms":1000}]}
+            """);
 
         Add(IpcMethodNames.OutputsList, ReadOnly, "List the outputs with their names, modes, scale, position, transform and power state.", Empty);
         Add(IpcMethodNames.OutputsTest, ReadOnly, "Ask whether an output configuration would apply, without applying it.", OutputEntries);

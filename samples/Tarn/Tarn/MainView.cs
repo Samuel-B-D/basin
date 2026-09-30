@@ -4,6 +4,7 @@ using Avalonia.Layout;
 using Avalonia.Threading;
 using Basin.Avalonia;
 using Basin.Hosted;
+using Basin.Transport.Waypipe;
 
 namespace Tarn;
 
@@ -137,7 +138,14 @@ public sealed class MainView : UserControl
     public BasinCompositorHost? Host => _host;
 
     private BasinCompositorHost CreateHost() =>
-        new(new BasinCompositorOptions { AppName = "tarn", TextInput = _textInput });
+        new(new BasinCompositorOptions
+        {
+            AppName = "tarn",
+            TextInput = _textInput,
+            ConfigureServices = (_, services) => services
+                .Without("zwlr_layer_shell_v1")
+                .Without("ext_session_lock_manager_v1"),
+        });
 
     private void OnHostReady(BasinCompositorHost host)
     {
@@ -200,7 +208,7 @@ public sealed class MainView : UserControl
         Status($"connecting to {endpoint}");
         try
         {
-            var session = new TarnSession(host, _output.Post, token => TarnLink.OpenAsync(endpoint, token), TarnShell.ChannelOptions());
+            var session = new TarnSession(host, _output.Post, token => WaypipeEndpoint.OpenAsync(endpoint, token), TarnShell.ChannelOptions());
             session.Ended += failure => Dispatcher.UIThread.Post(() =>
             {
                 if (ReferenceEquals(_session, session))

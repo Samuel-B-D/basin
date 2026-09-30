@@ -19,7 +19,7 @@ internal static class IpcProcessMethods
                 return;
             }
 
-            var launch = new IpcLaunch(request.Argv)
+            var launch = new ProcessLaunch(request.Argv)
             {
                 Env = request.Env,
                 UnsetEnv = request.UnsetEnv,
@@ -146,8 +146,8 @@ internal static class IpcProcessMethods
             IpcJsonContext.Default.IpcProcessExited);
     }
 
-    internal static IpcProcess Describe(IpcTrackedProcess process) =>
-        new(process.LaunchId, process.Pid, process.ArgvArray, process.IsRunning, process.ExitCode, process.Signal, process.LogPath);
+    internal static IpcProcess Describe(TrackedProcess process) =>
+        new(process.LaunchId, process.Pid, process.Argv as string[] ?? [.. process.Argv], process.IsRunning, process.ExitCode, process.Signal, process.LogPath);
 
     private static string[] Tail(string path, int count)
     {

@@ -1,6 +1,7 @@
-using Basin;
-using Basin.Desktop;
 using System7.Avalonia.Rendering;
+using Basin.Desktop;
+using Basin.Scene;
+using Basin;
 
 namespace System7Wm;
 
@@ -56,7 +57,7 @@ internal sealed class System7Cursors
 
     private XcursorImage Image(System7CursorFrame frame, double scale)
     {
-        var n = DevicePlacement.Chrome(scale);
+        var n = DevicePlacement.ChromeScale(scale);
         if (_images.TryGetValue((frame, n), out var cached))
         {
             return cached;

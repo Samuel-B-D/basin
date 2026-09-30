@@ -37,8 +37,9 @@ internal sealed partial class System7Shell : IDisposable
     private readonly Basin.Seat.Backends.InputConfigurator _inputConfigurator = new();
     private readonly System7Seat _seat;
     private readonly DesktopPattern _pattern;
-    private readonly List<System.Diagnostics.Process> _spawned = [];
-    private readonly Basin.Color.ColorCapabilityPack _colorPack;
+    private readonly ProcessTracker _processes;
+    private InitProcess? _initProcess;
+    private readonly Basin.Desktop.ColorCapabilityPack _colorPack;
     private System7Config _config;
     private Basin.XWayland.XWaylandServer? _xServer;
     private IEventSource? _watchTimer;
@@ -50,7 +51,14 @@ internal sealed partial class System7Shell : IDisposable
         int status;
         try
         {
-            using var shell = new System7Shell(options, log);
+            var config = System7Config.Load(options.ConfigPath, options.NoConfig, log, out var fatal);
+            if (fatal is not null)
+            {
+                log.Error($"{fatal}");
+                return 1;
+            }
+
+            using var shell = new System7Shell(options, log, config);
             status = shell.RunLoop();
             rendered = shell._outputs.PrimaryRendered;
             shell.WriteScreenshot(options.Screenshot);
@@ -62,19 +70,19 @@ internal sealed partial class System7Shell : IDisposable
         }
 
         BasinReport.Line(CompositorLines.Frames(rendered));
-        if (BasinCounters.Enabled && (BasinCounters.LiveObjects != 0 || BasinCounters.PendingFrees != 0))
+        if (CompositorLines.Census() is { } census)
         {
-            log.Error($"{BasinCounters.CensusReport()}");
+            log.Error($"{census}");
         }
 
         return status;
     }
 
-    internal System7Shell(System7Options options, BasinLogger log)
+    internal System7Shell(System7Options options, BasinLogger log, System7Config config)
     {
         _options = options;
         _log = log;
-        _config = System7Config.Load(options.ConfigPath, options.NoConfig, log);
+        _config = config;
 
         var name = options.Renderer;
         var stack = RendererCatalog.CreateWithFallback(ref name, RendererCatalog.FindRenderNode(), fallback => log.Warn($"{fallback.Describe()}"));
@@ -86,8 +94,9 @@ internal sealed partial class System7Shell : IDisposable
         {
             SocketFd = options.SocketFd,
         });
+        _processes = new ProcessTracker(_host.Loop, () => ProcessTracker.SessionEnvironment(_host.Socket, _xServer?.DisplayName, _ipc?.Path));
 
-        _colorPack = new Basin.Color.ColorCapabilityPack(_layout, _renderer);
+        _colorPack = new Basin.Desktop.ColorCapabilityPack(_layout, _renderer);
         var servicePack = new DesktopServicePack(_scene, _layout, _renderer, _host.Drm) { Bell = new AlertBell(Beep) };
         var capturePack = servicePack.Capture;
         _cursor = new CursorController(_layout) { Capture = capturePack.Capture };
@@ -119,10 +128,11 @@ internal sealed partial class System7Shell : IDisposable
         }
 
         InstallShellModules();
+        _layers = new System7Layers(_scene.Root);
+        CreateLayerDrivers();
         _services.UseDefault<IInputDeviceConfiguration>(_inputConfigurator);
         _services.Freeze();
 
-        _layers = new System7Layers(_scene.Root);
         _pattern = new DesktopPattern(_layers.Pattern)
         {
             Depth = _config.Depth,
@@ -165,6 +175,7 @@ internal sealed partial class System7Shell : IDisposable
         };
         _outputs.Removed += view =>
         {
+            _usable.Remove(view.Output);
             _cursor.RemoveOutput(view.Output);
             _pattern.Remove(view.Output);
         };
@@ -218,6 +229,7 @@ internal sealed partial class System7Shell : IDisposable
 
         Shells = _services.Require<XdgShell>();
         AttachWindows(capturePack);
+        AttachLayers();
         if (xwayland is not null)
         {
             _xServer = _services.Require<Basin.XWayland.XWaylandServer>();
@@ -225,6 +237,7 @@ internal sealed partial class System7Shell : IDisposable
             BasinReport.Line($"XWAYLAND {_xServer.DisplayName}");
         }
 
+        WireColor();
         _outputs.CreateInitialOutputs();
         if (Environment.GetEnvironmentVariable("BASIN_DRM_DEVICE") is null)
         {
@@ -283,6 +296,7 @@ internal sealed partial class System7Shell : IDisposable
             _pattern.Place(view.Output, _layout.BoxOf(view.Output));
         }
 
+        RelayoutLayers();
         RelayoutChrome();
         _outputs.ScheduleAll();
     }
@@ -300,7 +314,7 @@ internal sealed partial class System7Shell : IDisposable
         StartClock();
         if (_options.Command is { Length: > 0 } command)
         {
-            Spawn(command);
+            _initProcess = InitProcess.Start(command, _host.Socket, _xServer?.DisplayName, _log);
         }
 
         _loop.Iterating += _uiDriver.Pump;
@@ -327,7 +341,14 @@ internal sealed partial class System7Shell : IDisposable
 
     private void Reload()
     {
-        var next = System7Config.Load(_options.ConfigPath, _options.NoConfig, _log);
+        var next = System7Config.Load(_options.ConfigPath ?? System7Config.DefaultPath(), _options.NoConfig, _log, out var fatal);
+        if (fatal is not null)
+        {
+            _log.Warn($"reload failed, keeping the running config: {fatal}");
+            BasinReport.Line("RELOAD failed");
+            return;
+        }
+
         var restart = string.Join(' ', _config.RestartKeysChanged(next));
         _config = next;
         ApplyConfig();
@@ -351,19 +372,9 @@ internal sealed partial class System7Shell : IDisposable
 
     internal void Spawn(string command)
     {
-        try
+        if (_processes.SpawnShell(command, out var error) is null)
         {
-            var process = _xServer?.DisplayName is { Length: > 0 } display
-                ? BasinDiagnostics.StartClient(command, _host.Socket, [("DISPLAY", display)])
-                : BasinDiagnostics.StartClient(command, _host.Socket);
-            if (process is not null)
-            {
-                _spawned.Add(process);
-            }
-        }
-        catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException)
-        {
-            _log.Error($"cannot start {command}: {error.Message}");
+            _log.Error($"cannot start {command}: {error}");
         }
     }
 
@@ -387,12 +398,10 @@ internal sealed partial class System7Shell : IDisposable
         _ipc?.Dispose();
         _ipc = null;
         _colorPack.Luts.Dispose();
-        foreach (var process in _spawned)
-        {
-            BasinDiagnostics.StopClient(process);
-        }
-
-        _spawned.Clear();
+        _initProcess?.Stop(_log);
+        _initProcess = null;
+        _processes.TerminateAll(TimeSpan.FromMilliseconds(500));
+        _processes.Dispose();
         DisposeShell();
         _inputConfigurator.Dispose();
         _seat.Dispose();

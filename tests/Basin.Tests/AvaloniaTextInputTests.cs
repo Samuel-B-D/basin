@@ -37,6 +37,7 @@ public sealed class AvaloniaTextInputTests
             {
                 AppName = "waylonia-tests",
                 TextInput = TextInput,
+                ConfigureServices = HostedDrivers.ToplevelLayers,
             });
             Manager = new ToplevelWindows(Host, action => action());
             Manager.AttachTextInput(TextInput);

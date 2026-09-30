@@ -32,7 +32,7 @@ public sealed class HostScreensTests
         {
             CompositorTestHost.SkipWithoutWaylandClient();
             BasinCounters.Reset();
-            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "waylonia-tests" });
+            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "waylonia-tests", ConfigureServices = HostedDrivers.Without });
             if (configure is null)
             {
                 Host.Screens.Apply([Left, Right]);

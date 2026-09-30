@@ -32,7 +32,7 @@ public sealed class HeadlessDriverTests
 
             Driver = new BasinHeadlessDriver(() =>
             {
-                var host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "basin-tests" });
+                var host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "basin-tests", ConfigureServices = HostedDrivers.Without });
                 _view = host.CreateViewOutput(640, 480, 1.0, NestedShell.OutputKey);
                 _shell = new NestedShell(
                     host, _view, new ShellSettings(), new PanelLayout(0, 0, 0), KeyTable.Empty, Post, [TestTheme.Load]);

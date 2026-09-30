@@ -15,6 +15,7 @@ public sealed class WmWindow : IRenderWindow
     private RiverWindowV1? _pendingParent;
     private bool _parentChanged;
     private DimensionsHint _pendingSizeHint;
+    private WindowCapabilities? _sentCapabilities;
     private bool _sizeHintChanged;
     private DecorationHint _pendingDecorationHint;
     private bool _decorationHintChanged;
@@ -191,6 +192,12 @@ public sealed class WmWindow : IRenderWindow
     public void SetCapabilities(WindowCapabilities capabilities)
     {
         _wm.EnsureManage(nameof(SetCapabilities));
+        if (_sentCapabilities == capabilities)
+        {
+            return;
+        }
+
+        _sentCapabilities = capabilities;
         _proxy.SetCapabilities((RiverWindowV1.Capabilities)capabilities);
     }
 

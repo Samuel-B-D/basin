@@ -14,6 +14,7 @@
     <ProjectReference Include="../Basin.Config/Basin.Config.csproj" />
     <ProjectReference Include="../Basin.Freedesktop/Basin.Freedesktop.csproj" />
     <ProjectReference Include="../Basin.Ipc/Basin.Ipc.csproj" />
+    <ProjectReference Include="../Basin.Scene/Basin.Scene.csproj" />
   </ItemGroup>
 
 </Project>

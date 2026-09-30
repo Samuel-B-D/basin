@@ -17,6 +17,7 @@ namespace Westonia;
 
 internal sealed partial class Westonia : IDisposable
 {
+    private readonly Basin.Desktop.DecorationPreferences _decorationPreferences;
     private readonly WestoniaOptions _options;
     private readonly BasinLogger _log;
     private readonly WestonIni _ini;
@@ -28,7 +29,7 @@ internal sealed partial class Westonia : IDisposable
     private readonly BasinServices _services;
     private readonly ShellLayers _layers;
     private readonly OutputDriver _outputs;
-    private Basin.Color.ColorCapabilityPack _colorPack = null!;
+    private Basin.Desktop.ColorCapabilityPack _colorPack = null!;
     private readonly CompositorRunLoop _loop;
     private readonly BasinGlGpu? _gpu;
     private readonly AvaloniaUIHost _ui;
@@ -51,11 +52,11 @@ internal sealed partial class Westonia : IDisposable
 
     private Basin.XWayland.XWaylandServer? _xServer;
     private IEventSource? _idleTimer;
-    private System.Diagnostics.Process? _screensaver;
+    private TrackedProcess? _screensaver;
     private readonly DeferredWorkspaceModel _deferredWorkspaces = new();
-    private readonly List<Process> _spawned = [];
+    private readonly ProcessTracker _processes;
     private readonly UIDriver _uiDriver;
-    private IEventSource? _clockTimer;
+    private Basin.Host.ShellClock? _clock;
 
     public static int Run(WestoniaOptions options, BasinLogger log, out long rendered)
     {
@@ -76,9 +77,9 @@ internal sealed partial class Westonia : IDisposable
         }
 
         BasinReport.Line(CompositorLines.Frames(rendered));
-        if (BasinCounters.Enabled && (BasinCounters.LiveObjects != 0 || BasinCounters.PendingFrees != 0))
+        if (CompositorLines.Census() is { } census)
         {
-            log.Error($"{BasinCounters.CensusReport()}");
+            log.Error($"{census}");
         }
 
         return status;
@@ -102,8 +103,9 @@ internal sealed partial class Westonia : IDisposable
             {
                 SocketFd = options.SocketFd,
             });
+        _processes = new ProcessTracker(_host.Loop, () => ProcessTracker.SessionEnvironment(_host.Socket, _xServer?.DisplayName, _ipc?.Path));
 
-        _colorPack = new Basin.Color.ColorCapabilityPack(_layout, _renderer);
+        _colorPack = new Basin.Desktop.ColorCapabilityPack(_layout, _renderer);
         var servicePack = new DesktopServicePack(_scene, _layout, _renderer, _host.Drm);
         var capturePack = servicePack.Capture;
         var cursorTheme = servicePack.CursorTheme;
@@ -138,11 +140,12 @@ internal sealed partial class Westonia : IDisposable
         if (_ini.Shell.Client is { Length: > 0 })
         {
             _services.Use<IShellRoles>(new ShellRolesImpl(_shell));
-            _services.Install(WestonShellPack.Create(pid => _spawned.Any(p => p.Id == pid)));
+            _services.Install(WestonShellPack.Create(_processes.Owns));
         }
 
         _services.Use<IWorkspaceModel>(_deferredWorkspaces);
         _services.UseDefault<IInputDeviceConfiguration>(_inputConfigurator);
+        CreateLayerDrivers();
         _services.Freeze();
         _shell.Client = _services.Find<IShellClient>();
 
@@ -234,6 +237,8 @@ internal sealed partial class Westonia : IDisposable
         Decorations = _services.Require<XdgDecorationManager>();
         Decorations.DefaultMode = DecorationMode.ClientSide;
         Decorations.ChooseMode = (_, preference) => preference ?? DecorationMode.ServerSide;
+        _decorationPreferences = new Basin.Desktop.DecorationPreferences(
+            Decorations, _services.Find<Basin.Desktop.KdeServerDecorationManager>(), _services.Find<XdgToplevelSource>());
 
         _outputs.CreateInitialOutputs();
         if (_host.Parent is not null)
@@ -293,12 +298,7 @@ internal sealed partial class Westonia : IDisposable
             LayoutOf = output => _layout.BoxOf(output),
             Scale = () => _outputs.Views.FirstOrDefault()?.Output.Scale ?? 1.0,
         };
-        if (_services.Find<Basin.Desktop.SessionLockManager>() is { } sessionLock)
-        {
-            var lockDriver = new Basin.Desktop.SessionLockSceneDriver(
-                sessionLock, Seat, _layers.Lock, _layout, _layers.SetLocked);
-            _lock.AttachSessionLock(lockDriver);
-        }
+        _lock.AttachSessionLock(_lockDriver);
 
         if (xwaylandModule is not null)
         {
@@ -343,6 +343,7 @@ internal sealed partial class Westonia : IDisposable
 
         _shell.Seat = Seat;
         _shell.Attach(Shell);
+        WireLayerShell();
         _shell.Repaint = () => _outputs.ScheduleAll();
         var toplevels = _services.Require<Basin.Capabilities.IToplevelModel>();
         capturePack.Attach(toplevels, surface =>
@@ -360,7 +361,7 @@ internal sealed partial class Westonia : IDisposable
         _shell.LockOutput = _outputs.Views.FirstOrDefault()?.Output;
         _shell.FrameFactory = window =>
         {
-            if (!_decorate || Decorations.ModeOf(window.Window) != DecorationMode.ServerSide)
+            if (!_decorate || !_decorationPreferences.IsServerSide(window.Window))
             {
                 return null;
             }
@@ -377,8 +378,7 @@ internal sealed partial class Westonia : IDisposable
                 return new Box(0, 0, 1280, 720);
             }
 
-            var box = _layout.BoxOf(target);
-            return _avalonia.WorkArea(box.X, box.Y, box.Width, box.Height);
+            return WorkAreaOf(target, _layout.BoxOf(target));
         };
 
         if (options.Backend == BackendKind.Drm && _outputs.Views.Count == 0)
@@ -437,8 +437,17 @@ internal sealed partial class Westonia : IDisposable
         _uiDriver.Woken += _outputs.ScheduleAll;
         _uiDriver.Start();
 
-        _clockTimer = _host.Loop.AddTimer(OnClockTick);
-        OnClockTick();
+        _clock = new Basin.Host.ShellClock(_host.Loop, ClockText, text =>
+        {
+            if (text is not null)
+            {
+                _avalonia.SetClock(text);
+            }
+        })
+        {
+            PerSecond = () => _ini.Shell.ClockFormat is ClockFormat.Seconds or ClockFormat.Seconds24H,
+        };
+        _clock.Refresh();
         WireIpc();
         WireIdle();
 
@@ -466,15 +475,20 @@ internal sealed partial class Westonia : IDisposable
 
         _uiDriver.Woken -= _outputs.ScheduleAll;
         _ipc?.Dispose();
+        _settle?.Dispose();
         _ipc = null;
 
-        _clockTimer?.Remove();
+        _clock?.Dispose();
         return 0;
     }
 
     private void SyncPopups() => _uiDriver.SyncPopups();
 
-    private void OnOutputRemoved(OutputView view) => _avalonia.Remove(view.Output);
+    private void OnOutputRemoved(OutputView view)
+    {
+        _usable.Remove(view.Output);
+        _avalonia.Remove(view.Output);
+    }
 
     private void OnOutputAdded(OutputView view)
     {
@@ -491,48 +505,24 @@ internal sealed partial class Westonia : IDisposable
             _avalonia.Place(view.Output, box.X, box.Y, box.Width, box.Height, view.Output.Scale);
         }
 
+        _layerDriver.Rearrange();
         _shell.RescaleFrames();
     }
 
-    private void OnClockTick()
+    private string? ClockText(DateTime now) => _ini.Shell.ClockFormat switch
     {
-        var format = _ini.Shell.ClockFormat;
-        if (format == ClockFormat.None)
-        {
-            return;
-        }
-
-        var now = DateTime.Now;
-        _avalonia.SetClock(format switch
-        {
-            ClockFormat.Seconds => now.ToString("h:mm:ss tt ddd MMM d"),
-            ClockFormat.Minutes24H => now.ToString("HH:mm ddd MMM d"),
-            ClockFormat.Seconds24H => now.ToString("HH:mm:ss ddd MMM d"),
-            _ => now.ToString("h:mm tt ddd MMM d"),
-        });
-
-        var perSecond = format is ClockFormat.Seconds or ClockFormat.Seconds24H;
-        var delay = perSecond
-            ? 1000 - now.Millisecond
-            : ((60 - now.Second) * 1000) - now.Millisecond;
-        _clockTimer?.UpdateTimer(Math.Max(1, delay));
-    }
+        ClockFormat.None => null,
+        ClockFormat.Seconds => now.ToString("h:mm:ss tt ddd MMM d"),
+        ClockFormat.Minutes24H => now.ToString("HH:mm ddd MMM d"),
+        ClockFormat.Seconds24H => now.ToString("HH:mm:ss ddd MMM d"),
+        _ => now.ToString("h:mm tt ddd MMM d"),
+    };
 
     private void Spawn(string command)
     {
-        try
+        if (_processes.SpawnShell(command, out var error) is null)
         {
-            var process = _xServer?.DisplayName is { Length: > 0 } display
-                ? BasinDiagnostics.StartClient(command, _host.Socket, [("DISPLAY", display)])
-                : BasinDiagnostics.StartClient(command, _host.Socket);
-            if (process is not null)
-            {
-                _spawned.Add(process);
-            }
-        }
-        catch (Exception error)
-        {
-            _log.Error($"cannot start {command}: {error.Message}");
+            _log.Error($"cannot start {command}: {error}");
         }
     }
 
@@ -549,14 +539,11 @@ internal sealed partial class Westonia : IDisposable
     {
         _host.DisconnectClients();
         _ipc?.Dispose();
+        _settle?.Dispose();
         _ipc = null;
         _colorPack?.Luts.Dispose();
-        foreach (var process in _spawned)
-        {
-            BasinDiagnostics.StopClient(process);
-        }
-
-        _spawned.Clear();
+        _processes.TerminateAll(TimeSpan.FromMilliseconds(500));
+        _processes.Dispose();
         _xwayland?.Dispose();
         _animations?.Dispose();
         _idleTimer?.Remove();

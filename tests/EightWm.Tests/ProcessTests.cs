@@ -89,13 +89,16 @@ public sealed class ProcessTests
 
         await session.SendAsync("touch 0.967 0.25");
         Assert.Null(await session.WaitForAsync(line => line.StartsWith("CHARM ", StringComparison.Ordinal) && line != "CHARM Settings", attempts: 5));
+        var charms = session.Mark();
         await session.SendAsync("charms on");
-        await session.WaitForAsync(line => line == "CHARMS on", fresh: true);
+        Assert.NotNull(await session.WaitForAsync(line => line == "CHARMS on", since: charms));
+        await session.SettleAsync();
         await session.SendAsync("touch 0.967 0.25");
         Assert.NotNull(await session.WaitForAsync(line => line == "CHARM Search"));
         await session.SendAsync("touch 0.1 0.4");
         Assert.NotNull(await session.WaitForAsync(line => line == "PANE off Search"));
-        Assert.Null(await session.WaitForAsync(line => line.StartsWith("LAUNCH ", StringComparison.Ordinal), attempts: 5));
+        await session.SettleAsync();
+        Assert.Null(await session.WaitForAsync(line => line.StartsWith("LAUNCH ", StringComparison.Ordinal), attempts: 1));
 
         await session.SendAsync("touch 0.1 0.4");
         Assert.NotNull(await session.WaitForAsync(line => line == "LAUNCH Simple SHM"));
@@ -135,8 +138,10 @@ public sealed class ProcessTests
 
         await session.SendAsync("touchdrag 0.1 0.3 0 0.08");
         Assert.NotNull(await session.WaitForAsync(line => line == "SELECT Simple SHM on"));
+        await session.SettleAsync();
         await session.SendAsync("touchdrag 0.1 0.3 0 -0.08");
         Assert.NotNull(await session.WaitForAsync(line => line == "SELECT Simple SHM off"));
+        await session.SettleAsync();
         await session.SendAsync("touchdrag 0.1 0.35 0.02 0.25");
         Assert.NotNull(await session.WaitForAsync(line => line == "REORDER Simple SHM 0->1"));
         var moved = await session.WaitForAsync(line => line.StartsWith("TILE 1 ", StringComparison.Ordinal), poke: "tiles", fresh: true);
@@ -277,6 +282,171 @@ public sealed class ProcessTests
         Assert.NotNull(await session.WaitForAsync(line => line.StartsWith("FRAMES ", StringComparison.Ordinal)));
     }
 
+    [Fact]
+    public async Task A_session_lock_takes_the_keyboard_from_the_app_until_it_unlocks()
+    {
+        var (compositor, _) = Prerequisites()!.Value;
+        var ssdwin = Repository("scripts/wlclients/bin/ssdwin");
+        Assert.SkipWhen(ssdwin is null, "scripts/wlclients/bin/ssdwin has not been built");
+        var script = Repository("scripts/session-lock.sh");
+        Assert.SkipWhen(script is null, "scripts/session-lock.sh is missing");
+        using var config = new TempFile(Config);
+        using var session = new Session(compositor, config.Path);
+        var socket = await session.WaitForAsync(line => line.StartsWith("SOCKET ", StringComparison.Ordinal));
+        Assert.NotNull(socket);
+        var display = socket!.Split(' ')[1];
+
+        await session.SendAsync("key a");
+        Assert.NotNull(await session.WaitForAsync(line => line == "KEY a"));
+        var keys = new List<string>();
+        using var app = StartListening(ssdwin!, display, keys, "server");
+        Assert.NotNull(await session.WaitForAsync(line => line.StartsWith("APP + ssdwin", StringComparison.Ordinal)));
+        await session.SendAsync("key a");
+        Assert.True(await WaitForLineAsync(keys, "KEY 30 1"), "the app did not get the key before the lock");
+
+        using (var locker = StartListening(script!, display, [], "2", "FF227744"))
+        {
+            Assert.NotNull(await session.WaitForAsync(line => line == "LOCKED"));
+            Assert.NotNull(await session.WaitForAsync(line => line == "LOCK on", poke: "where", fresh: true));
+            await session.SendAsync("key b");
+            Assert.NotNull(await session.WaitForAsync(line => line == "UNLOCKED"));
+            lock (keys)
+            {
+                Assert.DoesNotContain(keys, line => line.StartsWith("KEY 48 ", StringComparison.Ordinal));
+            }
+        }
+
+        Assert.NotNull(await session.WaitForAsync(line => line == "LOCK off", poke: "where", fresh: true));
+        await session.SendAsync("key c");
+        Assert.True(await WaitForLineAsync(keys, "KEY 46 1"), "the keyboard did not go back to the app after the unlock");
+        app.Kill(entireProcessTree: true);
+
+        await session.SendAsync("quit");
+        var frames = await session.WaitForAsync(line => line.StartsWith("FRAMES ", StringComparison.Ordinal));
+        Assert.NotNull(frames);
+        var live = frames!.Split(' ');
+        Assert.Equal("LIVE", live[2]);
+        if (live[3] != "untracked")
+        {
+            Assert.Equal("0", live[3]);
+        }
+    }
+
+    [Fact]
+    public async Task A_keyboard_layer_surface_takes_the_keyboard_and_gives_it_back_when_it_unmaps()
+    {
+        var (compositor, _) = Prerequisites()!.Value;
+        var ssdwin = Repository("scripts/wlclients/bin/ssdwin");
+        Assert.SkipWhen(ssdwin is null, "scripts/wlclients/bin/ssdwin has not been built");
+        var panel = Repository("scripts/wlclients/bin/panel");
+        Assert.SkipWhen(panel is null, "scripts/wlclients/bin/panel has not been built");
+        using var config = new TempFile(Config);
+        using var session = new Session(compositor, config.Path);
+        var socket = await session.WaitForAsync(line => line.StartsWith("SOCKET ", StringComparison.Ordinal));
+        Assert.NotNull(socket);
+        var display = socket!.Split(' ')[1];
+
+        await session.SendAsync("key a");
+        Assert.NotNull(await session.WaitForAsync(line => line == "KEY a"));
+        var keys = new List<string>();
+        using var app = StartListening(ssdwin!, display, keys, "server");
+        Assert.NotNull(await session.WaitForAsync(line => line.StartsWith("APP + ssdwin", StringComparison.Ordinal)));
+        await session.SendAsync("key a");
+        Assert.True(await WaitForLineAsync(keys, "KEY 30 1"), "the app did not get the key before the panel mapped");
+
+        var output = new List<string>();
+        using (var layer = StartListening(panel!, display, output, "top", "32", "keyboard"))
+        {
+            Assert.True(await WaitForLineAsync(output, "PANEL 1366x32"), "the panel was never configured");
+            Assert.NotNull(await session.WaitForAsync(line => line == "LAYER + panel Top"));
+            Assert.True(await WaitForLineAsync(output, "KEYBOARD enter"), "the panel did not get the keyboard");
+            await session.SendAsync("key b");
+            Assert.True(await WaitForLineAsync(output, "KEY 48 1"), "the key did not reach the panel");
+            lock (keys)
+            {
+                Assert.DoesNotContain(keys, line => line.StartsWith("KEY 48 ", StringComparison.Ordinal));
+            }
+
+            layer.Kill(entireProcessTree: true);
+        }
+
+        Assert.NotNull(await session.WaitForAsync(line => line == "LAYER - panel"));
+        await session.SendAsync("key c");
+        Assert.True(await WaitForLineAsync(keys, "KEY 46 1"), "the keyboard did not go back to the app after the panel left");
+        app.Kill(entireProcessTree: true);
+
+        await session.SendAsync("quit");
+        var frames = await session.WaitForAsync(line => line.StartsWith("FRAMES ", StringComparison.Ordinal));
+        Assert.NotNull(frames);
+        var live = frames!.Split(' ');
+        Assert.Equal("LIVE", live[2]);
+        if (live[3] != "untracked")
+        {
+            Assert.Equal("0", live[3]);
+        }
+    }
+
+    private static Process StartListening(string path, string display, List<string> lines, params string[] arguments)
+    {
+        var info = new ProcessStartInfo(path) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var argument in arguments)
+        {
+            info.ArgumentList.Add(argument);
+        }
+
+        info.Environment["WAYLAND_DISPLAY"] = display;
+        var process = Process.Start(info)!;
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data is not null)
+            {
+                lock (lines)
+                {
+                    lines.Add(e.Data);
+                }
+            }
+        };
+        process.ErrorDataReceived += (_, _) => { };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        return process;
+    }
+
+    private static async Task<bool> WaitForLineAsync(List<string> lines, string exact)
+    {
+        for (var i = 0; i < 500; i++)
+        {
+            lock (lines)
+            {
+                if (lines.Contains(exact))
+                {
+                    return true;
+                }
+            }
+
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
+
+        return false;
+    }
+
+    private static string? Repository(string relative)
+    {
+        var directory = AppContext.BaseDirectory;
+        for (var i = 0; i < 10 && directory is not null; i++)
+        {
+            var candidate = Path.Combine(directory, relative);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = Path.GetDirectoryName(directory.TrimEnd(Path.DirectorySeparatorChar));
+        }
+
+        return null;
+    }
+
     private static string? Which(string name)
     {
         foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(':'))
@@ -325,6 +495,7 @@ public sealed class ProcessTests
         private readonly Process _process;
         private readonly List<string> _lines = [];
         private readonly Lock _gate = new();
+        private TaskCompletionSource _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Session(string path, string config, IReadOnlyDictionary<string, string>? environment = null)
         {
@@ -350,10 +521,15 @@ public sealed class ProcessTests
             {
                 if (e.Data is not null)
                 {
+                    TaskCompletionSource arrived;
                     lock (_gate)
                     {
                         _lines.Add(e.Data);
+                        arrived = _arrived;
+                        _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     }
+
+                    arrived.TrySetResult();
                 }
             };
             _process.ErrorDataReceived += (_, _) => { };
@@ -375,6 +551,16 @@ public sealed class ProcessTests
             }
         }
 
+        public async Task SettleAsync()
+        {
+            var mark = Mark();
+            await SendAsync("settle");
+            var reply = await WaitForAsync(
+                line => line.StartsWith("OK session/settle ", StringComparison.Ordinal) || line.StartsWith("ERR ", StringComparison.Ordinal),
+                since: mark);
+            Assert.True(reply is not null && reply.StartsWith("OK ", StringComparison.Ordinal), $"settle answered [{reply}]");
+        }
+
         public async Task<string?> WaitForAsync(
             Func<string, bool> predicate,
             string? poke = null,
@@ -391,28 +577,47 @@ public sealed class ProcessTests
                 }
             }
 
-            for (var i = 0; i < attempts; i++)
+            var deadline = Environment.TickCount64 + (attempts * 100L);
+            var cancel = TestContext.Current.CancellationToken;
+            while (true)
             {
                 if (poke is not null)
                 {
                     await SendAsync(poke);
                 }
 
-                lock (_gate)
+                var slotEnd = poke is null ? deadline : Math.Min(deadline, Environment.TickCount64 + 100);
+                while (true)
                 {
-                    for (var j = _lines.Count - 1; j >= floor; j--)
+                    Task next;
+                    lock (_gate)
                     {
-                        if (predicate(_lines[j]))
+                        for (var j = _lines.Count - 1; j >= floor; j--)
                         {
-                            return _lines[j];
+                            if (predicate(_lines[j]))
+                            {
+                                return _lines[j];
+                            }
                         }
+
+                        next = _arrived.Task;
                     }
+
+                    var remaining = slotEnd - Environment.TickCount64;
+                    if (remaining <= 0)
+                    {
+                        break;
+                    }
+
+                    await Task.WhenAny(next, Task.Delay((int)remaining, cancel));
+                    cancel.ThrowIfCancellationRequested();
                 }
 
-                await Task.Delay(100, TestContext.Current.CancellationToken);
+                if (Environment.TickCount64 >= deadline)
+                {
+                    return null;
+                }
             }
-
-            return null;
         }
 
         public void Dispose()

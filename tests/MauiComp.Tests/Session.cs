@@ -8,6 +8,7 @@ internal sealed class Session : IDisposable
     private readonly Process _process;
     private readonly List<string> _lines = [];
     private readonly Lock _gate = new();
+    private TaskCompletionSource _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public Session(string path, string renderer = "pixman", params string[] extra)
         : this(path, null, renderer, extra)
@@ -48,10 +49,15 @@ internal sealed class Session : IDisposable
         {
             if (e.Data is not null)
             {
+                TaskCompletionSource arrived;
                 lock (_gate)
                 {
                     _lines.Add(e.Data);
+                    arrived = _arrived;
+                    _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 }
+
+                arrived.TrySetResult();
             }
         };
         _process.ErrorDataReceived += (_, _) => { };
@@ -142,6 +148,32 @@ internal sealed class Session : IDisposable
         return Process.Start(info)!;
     }
 
+    public static Process StartListening(string path, string display, List<string> lines, params string[] arguments)
+    {
+        var info = new ProcessStartInfo(path) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var argument in arguments)
+        {
+            info.ArgumentList.Add(argument);
+        }
+
+        info.Environment["WAYLAND_DISPLAY"] = display;
+        var process = Process.Start(info)!;
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data is not null)
+            {
+                lock (lines)
+                {
+                    lines.Add(e.Data);
+                }
+            }
+        };
+        process.ErrorDataReceived += (_, _) => { };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        return process;
+    }
+
     public async Task<string> DisplayAsync()
     {
         var socket = await WaitForAsync(line => line.StartsWith("SOCKET ", StringComparison.Ordinal));
@@ -154,9 +186,27 @@ internal sealed class Session : IDisposable
         await _process.StandardInput.FlushAsync();
     }
 
-    public async Task<string?> WaitForAsync(Func<string, bool> predicate, string? poke = null, bool fresh = false)
+    public int Mark()
     {
-        var floor = 0;
+        lock (_gate)
+        {
+            return _lines.Count;
+        }
+    }
+
+    public async Task SettleAsync()
+    {
+        var mark = Mark();
+        await SendAsync("settle");
+        var reply = await WaitForAsync(
+            line => line.StartsWith("OK session/settle ", StringComparison.Ordinal) || line.StartsWith("ERR ", StringComparison.Ordinal),
+            since: mark);
+        Assert.True(reply is not null && reply.StartsWith("OK ", StringComparison.Ordinal), $"settle answered [{reply}]");
+    }
+
+    public async Task<string?> WaitForAsync(Func<string, bool> predicate, string? poke = null, bool fresh = false, int since = 0)
+    {
+        var floor = since;
         if (fresh)
         {
             lock (_gate)
@@ -165,28 +215,47 @@ internal sealed class Session : IDisposable
             }
         }
 
-        for (var i = 0; i < 100; i++)
+        var deadline = Environment.TickCount64 + (100 * 100L);
+        var cancel = TestContext.Current.CancellationToken;
+        while (true)
         {
             if (poke is not null)
             {
                 await SendAsync(poke);
             }
 
-            lock (_gate)
+            var slotEnd = poke is null ? deadline : Math.Min(deadline, Environment.TickCount64 + 100);
+            while (true)
             {
-                for (var j = _lines.Count - 1; j >= floor; j--)
+                Task next;
+                lock (_gate)
                 {
-                    if (predicate(_lines[j]))
+                    for (var j = _lines.Count - 1; j >= floor; j--)
                     {
-                        return _lines[j];
+                        if (predicate(_lines[j]))
+                        {
+                            return _lines[j];
+                        }
                     }
+
+                    next = _arrived.Task;
                 }
+
+                var remaining = slotEnd - Environment.TickCount64;
+                if (remaining <= 0)
+                {
+                    break;
+                }
+
+                await Task.WhenAny(next, Task.Delay((int)remaining, cancel));
+                cancel.ThrowIfCancellationRequested();
             }
 
-            await Task.Delay(100, TestContext.Current.CancellationToken);
+            if (Environment.TickCount64 >= deadline)
+            {
+                return null;
+            }
         }
-
-        return null;
     }
 
     public async Task<List<string>> StateAsync()

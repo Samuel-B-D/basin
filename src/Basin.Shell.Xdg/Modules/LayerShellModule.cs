@@ -8,6 +8,8 @@ public sealed class LayerShellModule : IProtocolModule
 
     public int Version => LayerShell.Version;
 
+    public IReadOnlyList<Type> Drivers => [typeof(ILayerShellDriver)];
+
     public LayerShell? Shell { get; private set; }
 
     public IDisposable Install(BasinServices services)
@@ -15,6 +17,7 @@ public sealed class LayerShellModule : IProtocolModule
         ArgumentNullException.ThrowIfNull(services);
         Shell = new LayerShell(services.Display, services.Require<CompositorGlobal>());
         services.Use(Shell);
+        services.Require<ILayerShellDriver>().Attach(Shell);
         return Shell;
     }
 }

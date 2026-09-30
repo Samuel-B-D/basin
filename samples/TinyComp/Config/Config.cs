@@ -272,32 +272,10 @@ internal sealed class Config
     {
         var config = new Config();
         config.SeedBindings(log);
-        fatal = null;
-
-        if (path == "false")
+        var load = TomlConfig.Load(path == "false" ? null : path, "tinycomp", path == "false", TemplateStream, log);
+        fatal = load.Fatal;
+        if (load.Table is not { } table)
         {
-            return config;
-        }
-
-        var named = path is { Length: > 0 };
-        var file = named ? path! : DefaultPath();
-        if (!named && !File.Exists(file))
-        {
-            Seed(file, log);
-        }
-
-        var table = TomlConfig.Read(file, out var failure);
-        if (table is null)
-        {
-            if (named)
-            {
-                fatal = $"{file}: {failure}";
-            }
-            else if (File.Exists(file))
-            {
-                log.Warn($"{file} did not parse, keeping defaults: {failure}");
-            }
-
             return config;
         }
 
@@ -354,34 +332,13 @@ internal sealed class Config
 
     public static string Template()
     {
-        using var stream = typeof(Config).Assembly.GetManifestResourceStream("tinycomp.toml")
-            ?? throw new InvalidOperationException("tinycomp.toml is not embedded");
-        using var reader = new StreamReader(stream);
+        using var reader = new StreamReader(TemplateStream());
         return reader.ReadToEnd();
     }
 
-    private static void Seed(string file, BasinLogger log)
-    {
-        try
-        {
-            if (Path.GetDirectoryName(file) is { Length: > 0 } directory)
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            using (var stream = new FileStream(file, FileMode.CreateNew, FileAccess.Write))
-            {
-                using var writer = new StreamWriter(stream);
-                writer.Write(Template());
-            }
-
-            log.Info($"wrote the default configuration to {file}");
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            log.Warn($"cannot write {file}, keeping the built-in defaults: {error.Message}");
-        }
-    }
+    private static Stream TemplateStream() =>
+        typeof(Config).Assembly.GetManifestResourceStream("tinycomp.toml")
+            ?? throw new InvalidOperationException("tinycomp.toml is not embedded");
 
     public Rule? RuleFor(string? appId, string? title)
     {

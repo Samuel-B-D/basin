@@ -64,6 +64,8 @@ internal static class Program
             .Use<IColorTransformResolver>(luts)
             .Use<IActivationTokens>(new Basin.Capabilities.Defaults.DefaultActivationTokens())
             .Install(DesktopPack.Default)
+            .Without("zwlr_layer_shell_v1")
+            .Without("ext_session_lock_manager_v1")
             .Freeze();
 
         var shell = services.Require<XdgShell>();
@@ -95,14 +97,22 @@ internal static class Program
         };
 
         BasinReport.Line(Basin.Cli.CompositorLines.Socket(socket));
-        using var ipc = ipcChoice.Serve(loop, services, socket, new Basin.Ipc.IpcSessionInfo
+        using var ipc = ipcChoice.Attach(loop, services, socket, new Basin.Ipc.IpcSessionInfo
         {
             Compositor = "basin-swap",
             Backend = "headless",
             Renderer = "pixman",
             Quit = () => running = false,
         });
-        using var client = Spawn(clientCommand, socket);
+        new Basin.Ipc.IpcLineReport().AddLine(ipc.Methods, Basin.Ipc.IpcMethodNames.SessionQuit, "quit");
+        ipc.Start();
+        ipc.StartLineFront();
+        using var processes = new ProcessTracker(loop, () => ProcessTracker.SessionEnvironment(socket, null, ipc.Path));
+        if (clientCommand is not null && processes.Spawn(new ProcessLaunch(clientCommand.Split(' ', StringSplitOptions.RemoveEmptyEntries)), out var spawnError) is null)
+        {
+            BasinLog.For("BasinSwap").Error($"cannot start '{clientCommand}': {spawnError}");
+        }
+
         while (running)
         {
             loop.Dispatch(16);
@@ -119,28 +129,10 @@ internal static class Program
         }
 
         shot.Destroy();
-        BasinDiagnostics.StopClient(client);
+        processes.TerminateAll(TimeSpan.FromSeconds(2));
         host.DisconnectClients();
         target.Destroy();
         BasinReport.Line($"CAPTURES {capture.Captures} CLIPBOARD {clipboard.History} BELLS {bell.Rings}");
         return ok ? 0 : 1;
-    }
-
-    private static Process? Spawn(string? command, string socket)
-    {
-        if (command is null)
-        {
-            return null;
-        }
-
-        var parts = command.Split(' ', 2);
-        var info = new ProcessStartInfo(parts[0]) { UseShellExecute = false };
-        if (parts.Length > 1)
-        {
-            info.Arguments = parts[1];
-        }
-
-        info.Environment["WAYLAND_DISPLAY"] = socket;
-        return Process.Start(info);
     }
 }

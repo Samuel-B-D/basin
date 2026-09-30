@@ -4,87 +4,41 @@ using Basin.Capabilities;
 
 namespace TinyComp;
 
-internal sealed class HostChrome : IDisposable
+internal sealed class HostChrome : HostFrameChrome
 {
     private const uint DoubleClickMillis = 400;
 
     private readonly TinyComp _comp;
-    private readonly WaylandHostFrame _frame;
-    private readonly IUIHost _host;
     private readonly IFrameRenderer _renderer;
     private readonly Action _onClose;
     private readonly string _title;
 
-    private IUISurface? _surface;
     private FramePart _hot = FramePart.None;
     private FramePart _pressed = FramePart.None;
-    private double _pointerX;
-    private double _pointerY;
-    private bool _pointerIn;
     private uint _lastTitlePressMs;
-    private int _shownOuterWidth;
-    private int _shownOuterHeight;
-    private double _shownScale;
     private bool _faulted;
-    private bool _disposed;
 
     internal HostChrome(TinyComp comp, WaylandHostFrame frame, IUIHost host, IFrameRenderer renderer, string title, Action onClose)
+        : base(frame, host)
     {
         _comp = comp;
-        _frame = frame;
-        _host = host;
         _renderer = renderer;
         _title = title;
         _onClose = onClose;
-
-        _frame.StateChanged += OnStateChanged;
-        _frame.PointerEnter += OnPointerEnter;
-        _frame.PointerMotion += OnPointerMotion;
-        _frame.PointerButton += OnPointerButton;
-        _frame.PointerLeave += OnPointerLeave;
         Relayout();
     }
 
-    public void Dispose()
+    protected override void Relayout()
     {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _frame.StateChanged -= OnStateChanged;
-        _frame.PointerEnter -= OnPointerEnter;
-        _frame.PointerMotion -= OnPointerMotion;
-        _frame.PointerButton -= OnPointerButton;
-        _frame.PointerLeave -= OnPointerLeave;
-        _surface?.Dispose();
-        _surface = null;
-    }
-
-    internal void OnOutputChanged(OutputStateFields fields)
-    {
-        if (_frame.OuterWidth == _shownOuterWidth &&
-            _frame.OuterHeight == _shownOuterHeight &&
-            _frame.Scale == _shownScale)
-        {
-            return;
-        }
-
-        Relayout();
-    }
-
-    private void Relayout()
-    {
-        if (_disposed || _faulted)
+        if (IsDisposed || _faulted)
         {
             return;
         }
 
         var state = BuildState();
-        var scale = _frame.Scale;
+        var scale = Frame.Scale;
         var insets = _renderer.Measure(state, scale);
-        if (!_frame.SetInsets(new HostFrameInsets(insets.Top, insets.Right, insets.Bottom, insets.Left)))
+        if (!Frame.SetInsets(new HostFrameInsets(insets.Top, insets.Right, insets.Bottom, insets.Left)))
         {
             return;
         }
@@ -94,15 +48,14 @@ internal sealed class HostChrome : IDisposable
 
     private void Repaint(in FrameState state)
     {
-        if (_disposed || _faulted)
+        if (IsDisposed || _faulted)
         {
             return;
         }
 
-        var scale = _frame.Scale;
-        var outerWidth = _frame.OuterWidth;
-        var outerHeight = _frame.OuterHeight;
-        var insets = _frame.Insets;
+        var outerWidth = Frame.OuterWidth;
+        var outerHeight = Frame.OuterHeight;
+        var insets = Frame.Insets;
         if (outerWidth <= 0 || outerHeight <= 0 || insets.IsEmpty)
         {
             return;
@@ -110,7 +63,7 @@ internal sealed class HostChrome : IDisposable
 
         try
         {
-            if (!EnsureSurface(outerWidth, outerHeight, scale))
+            if (!EnsureSurface())
             {
                 return;
             }
@@ -120,76 +73,34 @@ internal sealed class HostChrome : IDisposable
                 insets.Top,
                 outerWidth - insets.Left - insets.Right,
                 outerHeight - insets.Top - insets.Bottom);
-            _renderer.Draw(_surface!, hole, state, new FrameInteraction(_hot, _pressed));
-            if (!_surface!.TryAcquire(out var produced))
-            {
-                return;
-            }
-
-            using (produced)
-            {
-                if (produced.Buffer is { } buffer)
-                {
-                    _frame.Attach(buffer, produced.Damage);
-                }
-            }
-
-            _shownOuterWidth = outerWidth;
-            _shownOuterHeight = outerHeight;
-            _shownScale = scale;
+            _renderer.Draw(Surface!, hole, state, new FrameInteraction(_hot, _pressed));
+            Present();
         }
         catch (Exception e)
         {
             _faulted = true;
-            _frame.SetInsets(default);
+            Frame.SetInsets(default);
             _comp.Log.Error($"host frame fault: {e.Message}");
         }
-    }
-
-    private bool EnsureSurface(int outerWidth, int outerHeight, double scale)
-    {
-        if (_surface is null)
-        {
-            var target = (_host.Produces & UITargetKind.Dmabuf) != 0
-                ? UITargetKind.Dmabuf
-                : UITargetKind.Memory;
-            _surface = _host.CreateSurface(new UISurfaceOptions
-            {
-                Target = target,
-                Width = outerWidth,
-                Height = outerHeight,
-                Scale = scale,
-            });
-            return _surface is not null;
-        }
-
-        return _surface.Configure(outerWidth, outerHeight, scale);
     }
 
     private FrameState BuildState() => new()
     {
         Title = _title,
         AppId = "dev.basin.compositor",
-        Active = _frame.Activated,
-        Maximized = _frame.Maximized,
-        Fullscreen = _frame.Fullscreen,
-        Resizing = _frame.Resizing,
+        Active = Frame.Activated,
+        Maximized = Frame.Maximized,
+        Fullscreen = Frame.Fullscreen,
+        Resizing = Frame.Resizing,
         Capabilities = FrameCapabilities.WindowMenu | FrameCapabilities.Maximize | FrameCapabilities.Minimize,
     };
 
-    private void OnStateChanged() => Relayout();
+    protected override void OnPointerEnter(double x, double y) => UpdateHover(x, y);
 
-    private void OnPointerEnter(double x, double y)
+    protected override void OnPointerMotion(uint timeMs, double x, double y) => UpdateHover(x, y);
+
+    protected override void OnPointerLeave()
     {
-        _pointerIn = true;
-        UpdateHover(x, y);
-    }
-
-    private void OnPointerMotion(uint timeMs, double x, double y) => UpdateHover(x, y);
-
-    private void OnPointerLeave()
-    {
-        _pointerIn = false;
         if (_hot == FramePart.None && _pressed == FramePart.None)
         {
             return;
@@ -203,9 +114,7 @@ internal sealed class HostChrome : IDisposable
 
     private void UpdateHover(double x, double y)
     {
-        _pointerX = x;
-        _pointerY = y;
-        var part = _renderer.PartAt(x, y, BuildState(), _frame.Scale);
+        var part = _renderer.PartAt(x, y, BuildState(), Frame.Scale);
         if (part == _hot)
         {
             return;
@@ -216,7 +125,7 @@ internal sealed class HostChrome : IDisposable
         Repaint(BuildState());
     }
 
-    private void OnPointerButton(uint timeMs, uint button, bool pressed)
+    protected override void OnPointerButton(uint timeMs, uint button, bool pressed)
     {
         if (button != InputCodes.BtnLeft)
         {
@@ -230,7 +139,7 @@ internal sealed class HostChrome : IDisposable
                 var released = _pressed;
                 _pressed = FramePart.None;
 
-                if (_pointerIn && released == _hot)
+                if (PointerInside && released == _hot)
                 {
                     Activate(released);
                 }
@@ -241,7 +150,7 @@ internal sealed class HostChrome : IDisposable
             return;
         }
 
-        var part = _renderer.PartAt(_pointerX, _pointerY, BuildState(), _frame.Scale);
+        var part = _renderer.PartAt(PointerX, PointerY, BuildState(), Frame.Scale);
         switch (part)
         {
             case FramePart.Title or FramePart.Icon:
@@ -254,12 +163,12 @@ internal sealed class HostChrome : IDisposable
 
                 _lastTitlePressMs = timeMs;
 
-                _frame.StartMove();
+                Frame.StartMove();
                 return;
             case FramePart.TopLeft or FramePart.Top or FramePart.TopRight or
                  FramePart.Right or FramePart.BottomRight or FramePart.Bottom or
                  FramePart.BottomLeft or FramePart.Left:
-                _frame.StartResize(EdgesFor(part));
+                Frame.StartResize(EdgesFor(part));
                 return;
             case FramePart.None or FramePart.Border:
                 return;
@@ -281,12 +190,12 @@ internal sealed class HostChrome : IDisposable
                 ToggleMaximize();
                 break;
             case FramePart.Minimize:
-                _frame.SetMinimized();
+                Frame.SetMinimized();
                 break;
         }
     }
 
-    private void ToggleMaximize() => _frame.SetMaximized(!_frame.Maximized);
+    private void ToggleMaximize() => Frame.SetMaximized(!Frame.Maximized);
 
     private static HostFrameEdges EdgesFor(FramePart part) => part switch
     {

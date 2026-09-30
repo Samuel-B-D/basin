@@ -1,3 +1,4 @@
+using Basin;
 using Basin.Desktop;
 using Basin.Diagnostics;
 using Basin.Ipc;
@@ -9,24 +10,20 @@ namespace DungeonWm;
 internal sealed partial class DungeonWm
 {
     private LayerSurface? _layerKeyboard;
-    private string? _layerOpener;
-    private string? _lastSpawn;
+    private Basin.Config.Hotkey? _layerOpener;
+    private Basin.Config.Hotkey? _lastSpawn;
 
-    private void Spawn(string action, string command)
+    private void Spawn(Basin.Config.Hotkey hotkey, string[] argv)
     {
-        if (_ipc is not { } ipc)
-        {
-            _log.Warn($"cannot run '{command}': no process tracker");
-            return;
-        }
-
-        if (ipc.Processes.Spawn(new IpcLaunch(["/bin/sh", "-c", command]), out var error) is not { } process)
+        var command = argv is ["/bin/sh", "-c", var line] ? line : string.Join(' ', argv);
+        BasinReport.Line($"ACTION spawn {command}");
+        if (_processes.Spawn(new ProcessLaunch(argv), out var error) is not { } process)
         {
             _log.Warn($"cannot run '{command}': {error}");
             return;
         }
 
-        _lastSpawn = action;
+        _lastSpawn = hotkey;
         BasinReport.Line($"SPAWN {process.Pid} {command}");
     }
 

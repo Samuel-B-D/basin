@@ -29,16 +29,13 @@ internal sealed class DeskbarSurface : IDisposable
     private bool _committedInitial;
 
     internal DeskbarSurface(
-        WlCompositor compositor,
-        WlShm shm,
-        ZwlrLayerShellV1 layerShell,
+        ManagerSurfaceHost host,
         WlOutput wlOutput,
         WmOutput output,
         RiverWindowManager wm)
     {
         Output = output;
-        _surface = new ManagerSurface(
-            compositor, shm, layerShell, wlOutput, ZwlrLayerShellV1.Layer.Top, "deskbar");
+        _surface = host.Create(wlOutput, ZwlrLayerShellV1.Layer.Top, "deskbar");
         _surface.SetExclusiveZone(0);
         _surface.Configured += wm.RequestManage;
     }

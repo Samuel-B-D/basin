@@ -10,7 +10,7 @@ using Basin.Diagnostics;
 
 namespace Westonia;
 
-internal sealed class WestoniaSeat : IDisposable, Basin.Seat.ITouchChrome
+internal sealed class WestoniaSeat : IDisposable
 {
     private readonly Basin.Host.BasinHost _host;
     private readonly Seat _seat;
@@ -29,8 +29,8 @@ internal sealed class WestoniaSeat : IDisposable, Basin.Seat.ITouchChrome
     private readonly PointerRefresh _pointerRefresh;
     private IUISurface? _routeSurface;
     private ButtonRoute _route;
-    private int _buttonsDown;
-    private bool _seatHoldsButton;
+    private readonly Basin.Seat.Backends.ButtonLatch _latch;
+    private readonly Basin.Seat.Backends.ChromeKeyDelivery _keys;
     private double _x;
     private double _y;
     private bool _disposed;
@@ -54,6 +54,8 @@ internal sealed class WestoniaSeat : IDisposable, Basin.Seat.ITouchChrome
         _cursor = cursor;
         _shell = shell;
         _router = new UISurfaceRouter(scene, index);
+        _latch = new Basin.Seat.Backends.ButtonLatch(_seat);
+        _keys = new Basin.Seat.Backends.ChromeKeyDelivery(_seat, _router);
         _policy = policy;
         _log = log;
         _input = input;
@@ -64,28 +66,33 @@ internal sealed class WestoniaSeat : IDisposable, Basin.Seat.ITouchChrome
         _binder = new Basin.Seat.Backends.SeatBinder(_seat, layout, _pointer, cursor);
         _injector = new Basin.Seat.Backends.SeatInjector(_binder, _seat, layout, _pointer)
         {
-            Moved = MoveCursor,
             DeliverButton = OnButton,
             DeliverKey = OnKey,
         };
         _touch = new Basin.Seat.Backends.SeatTouchDriver(_binder, _seat);
         _touch.Router.HitTester = new Basin.Seat.Backends.SceneTouchHitTester(scene);
-        _touch.Router.Chrome = this;
+        _touch.Router.Chrome = new Basin.Seat.Backends.UISurfaceTouchChrome(_router);
         _touch.Router.Activity =
             services.Find<Basin.Capabilities.IIdleSource>() as Basin.Seat.SeatIdleSource;
 
+        _binder.AdoptParentKeymap = true;
+        _binder.RelativePointer = services.Find<Basin.Desktop.RelativePointerManager>();
+        _binder.Constraints = services.Find<Basin.Desktop.PointerConstraintDriver>();
+        _binder.Key += OnKey;
+        _binder.ModifiersChanged += OnModifiers;
+        _binder.Button += OnButton;
+        _binder.Axis += OnAxis;
+        _binder.PointerLeft += _router.PointerLeave;
         if (host.Parent is { } parent)
         {
-            parent.PointerAdded += WireParentPointer;
-            parent.KeyboardAdded += WireParentKeyboard;
-            _binder.BindParentTouch(parent);
+            _binder.BindParent(parent);
         }
 
         if (input is not null)
         {
-            WireLibinput(input);
-            _binder.BindLibinputTouch(input);
-            input.Start();
+            input.DeviceAdded += device => BasinReport.Line($"INPUT + {device.Name}");
+            input.DeviceRemoved += device => BasinReport.Line($"INPUT - {device.Name}");
+            _binder.BindLibinput(input);
             _log.Info($"libinput started on seat {(host.Session?.SeatName ?? "seat0")}");
         }
     }
@@ -119,85 +126,6 @@ internal sealed class WestoniaSeat : IDisposable, Basin.Seat.ITouchChrome
     }
 
     private void RefreshPointer() => MoveCursor((uint)Environment.TickCount);
-
-    private void WireParentPointer(WaylandPointerDevice pointer)
-    {
-        _cursor.AttachParent(pointer);
-        pointer.Enter += (output, x, y) =>
-        {
-            var (layoutX, layoutY) = _layout.ToLayout(output, x, y);
-            _pointer.Warp(layoutX, layoutY);
-        };
-        pointer.Motion += (time, x, y) =>
-        {
-            var outputs = _layout.Outputs;
-            var output = _layout.OutputAt(_x, _y) ??
-                (outputs.Length > 0 ? outputs[0].Output : null);
-            if (output is null)
-            {
-                return;
-            }
-
-            var (layoutX, layoutY) = _layout.ToLayout(output, x, y);
-            _pointer.Warp(layoutX, layoutY);
-            MoveCursor(time);
-        };
-        pointer.Button += (time, button, pressed) => OnButton(time, button, pressed);
-        pointer.Axis += (time, axis) => OnAxis(time, axis);
-        pointer.Leave += _router.PointerLeave;
-    }
-
-    private void WireParentKeyboard(WaylandKeyboardDevice keyboard)
-    {
-        keyboard.Keymap += bytes =>
-        {
-            if (Configurator?.NamesSeatKeymap != true)
-            {
-                _seat.Keyboard.SetKeymapFromBuffer(bytes);
-            }
-        };
-        keyboard.Key += (time, key, pressed) =>
-        {
-            _seat.Keyboard.Activate(null);
-            OnKey(time, key, pressed);
-        };
-        keyboard.Modifiers += (depressed, latched, locked, group) =>
-            OnModifiers(depressed, latched, locked, group);
-    }
-
-    private void WireLibinput(Basin.Backend.Libinput.LibinputBackend input)
-    {
-        input.DeviceAdded += device => BasinReport.Line($"INPUT + {device.Name}");
-        input.DeviceRemoved += device => BasinReport.Line($"INPUT - {device.Name}");
-        input.Key += (device, time, key, pressed) =>
-        {
-            _binder.ActivateKeyboard(device);
-            OnKey(time, key, pressed);
-        };
-        input.PointerButton += (_, time, button, pressed) => OnButton(time, button, pressed);
-        input.PointerMotion += (_, time, dx, dy, _, _) =>
-        {
-            _pointer.Motion(dx, dy);
-            MoveCursor(time);
-        };
-        input.PointerMotionAbsolute += (device, time, nx, ny) =>
-        {
-            _pointer.MotionAbsolute(_binder.OutputFor(device), nx, ny);
-            MoveCursor(time);
-        };
-        input.PointerScroll += (device, time, axis) => OnAxis(time, _binder.Scale(device, axis));
-    }
-
-    bool Basin.Seat.ITouchChrome.TryPress(int id, uint timeMs, double x, double y) =>
-        _router.TouchDown(timeMs, id, x, y);
-
-    void Basin.Seat.ITouchChrome.Motion(int id, uint timeMs, double x, double y) =>
-        _router.TouchMotion(timeMs, id, x, y);
-
-    void Basin.Seat.ITouchChrome.Release(int id, uint timeMs, double x, double y) =>
-        _router.TouchUp(timeMs, id);
-
-    void Basin.Seat.ITouchChrome.Cancel() => _router.TouchCancel();
 
     private void MoveCursor(uint time)
     {
@@ -269,7 +197,7 @@ internal sealed class WestoniaSeat : IDisposable, Basin.Seat.ITouchChrome
     {
         if (pressed)
         {
-            if (_buttonsDown++ == 0)
+            if (_latch.Press())
             {
                 _route = ChooseRoute();
             }
@@ -278,18 +206,12 @@ internal sealed class WestoniaSeat : IDisposable, Basin.Seat.ITouchChrome
             return;
         }
 
-        if (_buttonsDown > 0)
-        {
-            _buttonsDown--;
-        }
-
         Dispatch(time, button, pressed: false);
 
-        if (_buttonsDown == 0)
+        if (_latch.Release())
         {
             _route = ButtonRoute.Seat;
             _routeSurface = null;
-            _seatHoldsButton = false;
         }
     }
 
@@ -356,26 +278,19 @@ internal sealed class WestoniaSeat : IDisposable, Basin.Seat.ITouchChrome
                 return;
             }
 
-            _seat.Pointer.NotifyButton(time, button, true);
-            _seatHoldsButton = true;
+            _latch.SeatButton(time, button, true);
             return;
         }
 
         ButtonHook?.Invoke(time, button, false);
-
-        if (_seatHoldsButton)
-        {
-            _seat.Pointer.NotifyButton(time, button, false);
-            _seatHoldsButton = false;
-        }
+        _latch.SeatButton(time, button, false);
     }
 
     public Func<uint, uint, bool, bool>? ButtonHook { get; set; }
 
     private void OnAxis(uint time, PointerAxis axis)
     {
-        var horizontal = axis.Axis == Wayland.WlPointer.Axis.HorizontalScroll;
-        if (_router.PointerAxis(time, horizontal ? axis.Value : 0, horizontal ? 0 : axis.Value))
+        if (_router.PointerAxis(time, axis))
         {
             return;
         }
@@ -390,18 +305,13 @@ internal sealed class WestoniaSeat : IDisposable, Basin.Seat.ITouchChrome
             return;
         }
 
-        if (_router.Key(time, key, pressed))
-        {
-            return;
-        }
-
-        _seat.Keyboard.NotifyKey(time, key, pressed);
+        _keys.Deliver(time, key, pressed);
     }
 
-    private void OnModifiers(uint depressed, uint latched, uint locked, uint group)
+    private void OnModifiers()
     {
+        var (depressed, latched, locked, group) = _seat.Keyboard.ModifierState;
         _router.Modifiers(depressed, latched, locked, group);
-        _seat.Keyboard.NotifyModifiers(depressed, latched, locked, group);
     }
 
     public Func<double, double, uint, bool, bool>? FrameButtonHook { get; set; }

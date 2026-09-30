@@ -19,16 +19,13 @@ internal sealed class SwitcherSurface : IDisposable
     private string? _lastKey;
 
     internal SwitcherSurface(
-        WlCompositor compositor,
-        WlShm shm,
-        ZwlrLayerShellV1 layerShell,
+        ManagerSurfaceHost host,
         WlOutput wlOutput,
         WmOutput output,
         RiverWindowManager wm)
     {
         Output = output;
-        _surface = new ManagerSurface(
-            compositor, shm, layerShell, wlOutput, ZwlrLayerShellV1.Layer.Overlay, "deskbar-switcher");
+        _surface = host.Create(wlOutput, ZwlrLayerShellV1.Layer.Overlay, "deskbar-switcher");
         _surface.SetExclusiveZone(-1);
         _surface.Configured += wm.RequestManage;
     }

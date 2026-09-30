@@ -8,57 +8,25 @@ namespace DeskbarWm;
 
 internal sealed class PlacementOutline : IDisposable
 {
-    private readonly ManagerSurface _surface;
-    private Rect _lastFrame;
+    private readonly OverlayRectSurface _overlay;
 
-    internal PlacementOutline(
-        WlCompositor compositor,
-        WlShm shm,
-        ZwlrLayerShellV1 layerShell,
-        WlOutput wlOutput,
-        WmOutput output,
-        RiverWindowManager wm)
+    internal PlacementOutline(ManagerSurfaceHost host, WlOutput wlOutput, WmOutput output)
     {
-        Output = output;
-        _surface = new ManagerSurface(
-            compositor, shm, layerShell, wlOutput, ZwlrLayerShellV1.Layer.Overlay, "deskbar-outline");
-        _surface.SetExclusiveZone(-1);
-        _surface.SetAnchor(
-            ZwlrLayerSurfaceV1.Anchor.Top | ZwlrLayerSurfaceV1.Anchor.Bottom
-            | ZwlrLayerSurfaceV1.Anchor.Left | ZwlrLayerSurfaceV1.Anchor.Right);
-        _surface.Configured += wm.RequestManage;
-        _surface.CommitInitial();
+        _overlay = new OverlayRectSurface(host, wlOutput, output, ZwlrLayerShellV1.Layer.Overlay, "deskbar-outline");
+        _overlay.Paint += Draw;
     }
 
-    public WmOutput Output { get; }
+    public WmOutput Output => _overlay.Output;
 
-    public bool Render(Rect frame, int scale)
+    public void Show(Rect frame, int scale) =>
+        _overlay.Show(new Rect(frame.X - Output.Area.X, frame.Y - Output.Area.Y, frame.Width, frame.Height), scale);
+
+    public void Dispose() => _overlay.Dispose();
+
+    private static void Draw(SKCanvas canvas, int width, int height, int scale)
     {
-        if (!_surface.IsConfigured || _surface.ConfiguredSize.IsEmpty)
-        {
-            return false;
-        }
-
-        if (frame == _lastFrame)
-        {
-            return false;
-        }
-
-        var size = _surface.ConfiguredSize;
-        var pixels = _surface.Prepare(size.Width, size.Height, scale);
-        if (pixels == 0)
-        {
-            return false;
-        }
-
-        using var canvas = _surface.CreateCanvas(pixels);
-        if (canvas is null)
-        {
-            return false;
-        }
-
-        canvas.Canvas.Scale(scale);
-        canvas.Canvas.Clear(SKColors.Transparent);
+        canvas.Scale(scale);
+        canvas.Clear(SKColors.Transparent);
         using var paint = new SKPaint();
         paint.IsAntialias = false;
         paint.Style = SKPaintStyle.Stroke;
@@ -66,16 +34,7 @@ internal sealed class PlacementOutline : IDisposable
         paint.Color = SKColors.Black;
         using var dash = SKPathEffect.CreateDash([2f, 2f], 0f);
         paint.PathEffect = dash;
-        var local = new Rect(frame.X - Output.Area.X, frame.Y - Output.Area.Y, frame.Width, frame.Height);
-        canvas.Canvas.DrawRect(local.X, local.Y, Math.Max(local.Width - 1, 1), Math.Max(local.Height - 1, 1), paint);
+        canvas.DrawRect(0, 0, Math.Max(width - 1, 1), Math.Max(height - 1, 1), paint);
         paint.PathEffect = null;
-        canvas.Canvas.Flush();
-        _surface.SetInputRegion(Rect.Empty);
-        _lastFrame = frame;
-        return true;
     }
-
-    public void Commit() => _surface.Commit();
-
-    public void Dispose() => _surface.Dispose();
 }

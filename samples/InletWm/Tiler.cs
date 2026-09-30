@@ -19,13 +19,12 @@ internal sealed class Tiler
     private readonly BasinLogger _log;
     private readonly List<Tile> _tiles = [];
     private readonly List<Tile> _onOutput = [];
-    private readonly List<KeyBinding> _bindings = [];
+    private readonly WmBindingTable<BindingMode> _table;
 
     private WmWindow? _focused;
     private WmWindow? _fullscreen;
     private WmOutput? _fullscreenOutput;
     private double _masterFraction = 0.55;
-    private bool _bindingsArmed;
     private bool _layerDefaultSet;
     private Command _pending;
 
@@ -35,6 +34,7 @@ internal sealed class Tiler
         _terminal = terminal;
         _trace = trace;
         _log = log;
+        _table = new WmBindingTable<BindingMode>(wm);
         wm.Manage += OnManage;
         wm.Render += OnRender;
     }
@@ -42,6 +42,7 @@ internal sealed class Tiler
     private void OnManage(ManageContext context)
     {
         ArmBindings(context);
+        _table.Apply(context.SessionIsLocked);
         AdoptNewWindows(context);
         ForgetClosedWindows(context);
         RunPendingCommand(context);
@@ -90,15 +91,8 @@ internal sealed class Tiler
         }
     }
 
-    private void ArmBindings(ManageContext context)
+    private void ArmBindings(ManageContext context) => _table.Arm(context, seat =>
     {
-        if (_bindingsArmed || context.Seats.Count == 0 || !_wm.Bindings.IsSupported)
-        {
-            return;
-        }
-
-        _bindingsArmed = true;
-        var seat = context.Seats[0];
         Bind(seat, "Return", Modifiers.Super, Command.Spawn);
         Bind(seat, "j", Modifiers.Super, Command.FocusNext);
         Bind(seat, "k", Modifiers.Super, Command.FocusPrevious);
@@ -116,14 +110,10 @@ internal sealed class Tiler
 
             Focus(window);
         };
-    }
+    });
 
-    private void Bind(WmSeat seat, string keysym, Modifiers modifiers, Command command)
-    {
-        var binding = _wm.Bindings.Bind(seat, keysym, modifiers, () => _pending = command);
-        binding.Enable();
-        _bindings.Add(binding);
-    }
+    private void Bind(WmSeat seat, string keysym, Modifiers modifiers, Command command) =>
+        _table.Bind(seat, keysym, modifiers, () => _pending = command);
 
     private void AdoptNewWindows(ManageContext context)
     {

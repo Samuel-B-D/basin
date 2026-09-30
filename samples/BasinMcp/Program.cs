@@ -1,5 +1,6 @@
 using System.CommandLine;
 using Basin.Cli;
+using Basin.Ipc;
 using ModelContextProtocol.Server;
 
 namespace BasinMcp;
@@ -120,11 +121,19 @@ internal static class Program
         using var terminate = Stop(stop, System.Runtime.InteropServices.PosixSignal.SIGTERM);
         using var interrupt = Stop(stop, System.Runtime.InteropServices.PosixSignal.SIGINT);
         using var hangup = Stop(stop, System.Runtime.InteropServices.PosixSignal.SIGHUP);
-        if (McpLauncher.Start(command, out var error) is not { } launcher)
+        if (command.Length == 0 || command[0].Length == 0)
+        {
+            Console.Error.WriteLine("basin-mcp: --launch needs a command after --");
+            return 1;
+        }
+
+        if (IpcLauncher.Start(command, $"basin-mcp-{Environment.ProcessId}", Console.OpenStandardError(), out var error) is not { } launcher)
         {
             Console.Error.WriteLine($"basin-mcp: {error}");
             return 1;
         }
+
+        McpLog.Log.Info($"launched {command[0]} (pid {launcher.Pid}) with its control socket at {launcher.SocketPath}");
 
         McpBridge? bridge = null;
         try
@@ -177,7 +186,16 @@ internal static class Program
         }
         finally
         {
-            await launcher.DisposeAsync().ConfigureAwait(false);
+            if (!launcher.HasExited)
+            {
+                McpLog.Log.Info($"stopping pid {launcher.Pid}");
+            }
+
+            if (await launcher.StopAsync().ConfigureAwait(false))
+            {
+                McpLog.Log.Warn($"pid {launcher.Pid} ignored SIGTERM for {IpcLauncher.StopGrace.TotalSeconds:0} s; killed it");
+            }
+
             if (bridge is not null)
             {
                 await bridge.DisposeAsync().ConfigureAwait(false);

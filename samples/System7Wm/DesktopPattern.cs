@@ -133,7 +133,7 @@ internal sealed class DesktopPattern : IDisposable
                 return;
             }
 
-            var chrome = DevicePlacement.Chrome(scale);
+            var chrome = DevicePlacement.ChromeScale(scale);
             var pattern = Pattern;
             var monochrome = Depth == System7ColorDepth.Monochrome || !pattern.HasColor;
             var tileWidth = monochrome ? 8 : pattern.Width;

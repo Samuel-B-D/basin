@@ -3,6 +3,7 @@ using System.Numerics;
 using Basin;
 using Basin.Diagnostics;
 using Basin.Ipc;
+using Basin.Kinematics;
 using Basin.Physics;
 using Basin.Scene3D;
 
@@ -16,10 +17,9 @@ internal sealed partial class DungeonWm
     private static readonly float RehangFacing = MathF.Cos(20 * MathF.PI / 180);
 
     private readonly List<Rehang> _rehangs = [];
-    private readonly (long Nanos, Vector3 Point)[] _pullSamples = new (long, Vector3)[8];
+    private VelocityTracker3 _pullVelocity;
     private DungeonWmPhysics? _physics;
     private Pull? _pull;
-    private int _pullSampleCount;
 
     private sealed class Pull
     {
@@ -84,7 +84,7 @@ internal sealed partial class DungeonWm
             Normal = window.World.Normal,
             Depth = Vector3.Distance(_camera.Position, pick.Point),
         };
-        _pullSampleCount = 0;
+        _pullVelocity.Reset();
         if (window.State == DungeonWmWindowState.Body && _physics.Bodies.TryGetValue(window, out var body))
         {
             _pull.Body = body;
@@ -130,7 +130,11 @@ internal sealed partial class DungeonWm
         physics.World.DragTo(pull.Body, target);
         physics.World.DragTurn(pull.Body, Heading() * pull.Held);
         Sample(target);
-        ScheduleAll();
+        if (physics.World.IsAwake)
+        {
+            ScheduleAll();
+        }
+
         return true;
     }
 
@@ -216,9 +220,7 @@ internal sealed partial class DungeonWm
 
     private Vector3 PullTarget(Pull pull)
     {
-        var view = ViewAt(_pointer.X, _pointer.Y)!;
-        var ray = _camera.ViewOf(_layout.Bounds, _layout.BoxOf(view.Output)).RayAt(_pointer.X, _pointer.Y);
-        return ray.At(pull.Depth);
+        return _camera.TryRayAt(_layout, _pointer.X, _pointer.Y, out var ray) ? ray.At(pull.Depth) : pull.GrabPoint;
     }
 
     private bool PullAxis(double value)
@@ -239,44 +241,9 @@ internal sealed partial class DungeonWm
         return true;
     }
 
-    private void Sample(Vector3 point)
-    {
-        var now = MonotonicClock.Nanos;
-        if (_pullSampleCount == _pullSamples.Length)
-        {
-            Array.Copy(_pullSamples, 1, _pullSamples, 0, _pullSamples.Length - 1);
-            _pullSampleCount--;
-        }
+    private void Sample(Vector3 point) => _pullVelocity.Add(point, MonotonicClock.Nanos);
 
-        _pullSamples[_pullSampleCount++] = (now, point);
-    }
-
-    private Vector3 ThrowVelocity()
-    {
-        if (_pullSampleCount < 2)
-        {
-            return Vector3.Zero;
-        }
-
-        var last = _pullSamples[_pullSampleCount - 1];
-        var first = last;
-        for (var i = _pullSampleCount - 1; i >= 0; i--)
-        {
-            first = _pullSamples[i];
-            if (last.Nanos - first.Nanos > 100_000_000)
-            {
-                break;
-            }
-        }
-
-        var seconds = (last.Nanos - first.Nanos) / 1e9f;
-        if (seconds <= 1e-3f || MonotonicClock.Nanos - last.Nanos > 150_000_000)
-        {
-            return Vector3.Zero;
-        }
-
-        return (last.Point - first.Point) / seconds;
-    }
+    private Vector3 ThrowVelocity() => _pullVelocity.Velocity(MonotonicClock.Nanos);
 
     private void Detach(DungeonWmWindow window)
     {
@@ -360,7 +327,7 @@ internal sealed partial class DungeonWm
     }
 
     private partial bool WorldBusy() =>
-        (_physics?.World.IsAwake ?? false) || _rehangs.Count > 0 || _pull is not null || (_avatar is { Animating: true } && AvatarSeen());
+        (_physics?.World.IsAwake ?? false) || _rehangs.Count > 0 || (_avatar is { Animating: true } && AvatarSeen());
 
     private void FlashBody(PhysicsBody3D body)
     {

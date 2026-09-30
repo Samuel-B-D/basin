@@ -47,16 +47,9 @@ internal sealed class ChromeSurface : IDisposable
             return false;
         }
 
-        var chrome = DevicePlacement.Chrome(scale);
-        var (x, nudgeX) = DevicePlacement.FromDevice(device.X, scale);
-        var (y, nudgeY) = DevicePlacement.FromDevice(device.Y, scale);
+        var chrome = _node.PlaceDevice(originX, originY, scale, device);
         var width = dipWidth ?? (int)Math.Ceiling(device.Width / (double)chrome);
         var height = dipHeight ?? (int)Math.Ceiling(device.Height / (double)chrome);
-        _node.SetPosition(originX + x, originY + y);
-        _node.OutputScale = scale;
-        _node.InputScale = scale / chrome;
-        _node.DeviceNudge = (nudgeX, nudgeY);
-        _node.DevicePixels = (device.Width, device.Height);
         if (!_node.Configure(width, height, chrome))
         {
             return false;

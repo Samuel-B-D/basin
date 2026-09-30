@@ -47,73 +47,39 @@ internal sealed partial class System7Shell
         };
     }
 
-    private void ApplyAddress(ShellWindow window)
-    {
-        if (window.Surface is { } surface && _addresses.AddressOf(surface) is { } address)
-        {
-            Import(window, address);
-        }
-        else if (window.X11 is { AppMenuServiceName.Length: > 0, AppMenuObjectPath.Length: > 0 } x11)
-        {
-            Import(window, AppMenuAddress.DbusMenu(x11.AppMenuServiceName, x11.AppMenuObjectPath));
-        }
-        else if (window.X11 is { } registered && _registrar?.AddressOf(registered.WindowId) is { } registration)
-        {
-            Import(window, registration);
-        }
-        else if (window.X11 is not null)
-        {
-            Import(window, null);
-        }
-    }
+    private void ApplyAddress(ShellWindow window) => Import(window, AppMenuImport.Resolve(
+        _addresses,
+        window.Surface,
+        window.X11?.AppMenuServiceName,
+        window.X11?.AppMenuObjectPath,
+        _registrar,
+        window.X11?.WindowId));
 
     private void Import(ShellWindow window, AppMenuAddress? address)
     {
-        if (window.ImportedAddress == address)
+        if (window.MenuImport is null)
         {
-            return;
-        }
-
-        window.Imported?.Dispose();
-        window.Imported = null;
-        window.ImportedAddress = address;
-        if (address is not null && window.Xdg is { } xdg && address.Kind == AppMenuAddressKind.DbusMenu)
-        {
-            _toplevels?.SetAppMenu(xdg, address.BusName, address.ObjectPath);
-        }
-
-        if (address is null)
-        {
-            RefreshMenusFor(window);
-            return;
-        }
-
-        IAppMenuSource reader = address.Kind == AppMenuAddressKind.GMenu
-            ? new GMenuReader(MenuBus, address)
-            : new DbusMenuReader(MenuBus, address.BusName, address.ObjectPath);
-        window.Imported = reader;
-        var ready = false;
-        reader.Menu.Changed += () =>
-        {
-            if (!ready && reader.IsReady && ReferenceEquals(window.Imported, reader))
-            {
-                ready = true;
-                BasinReport.Line($"APPMENU {window.Id} {(address.Kind == AppMenuAddressKind.GMenu ? "gmenu" : "dbusmenu")} titles={reader.Menu.Items.Count}");
-                RefreshMenusFor(window);
-            }
-        };
-        reader.Failed += () =>
-        {
-            if (!ReferenceEquals(window.Imported, reader))
+            if (address is null)
             {
                 return;
             }
 
-            BasinReport.Line($"APPMENU {window.Id} failed, synthesized");
-            window.Imported = null;
-            reader.Dispose();
-            RefreshMenusFor(window);
-        };
+            var import = new AppMenuImport(MenuBus, _toplevels, window.Xdg);
+            import.Ready += reader =>
+            {
+                BasinReport.Line($"APPMENU {window.Id} {(reader.Kind == AppMenuAddressKind.GMenu ? "gmenu" : "dbusmenu")} titles={reader.Menu.Items.Count}");
+                RefreshMenusFor(window);
+            };
+            import.Failed += _ =>
+            {
+                BasinReport.Line($"APPMENU {window.Id} failed, synthesized");
+                RefreshMenusFor(window);
+            };
+            import.Cleared += () => RefreshMenusFor(window);
+            window.MenuImport = import;
+        }
+
+        window.MenuImport.Import(address);
     }
 
     private void RefreshMenusFor(ShellWindow window)

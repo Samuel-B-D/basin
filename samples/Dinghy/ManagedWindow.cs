@@ -34,8 +34,6 @@ internal sealed class ManagedWindow(WmWindow window) : IWmManagedWindow
 
     public ulong MinimizeSeq { get; set; }
 
-    public WindowCapabilities? SentCapabilities { get; set; }
-
     public WindowChrome Chrome { get; set; } = WindowChrome.ClientSide;
 
     public bool RuleForceSsd { get; set; }
@@ -63,15 +61,7 @@ internal sealed class ManagedWindow(WmWindow window) : IWmManagedWindow
 
     public bool IsDialog => Window.Parent is not null;
 
-    public bool IsFixedSize
-    {
-        get
-        {
-            var hint = Window.SizeHint;
-            return hint.Minimum.Width > 0 && hint.Minimum.Width == hint.Maximum.Width
-                && hint.Minimum.Height > 0 && hint.Minimum.Height == hint.Maximum.Height;
-        }
-    }
+    public bool IsFixedSize => Window.SizeHint.IsFixed;
 
     public void SetPosition(int x, int y)
     {

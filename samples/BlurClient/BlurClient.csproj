@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Basin.Cli/Basin.Cli.csproj" />
+    <ProjectReference Include="../../src/Basin.WindowManager/Basin.WindowManager.csproj" />
     <PackageReference Include="WaylandSharpest" />
     <AdditionalFiles Include="$(WaylandProtocolsDir)stable/xdg-shell/xdg-shell.xml" WaylandNamespace="BlurClient.Protocol" />
     <AdditionalFiles Include="$(WaylandProtocolsDir)staging/ext-background-effect/ext-background-effect-v1.xml" WaylandNamespace="BlurClient.Protocol" />

@@ -6,11 +6,7 @@ namespace RetroWm;
 
 internal sealed class FrameSurface : IDisposable
 {
-    private readonly WlSurface _surface;
-    private readonly WmDecoration _decoration;
-    private readonly ShmSlots _slots;
-    private readonly OutputScales _scales;
-    private readonly HashSet<WlOutput> _entered = [];
+    private readonly DecorationSurface _surface;
 
     private int _scale = 1;
     private bool _titled = true;
@@ -19,37 +15,17 @@ internal sealed class FrameSurface : IDisposable
     private int _width;
     private int _height;
     private bool _dirty = true;
-    private bool _disposed;
 
     private string? _lastTitle;
     private string? _elided;
     private bool _lastActive;
 
-    internal FrameSurface(WmWindow window, WlCompositor compositor, WlShm shm, OutputScales scales)
-    {
-        _scales = scales;
-        _surface = compositor.CreateSurface();
-        _surface.Enter += (_, e) =>
-        {
-            if (e.Output is not null)
-            {
-                _entered.Add(e.Output);
-            }
-        };
-        _surface.Leave += (_, e) =>
-        {
-            if (e.Output is not null)
-            {
-                _entered.Remove(e.Output);
-            }
-        };
-        _decoration = window.CreateDecorationBelow(_surface);
-        _slots = new ShmSlots(shm);
-    }
+    internal FrameSurface(WmWindow window, WlCompositor compositor, WlShm shm, OutputScales scales) =>
+        _surface = new DecorationSurface(window, compositor, shm, scales, above: false);
 
-    public bool Mapped { get; private set; }
+    public bool Mapped => _surface.Mapped;
 
-    public uint SurfaceId => _surface.Id;
+    public uint SurfaceId => _surface.SurfaceId;
 
     public int FrameWidth => _width;
 
@@ -57,21 +33,7 @@ internal sealed class FrameSurface : IDisposable
 
     public bool Titled => _titled;
 
-    public int ScaleFor(uint fallbackOutputName)
-    {
-        if (_entered.Count == 0)
-        {
-            return _scales.ScaleForName(fallbackOutputName);
-        }
-
-        var scale = 1;
-        foreach (var output in _entered)
-        {
-            scale = Math.Max(scale, _scales.ScaleFor(output));
-        }
-
-        return scale;
-    }
+    public int ScaleFor(uint fallbackOutputName) => _surface.ScaleFor(fallbackOutputName);
 
     public static Rect SystemBoxRect() => new(
         Theme.BorderWidth,
@@ -127,7 +89,7 @@ internal sealed class FrameSurface : IDisposable
         _surface.SetBufferScale(scale);
     }
 
-    public void UpdateInputRegion(WlCompositor compositor)
+    public void UpdateInputRegion()
     {
         if (_width <= 0 || _height <= 0)
         {
@@ -136,11 +98,7 @@ internal sealed class FrameSurface : IDisposable
 
         var bw = Theme.BorderWidth;
         var (_, top, _) = Theme.InsetsFor(_titled);
-        var region = compositor.CreateRegion();
-        region.Add(0, 0, _width, _height);
-        region.Subtract(bw, top, _contentWidth, _contentHeight);
-        _surface.SetInputRegion(region);
-        region.Destroy();
+        _surface.SetInputRegion([new Rect(0, 0, _width, _height)], [new Rect(bw, top, _contentWidth, _contentHeight)]);
     }
 
     public bool Render(string? title, bool active)
@@ -158,18 +116,13 @@ internal sealed class FrameSurface : IDisposable
             return false;
         }
 
-        var bufferWidth = _width * _scale;
-        var bufferHeight = _height * _scale;
-        var stride = bufferWidth * 4;
-        var pixels = _slots.Prepare(bufferWidth, bufferHeight, stride);
+        var pixels = _surface.Prepare(_width * _scale, _height * _scale);
         if (pixels == 0)
         {
             return false;
         }
 
-        _slots.CurrentBytes().Clear();
-        var info = new SKImageInfo(bufferWidth, bufferHeight, SKColorType.Bgra8888, SKAlphaType.Premul);
-        using var surface = SKSurface.Create(info, pixels, stride);
+        using var surface = Basin.WindowManager.Skia.DecorationCanvas.Create(_surface, pixels);
         if (surface is null)
         {
             return false;
@@ -184,7 +137,7 @@ internal sealed class FrameSurface : IDisposable
     public void SetOffset(int swallowTop)
     {
         var (horizontal, top, _) = Theme.InsetsFor(_titled);
-        _decoration.SetOffset(-horizontal, -top + swallowTop);
+        _surface.SetOffset(-horizontal, -top + swallowTop);
     }
 
     public void Invalidate()
@@ -193,48 +146,20 @@ internal sealed class FrameSurface : IDisposable
         _dirty = true;
     }
 
-    public void SyncNextCommit() => _decoration.SyncNextCommit();
+    public void SyncNextCommit() => _surface.SyncNextCommit();
 
-    public void Commit()
-    {
-        if (_slots.CurrentBuffer is not { } buffer)
-        {
-            return;
-        }
-
-        _surface.Attach(buffer, 0, 0);
-        _surface.DamageBuffer(0, 0, _width * _scale, _height * _scale);
-        _surface.Commit();
-        _slots.MarkAttached();
-        Mapped = true;
-    }
+    public void Commit() => _surface.Commit();
 
     public void Unmap()
     {
-        _surface.Attach(null, 0, 0);
-        _surface.Commit();
-        Mapped = false;
+        _surface.Unmap();
         _dirty = true;
         _lastTitle = null;
         _elided = null;
         _lastActive = false;
     }
 
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _slots.Dispose();
-        _decoration.Dispose();
-        if (!_surface.IsDestroyed)
-        {
-            _surface.Destroy();
-        }
-    }
+    public void Dispose() => _surface.Dispose();
 
     private void Draw(SKCanvas canvas, string? title, bool active)
     {

@@ -17,30 +17,24 @@ internal sealed class MenuSurface : IDisposable
     private static readonly string[] Labels = ["Move", "Size", "Icon", "Zoom", "Close"];
 
     private readonly ManagerSurface _surface;
-    private readonly bool[] _enabled = new bool[ItemCount];
-    private int _hovered = -1;
-    private int _lastHovered = -2;
-    private int _lastScale = -1;
-    private uint _lastMask = uint.MaxValue;
+    private readonly WmMenuModel _model = new(ItemCount);
 
     internal MenuSurface(
-        WlCompositor compositor,
-        WlShm shm,
-        ZwlrLayerShellV1 layerShell,
+        ManagerSurfaceHost host,
         WlOutput wlOutput,
         WmOutput output,
         RiverWindowManager wm,
         int scale)
     {
         Output = output;
+        _surface = host.Create(wlOutput, ZwlrLayerShellV1.Layer.Overlay, "retro-wm-menu");
+        SurfaceSize = Measure(Math.Max(scale, 1));
         for (var i = 0; i < ItemCount; i++)
         {
-            _enabled[i] = true;
+            _model.SetRow(i, ItemHeight);
         }
 
-        _surface = new ManagerSurface(
-            compositor, shm, layerShell, wlOutput, ZwlrLayerShellV1.Layer.Overlay, "retro-wm-menu");
-        SurfaceSize = Measure(Math.Max(scale, 1));
+        _model.Content = new Rect(MenuBorder, MenuBorder, SurfaceSize.Width - (2 * MenuBorder), ItemCount * ItemHeight);
         _surface.SetAnchor(ZwlrLayerSurfaceV1.Anchor.Top | ZwlrLayerSurfaceV1.Anchor.Left);
         _surface.SetSize(SurfaceSize.Width, SurfaceSize.Height);
         _surface.Configured += wm.RequestManage;
@@ -54,7 +48,7 @@ internal sealed class MenuSurface : IDisposable
 
     public uint SurfaceId => _surface.SurfaceId;
 
-    public int Hovered => _hovered;
+    public int Hovered => _model.Hovered;
 
     private static int ItemHeight => (int)Math.Ceiling(Theme.FontSize) + (ItemPaddingY * 2);
 
@@ -64,69 +58,21 @@ internal sealed class MenuSurface : IDisposable
         _surface.CommitInitial();
     }
 
-    public void SetEnabled(SystemMenuItem item, bool enabled) => _enabled[(int)item] = enabled;
-
-    public int? ItemAt(int x, int y)
+    public void SetEnabled(SystemMenuItem item, bool enabled)
     {
-        if (x < MenuBorder || x >= SurfaceSize.Width - MenuBorder
-            || y < MenuBorder || y >= SurfaceSize.Height - MenuBorder)
-        {
-            return null;
-        }
-
-        var index = (y - MenuBorder) / ItemHeight;
-        return index < ItemCount ? index : null;
+        _model.SetSelectable((int)item, enabled);
+        _model.Invalidate();
     }
 
-    public bool UpdateHover(int x, int y)
-    {
-        var next = ItemAt(x, y) is { } index && _enabled[index] ? index : -1;
-        if (next != _hovered)
-        {
-            _hovered = next;
-            return true;
-        }
+    public int? ItemAt(int x, int y) => _model.RowAt(x, y);
 
-        return false;
-    }
+    public bool UpdateHover(int x, int y) => _model.Hover(x, y);
 
-    public bool ClearHover()
-    {
-        if (_hovered != -1)
-        {
-            _hovered = -1;
-            return true;
-        }
+    public bool ClearHover() => _model.ClearHover();
 
-        return false;
-    }
+    public void MoveSelection(int delta) => _model.Step(delta);
 
-    public void MoveSelection(int delta)
-    {
-        for (var step = 1; step <= ItemCount; step++)
-        {
-            var index = ((_hovered + (delta * step)) % ItemCount + ItemCount) % ItemCount;
-            if (_enabled[index])
-            {
-                _hovered = index;
-                return;
-            }
-        }
-    }
-
-    public void SelectFirstEnabled()
-    {
-        for (var i = 0; i < ItemCount; i++)
-        {
-            if (_enabled[i])
-            {
-                _hovered = i;
-                return;
-            }
-        }
-
-        _hovered = -1;
-    }
+    public void SelectFirstEnabled() => _model.SelectFirst();
 
     public bool Render(int scale)
     {
@@ -136,16 +82,7 @@ internal sealed class MenuSurface : IDisposable
         }
 
         scale = Math.Max(scale, 1);
-        var mask = 0u;
-        for (var i = 0; i < ItemCount; i++)
-        {
-            if (_enabled[i])
-            {
-                mask |= 1u << i;
-            }
-        }
-
-        if (_hovered == _lastHovered && scale == _lastScale && mask == _lastMask)
+        if (!_model.NeedsRender(scale))
         {
             return false;
         }
@@ -165,9 +102,7 @@ internal sealed class MenuSurface : IDisposable
         Draw(surface.Canvas, scale);
         surface.Canvas.Flush();
         _surface.SetInputRegion(new Rect(0, 0, SurfaceSize.Width, SurfaceSize.Height));
-        _lastHovered = _hovered;
-        _lastScale = scale;
-        _lastMask = mask;
+        _model.Rendered(scale);
         return true;
     }
 
@@ -216,14 +151,14 @@ internal sealed class MenuSurface : IDisposable
         {
             var rowY = border + (i * ItemHeight * scale);
             var rowHeight = ItemHeight * scale;
-            var selected = i == _hovered && _enabled[i];
+            var selected = i == _model.Hovered && _model.IsSelectable(i);
             if (selected)
             {
                 paint.Color = Theme.Color(Theme.MenuHighlightBg);
                 canvas.DrawRect(border, rowY, width - (2 * border), rowHeight, paint);
             }
 
-            var color = !_enabled[i] ? Ega.DarkGray
+            var color = !_model.IsSelectable(i) ? Ega.DarkGray
                 : selected ? Theme.MenuHighlightText
                 : Theme.MenuText;
             var baseline = rowY + ((rowHeight - (metrics.Descent - metrics.Ascent)) / 2f) - metrics.Ascent;

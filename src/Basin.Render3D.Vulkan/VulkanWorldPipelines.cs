@@ -10,7 +10,7 @@ internal sealed unsafe class VulkanWorldPipelines : IDisposable
     public const Format ColorFormat = Format.B8G8R8A8Unorm;
     public const uint DrawSize = 208;
     public const uint SceneSize = 304;
-    public const uint JointsSize = 48 * 64;
+    public const uint JointsSize = Skeleton.MaxJoints * 64;
 
     private readonly VulkanDevice _device;
     private readonly Pipeline[] _pipelines = new Pipeline[(int)VulkanWorldPipeline.Count];

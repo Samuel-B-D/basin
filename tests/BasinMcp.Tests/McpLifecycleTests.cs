@@ -18,7 +18,7 @@ public sealed class McpLifecycleTests
         var rig = harness.Rig!;
         rig.Server.Dispose();
         harness.PumpUntil(() => harness.Bridge.Client is not { IsConnected: true });
-        var server = new IpcServer(rig.Host.Loop, rig.Services, new IpcSessionInfo { Compositor = compositor, Quit = () => { } }, harness.SocketPath, listen: true)
+        var server = new IpcServer(rig.Host.Loop, rig.Services, rig.Server.Session with { Compositor = compositor }, harness.SocketPath, listen: true)
         {
             SyntheticInput = rig.Server.SyntheticInput,
             Approvals = rig.Server.Approvals is null ? null : new IpcApprovalBroker(),

@@ -1,5 +1,6 @@
 using System.Numerics;
 using Basin.Scene3D;
+using Basin.Scene3D.Gltf;
 
 namespace DungeonWm;
 
@@ -33,7 +34,7 @@ internal sealed class RoomBaker
 
     public BakedRegion Bake(DungeonWmMap map, MapRegion region)
     {
-        var builder = new MeshBuilder();
+        var builder = new WorldMeshBuilder();
         var lights = new List<WorldLight>();
         var blockers = new List<WorldBounds>();
         var dynamic = new List<PropPlacement>();
@@ -124,7 +125,7 @@ internal sealed class RoomBaker
             new WorldBounds(new Vector3(x0, y0, -0.5f), new Vector3(x1, y1, 0.5f)).Transformed(placement * scale);
     }
 
-    private void AddCorners(MapRegion region, MeshBuilder builder, List<WorldBounds> blockers, in Matrix4x4 scale)
+    private void AddCorners(MapRegion region, WorldMeshBuilder builder, List<WorldBounds> blockers, in Matrix4x4 scale)
     {
         var pillar = _kit["pillar"].Mesh;
         var corners = new[]
@@ -143,7 +144,7 @@ internal sealed class RoomBaker
     }
 
     private void AddProps(
-        DungeonWmMap map, MapRegion region, MeshBuilder builder, List<WorldBounds> blockers, List<PropPlacement> dynamic, in Matrix4x4 scale)
+        DungeonWmMap map, MapRegion region, WorldMeshBuilder builder, List<WorldBounds> blockers, List<PropPlacement> dynamic, in Matrix4x4 scale)
     {
         var corners = new (int X, int Z, float Yaw)[]
         {

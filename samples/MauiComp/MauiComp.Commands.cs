@@ -9,15 +9,19 @@ internal sealed partial class MauiComp
 {
     private readonly IpcLineReport _report = new();
     private IpcServer? _ipc;
+    private Basin.Host.FrameSettle? _settle;
 
     private void WireIpc()
     {
+        _settle = new Basin.Host.FrameSettle(_outputs, _uiDriver);
         _ipc = _options.Ipc.Attach(_host.Loop, _services, _host.Socket, new IpcSessionInfo
         {
             Compositor = "maui-comp",
             Backend = _options.Backend.ToString().ToLowerInvariant(),
             Renderer = RendererName,
             Quit = Stop,
+            Settle = _settle,
+            Processes = _processes,
         });
         _ipc.SyntheticInput = _seat?.Injector;
         RegisterCommands(_ipc.Methods);
@@ -27,10 +31,8 @@ internal sealed partial class MauiComp
 
     private void RegisterCommands(IpcMethodRegistry methods)
     {
-        _report.AddLine(methods, IpcMethodNames.InputPointerMove, "move {x:number} {y:number}");
-        _report.AddLine(methods, IpcMethodNames.InputPointerButton, "button {button:int} {pressed:bool}");
-        _report.AddLine(methods, IpcMethodNames.InputKey, "key {code:int} {pressed:bool}");
-        _report.AddLine(methods, IpcMethodNames.SessionQuit, "quit");
+        _report.AddInputLines(methods);
+        _report.AddSessionLines(methods);
 
         _report.Register(methods, "mauicomp/shot", "shot {path}", (ref IpcParams p, IpcReply _) =>
         {
@@ -108,9 +110,10 @@ internal sealed partial class MauiComp
                 return;
             }
 
-            _clockTimer?.Remove();
-            _clockTimer = null;
-            _shell.SetClock(text);
+            if (_clock is not null)
+            {
+                _clock.Frozen = text;
+            }
         });
 
         _report.Register(methods, "mauicomp/theme", "theme {variant}", (ref IpcParams p, IpcReply _) =>
@@ -157,12 +160,7 @@ internal sealed partial class MauiComp
     private void WritePresented(string path)
     {
         var buffer = _outputs.Views.FirstOrDefault()?.LastPresentedBuffer;
-        _report.Line(Basin.Scene.SceneScreenshot.WritePresented(buffer, _renderer, path) switch
-        {
-            Basin.Scene.ScreenshotOutcome.NoFrame => "SHOTRAW none",
-            Basin.Scene.ScreenshotOutcome.Unreadable => $"SHOTRAW unreadable {buffer!.Width}x{buffer.Height}",
-            _ => $"SHOTRAW {path} {buffer!.Width}x{buffer.Height}",
-        });
+        _report.Line(CompositorLines.ShotRaw(Basin.Scene.SceneScreenshot.WritePresented(buffer, _renderer, path), buffer, path));
     }
 
     private void MeasurePumps(int count)
@@ -188,7 +186,7 @@ internal sealed partial class MauiComp
         foreach (var view in _outputs.Views)
         {
             var box = _layout.BoxOf(view.Output);
-            _report.Line($"AREA {view.Output.Name} output={box} work={ShellOutputs.WorkArea(box)}");
+            _report.Line($"AREA {view.Output.Name} output={box} work={WorkAreaOf(view.Output, box)}");
         }
 
         foreach (var window in _windows)
@@ -200,6 +198,7 @@ internal sealed partial class MauiComp
         _report.Line($"ANIMATING {(_animations.IsRunning ? "yes" : "no")}");
         _report.Line($"STARTMENU {(_startMenu?.IsOpen == true ? "open" : "closed")} " + $"programs={(_startMenu?.IsProgramsOpen == true ? "open" : "closed")}");
         _report.Line($"RUN {(_runDialog?.IsOpen == true ? "open" : "closed")} text=\"{_runDialog?.Text}\"");
+        _report.Line($"LOCK {(_locked ? "on" : "off")}");
         if (_startMenu?.Surface is { } menuSurface)
         {
             var size = menuSurface.Size;

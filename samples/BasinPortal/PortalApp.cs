@@ -30,7 +30,7 @@ internal sealed class PortalApp : IDisposable
     private readonly PromptStyle _promptStyle;
     private BasinServices? _services;
     private PortalBus? _bus;
-    private ImageCopyCaptureClient? _capture;
+    private PortalClientServices? _client;
     private ZwlrLayerShellV1? _layerShell;
     private PromptHost? _promptHost;
     private AvaloniaPromptHost? _avaloniaHost;
@@ -77,17 +77,8 @@ internal sealed class PortalApp : IDisposable
         _globals.SeatCapabilitiesChanged += _seat.SetCapabilities;
         _owned.Add(_seat);
 
-        ForeignToplevelList? toplevels = _globals.ToplevelList is { } list ? new ForeignToplevelList(list) : null;
-        if (toplevels is not null)
-        {
-            _owned.Add(toplevels);
-        }
-
-        if (_globals.Capture is { } capture && _globals.Shm is { } shm)
-        {
-            _capture = new ImageCopyCaptureClient(capture, _globals.OutputSources, _globals.ToplevelSources, shm, _globals.Dmabuf, _outputs, toplevels, _display);
-            _owned.Add(_capture);
-        }
+        _client = new PortalClientServices(_globals, _outputs, keymap, _display);
+        _owned.Add(_client);
 
         var prompts = _promptStyle == PromptStyle.Avalonia ? StartAvaloniaPrompts() : StartSkiaPrompts(keymap);
 
@@ -97,28 +88,13 @@ internal sealed class PortalApp : IDisposable
         _services = new BasinServices(_loop.Loop);
         _services.Use(_bus);
         _services.Use(_outputs.Layout);
-        if (_capture is not null)
-        {
-            _services.Use<IScreenCapture>(_capture);
-        }
-
         _services.Use<IPortalPrompts>(prompts);
         _services.Use<IAppInfoResolver>(new DesktopAppInfoResolver(new DesktopEntries(), new IconSearch()));
-        _services.Use<IActiveKeymap>(keymap);
-        _services.Use<IKeymapLookup>(keymap);
         _services.Use(new Basin.Portal.PortalOptions());
-        if (toplevels is not null)
-        {
-            _services.Use<IToplevelModel>(toplevels);
-        }
-
-        var pack = PortalPack.Default;
-        pack = RegisterOrDrop(pack, _capture is { IsAvailable: true }, "org.freedesktop.impl.portal.Screenshot");
-        RegisterScreenCast(ref pack);
-        RegisterRemoteDesktop(ref pack, keymap);
-        RegisterClipboard(ref pack);
-        RegisterShortcuts(ref pack);
-        RegisterInputCapture(ref pack);
+        var pack = _client.Register(
+            _services,
+            PortalPack.Default,
+            capture => PipeWireScreencastPublisher.TryCreate(_loop.Loop, capture, _outputs.Layout, capture.Allocator, "basin-portal"));
 
         _services.Install(pack);
         _services.Freeze();
@@ -223,81 +199,6 @@ internal sealed class PortalApp : IDisposable
             seat.Modifiers += (id, depressed, latched, locked, group) => avalonia.Dispatch(id, s => s.Modifiers(depressed, latched, locked, group));
         }
     }
-
-    private void RegisterScreenCast(ref Basin.ProtocolPack pack)
-    {
-        if (_capture is { } capture)
-        {
-            capture.ProbeDmabuf();
-            var publisher = PipeWireScreencastPublisher.TryCreate(_loop.Loop, capture, _outputs.Layout, capture.Allocator, "basin-portal");
-            if (publisher is not null)
-            {
-                _owned.Add(publisher);
-                _services!.Use<IScreencastPublisher>(publisher);
-                if (capture.IsAvailable)
-                {
-                    return;
-                }
-            }
-        }
-
-        pack = pack.Without("org.freedesktop.impl.portal.ScreenCast");
-    }
-
-    private void RegisterRemoteDesktop(ref Basin.ProtocolPack pack, ClientKeymap keymap)
-    {
-        if (_globals.VirtualPointers is null && _globals.VirtualKeyboards is null)
-        {
-            pack = pack.Without("org.freedesktop.impl.portal.RemoteDesktop");
-            return;
-        }
-
-        var injector = new VirtualInputInjector(_globals.VirtualKeyboards, _globals.VirtualPointers, _globals.Seat, keymap);
-        _owned.Add(injector);
-        _services!.Use<IInputSink>(injector);
-    }
-
-    private void RegisterClipboard(ref Basin.ProtocolPack pack)
-    {
-        if (_globals.DataControl is not { } dataControl || _globals.Seat is not { } seat)
-        {
-            pack = pack.Without("org.freedesktop.impl.portal.Clipboard");
-            return;
-        }
-
-        var store = new DataControlSelectionStore(dataControl, seat);
-        _owned.Add(store);
-        _services!.Use<ISelectionStore>(store);
-    }
-
-    private void RegisterShortcuts(ref Basin.ProtocolPack pack)
-    {
-        if (_globals.GlobalShortcuts is null)
-        {
-            pack = pack.Without("org.freedesktop.impl.portal.GlobalShortcuts");
-            return;
-        }
-
-        var registry = new HyprlandShortcutRegistry(_globals.GlobalShortcuts);
-        _owned.Add(registry);
-        _services!.Use<IGlobalShortcuts>(registry);
-    }
-
-    private void RegisterInputCapture(ref Basin.ProtocolPack pack)
-    {
-        if (_globals.InputCapture is null || !Basin.Eis.EisLibrary.IsAvailable(out _))
-        {
-            pack = pack.Without("org.freedesktop.impl.portal.InputCapture");
-            return;
-        }
-
-        var provider = new HyprlandInputCaptureProvider(_globals.InputCapture, _outputs);
-        _owned.Add(provider);
-        _services!.Use<IInputCaptureProvider>(provider);
-    }
-
-    private static Basin.ProtocolPack RegisterOrDrop(Basin.ProtocolPack pack, bool available, string wireInterface) =>
-        available ? pack : pack.Without(wireInterface);
 
     private SKTypeface? LoadTypeface()
     {

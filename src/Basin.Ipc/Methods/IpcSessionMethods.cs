@@ -28,5 +28,35 @@ internal static class IpcSessionMethods
                 IpcWrite.Empty(reply);
             });
         }
+
+        if (session.Settle is { } settle)
+        {
+            server.Methods.RegisterLibrary(IpcMethodNames.SessionSettle, (ref IpcParams parameters, IpcReply reply) =>
+            {
+                if (parameters.Read(IpcJsonContext.Default.IpcSettleParams) is not { } request)
+                {
+                    return;
+                }
+
+                var timeout = request.TimeoutMs ?? DefaultSettleMs;
+                if (timeout <= 0 || timeout > MaxSettleMs)
+                {
+                    reply.Error(IpcErrorCodes.InvalidParams, $"timeout_ms is between 1 and {MaxSettleMs}");
+                    return;
+                }
+
+                if (settle.IsSettled)
+                {
+                    reply.Write(new IpcSettleResult(settle.Presented), IpcJsonContext.Default.IpcSettleResult);
+                    return;
+                }
+
+                new IpcSettleWait(server, settle, reply.Defer()).Start((int)timeout);
+            });
+        }
     }
+
+    private const int DefaultSettleMs = 5000;
+
+    private const int MaxSettleMs = 3_600_000;
 }

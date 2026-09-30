@@ -24,7 +24,7 @@ internal sealed partial class MauiComp : IDisposable
     private readonly BasinServices _services;
     private readonly ShellLayers _layers;
     private readonly OutputDriver _outputs;
-    private readonly Basin.Color.ColorCapabilityPack _colorPack;
+    private readonly Basin.Desktop.ColorCapabilityPack _colorPack;
     private readonly CompositorRunLoop _loop;
     private readonly BasinGlGpu? _gpu;
     private readonly AvaloniaUIHost _ui;
@@ -38,8 +38,8 @@ internal sealed partial class MauiComp : IDisposable
     private readonly Basin.Seat.Backends.InputConfigurator _inputConfigurator = new();
     private readonly UIDriver _uiDriver;
     private readonly ShellAnimations _animations;
-    private readonly List<Process> _spawned = [];
-    private IEventSource? _clockTimer;
+    private readonly ProcessTracker _processes;
+    private Basin.Host.ShellClock? _clock;
 
     public static int Run(MauiCompOptions options, BasinLogger log, out long rendered)
     {
@@ -60,9 +60,9 @@ internal sealed partial class MauiComp : IDisposable
         }
 
         BasinReport.Line(CompositorLines.Frames(rendered));
-        if (BasinCounters.Enabled && (BasinCounters.LiveObjects != 0 || BasinCounters.PendingFrees != 0))
+        if (CompositorLines.Census() is { } census)
         {
-            log.Error($"{BasinCounters.CensusReport()}");
+            log.Error($"{census}");
         }
 
         return status;
@@ -88,8 +88,9 @@ internal sealed partial class MauiComp : IDisposable
             {
                 SocketFd = options.SocketFd,
             });
+        _processes = new ProcessTracker(_host.Loop, () => ProcessTracker.SessionEnvironment(_host.Socket, null, _ipc?.Path));
 
-        _colorPack = new Basin.Color.ColorCapabilityPack(_layout, _renderer);
+        _colorPack = new Basin.Desktop.ColorCapabilityPack(_layout, _renderer);
         var servicePack = new DesktopServicePack(_scene, _layout, _renderer, _host.Drm);
         var capturePack = servicePack.Capture;
         _cursor = new CursorController(_layout) { Capture = capturePack.Capture };
@@ -108,10 +109,11 @@ internal sealed partial class MauiComp : IDisposable
             _services.Install(new LinuxDmabufModule(_renderer.DmabufTextureFormats, renderDevice.DevicePath, captureFormats: _renderer.DmabufRenderFormats));
         }
 
+        _layers = new ShellLayers(_scene.Root);
+        CreateLayerDrivers();
         _services.UseDefault<Basin.Capabilities.IInputDeviceConfiguration>(_inputConfigurator);
         _services.Freeze();
 
-        _layers = new ShellLayers(_scene.Root);
         _outputs = new OutputDriver(_host, _scene, _layout, _renderer, _deviceAllocator)
         {
             Capture = capturePack,
@@ -185,13 +187,10 @@ internal sealed partial class MauiComp : IDisposable
         Seat = _services.Require<Basin.Seat.Seat>();
         Shell = _services.Require<XdgShell>();
         Decorations = _services.Require<XdgDecorationManager>();
-        Decorations.ModeChanged += (toplevel, mode) =>
-            RecordDecorationPreference(toplevel.Surface, mode == DecorationMode.ServerSide);
         KdeDecorations = _services.Require<KdeServerDecorationManager>();
-        KdeDecorations.ModeRequested += (surface, mode) =>
-            RecordDecorationPreference(surface, mode == KdeServerDecorationManager.DecorationMode.Server);
-        _services.Require<XdgToplevelSource>().NoBorderRequested += (toplevel, noBorder) =>
-            RecordDecorationPreference(toplevel.Surface, !noBorder);
+        _decorationPreferences = new DecorationPreferences(
+            Decorations, KdeDecorations, _services.Require<XdgToplevelSource>());
+        _decorationPreferences.Changed += OnDecorationChanged;
 
         _outputs.CreateInitialOutputs();
         if (_host.Parent is not null)
@@ -210,6 +209,8 @@ internal sealed partial class MauiComp : IDisposable
         servicePack.CursorTheme.Images = _cursor.Images;
         ApplyKeymap();
         WireWindows();
+        WireLayers();
+        WireColor();
         WireSeat();
 
         if (options.Backend == BackendKind.Drm && _outputs.Views.Count == 0)
@@ -237,7 +238,9 @@ internal sealed partial class MauiComp : IDisposable
         ? _layout.BoxOf(_outputs.Views[0].Output)
         : new Box(0, 0, 1280, 720);
 
-    internal Box WorkArea() => ShellOutputs.WorkArea(PrimaryBox());
+    internal Box WorkArea() => _outputs.Views.Count > 0
+        ? WorkAreaOf(_outputs.Views[0].Output, PrimaryBox())
+        : ShellOutputs.WorkArea(PrimaryBox());
 
     internal void Stop() => _loop.Stop();
 
@@ -267,8 +270,8 @@ internal sealed partial class MauiComp : IDisposable
         _uiDriver.Woken += _outputs.ScheduleAll;
         _uiDriver.Start();
 
-        _clockTimer = _host.Loop.AddTimer(OnClockTick);
-        OnClockTick();
+        _clock = new Basin.Host.ShellClock(_host.Loop, now => now.ToString("HH:mm ddd d MMM"), text => _shell.SetClock(text!));
+        _clock.Refresh();
         WireIpc();
 
         _loop.Iterating += _uiDriver.Pump;
@@ -279,8 +282,9 @@ internal sealed partial class MauiComp : IDisposable
 
         _uiDriver.Woken -= _outputs.ScheduleAll;
         _ipc?.Dispose();
+        _settle?.Dispose();
         _ipc = null;
-        _clockTimer?.Remove();
+        _clock?.Dispose();
         return 0;
     }
 
@@ -298,7 +302,11 @@ internal sealed partial class MauiComp : IDisposable
         PlaceShell();
     }
 
-    private void OnOutputRemoved(OutputView view) => _shell.Remove(view.Output);
+    private void OnOutputRemoved(OutputView view)
+    {
+        _usable.Remove(view.Output);
+        _shell.Remove(view.Output);
+    }
 
     private void PlaceShell()
     {
@@ -307,29 +315,15 @@ internal sealed partial class MauiComp : IDisposable
             _shell.Place(view.Output, _layout.BoxOf(view.Output), view.Output.Scale);
         }
 
+        RelayoutLayers();
         RescaleTitlebars();
-    }
-
-    private void OnClockTick()
-    {
-        var now = DateTime.Now;
-        _shell.SetClock(now.ToString("HH:mm ddd d MMM"));
-        _clockTimer?.UpdateTimer(Math.Max(1, ((60 - now.Second) * 1000) - now.Millisecond));
     }
 
     private void Spawn(string command)
     {
-        try
+        if (_processes.SpawnShell(command, out var error) is null)
         {
-            var process = BasinDiagnostics.StartClient(command, _host.Socket);
-            if (process is not null)
-            {
-                _spawned.Add(process);
-            }
-        }
-        catch (Exception error)
-        {
-            _log.Error($"cannot start {command}: {error.Message}");
+            _log.Error($"cannot start {command}: {error}");
         }
     }
 
@@ -337,14 +331,11 @@ internal sealed partial class MauiComp : IDisposable
     {
         _host.DisconnectClients();
         _ipc?.Dispose();
+        _settle?.Dispose();
         _ipc = null;
         _colorPack.Luts.Dispose();
-        foreach (var process in _spawned)
-        {
-            BasinDiagnostics.StopClient(process);
-        }
-
-        _spawned.Clear();
+        _processes.TerminateAll(TimeSpan.FromMilliseconds(500));
+        _processes.Dispose();
         _switcher?.Dispose();
         DisposeWindows();
         _animations.Dispose();

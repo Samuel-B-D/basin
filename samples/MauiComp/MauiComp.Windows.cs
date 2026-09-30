@@ -19,9 +19,9 @@ internal sealed partial class MauiComp
     private static readonly XkbKeysym AltRight = XkbKeysym.FromName("Alt_R");
 
     private readonly List<ShellWindow> _windows = [];
-    private readonly Dictionary<XdgSurfaceState, SceneSurface> _surfaceScenes = [];
+    private NestedPopupPlacer _popups = new();
     private readonly List<PanelModel> _panels = [];
-    private readonly Dictionary<Surface, bool> _ssdPreference = [];
+    private readonly DecorationPreferences _decorationPreferences;
     private ShellWindow? _focused;
     private ShellSwitcher? _switcher;
     private ShellStartMenu? _startMenu;
@@ -33,6 +33,7 @@ internal sealed partial class MauiComp
     private void WireWindows()
     {
         Shell.NewToplevel += OnNewToplevel;
+        _popups = new NestedPopupPlacer(_layout);
         Shell.NewPopup += OnNewPopup;
         _switcher = new ShellSwitcher(_ui, _mauiSurfaces, _layers.Overlay, _shellSurfaces)
         {
@@ -90,7 +91,7 @@ internal sealed partial class MauiComp
 
     private void FocusChrome(Basin.Capabilities.IUISurface? surface)
     {
-        if (_seat is null)
+        if (_seat is null || _locked)
         {
             return;
         }
@@ -235,7 +236,7 @@ internal sealed partial class MauiComp
     {
         var scene = new SceneSurface(_layers.Windows, toplevel.Surface);
         scene.Tree.Enabled = false;
-        _surfaceScenes[toplevel.Xdg] = scene;
+        _popups.Add(toplevel.Xdg, scene);
         var window = new ShellWindow(toplevel, scene);
 
         toplevel.Xdg.Mapped += () => OnMapped(window);
@@ -243,7 +244,7 @@ internal sealed partial class MauiComp
         toplevel.Xdg.Committed += () => OnCommitted(window);
         toplevel.Destroyed += () =>
         {
-            _surfaceScenes.Remove(toplevel.Xdg);
+            _popups.Remove(toplevel.Xdg);
             OnUnmapped(window);
         };
         toplevel.TitleChanged += () =>
@@ -261,33 +262,7 @@ internal sealed partial class MauiComp
         toplevel.MinimizeRequested += () => Minimize(window);
     }
 
-    private void OnNewPopup(XdgPopupWindow popup)
-    {
-        if (popup.Parent is not { } parent || !_surfaceScenes.TryGetValue(parent, out var parentScene))
-        {
-            return;
-        }
-
-        var scene = new SceneSurface(parentScene.Tree, popup.Surface);
-        _surfaceScenes[popup.Xdg] = scene;
-
-        void Place()
-        {
-            var origin = parent.EffectiveGeometry;
-            var offset = popup.SurfacePosition;
-            scene.Tree.SetPosition(origin.X + offset.X, origin.Y + offset.Y);
-        }
-
-        Place();
-        popup.Xdg.Committed += Place;
-        popup.GeometryChanged += Place;
-        popup.Destroyed += () =>
-        {
-            popup.Xdg.Committed -= Place;
-            popup.GeometryChanged -= Place;
-            _surfaceScenes.Remove(popup.Xdg);
-        };
-    }
+    private void OnNewPopup(XdgPopupWindow popup) => _popups.Attach(popup);
 
     private void OnMapped(ShellWindow window)
     {
@@ -343,17 +318,8 @@ internal sealed partial class MauiComp
         window.Titlebar.Visible = !window.Fullscreen;
     }
 
-    private void RecordDecorationPreference(Surface surface, bool serverSide)
+    private void OnDecorationChanged(Surface surface, bool serverSide)
     {
-        if (_ssdPreference.TryAdd(surface, serverSide))
-        {
-            surface.Destroyed += () => _ssdPreference.Remove(surface);
-        }
-        else
-        {
-            _ssdPreference[surface] = serverSide;
-        }
-
         var window = _windows.FirstOrDefault(w => ReferenceEquals(w.Window.Surface, surface));
         if (window is null)
         {
@@ -373,11 +339,7 @@ internal sealed partial class MauiComp
         _outputs.ScheduleAll();
     }
 
-    private bool IsServerDecorated(XdgToplevelWindow toplevel) =>
-        _ssdPreference.TryGetValue(toplevel.Surface, out var serverSide)
-            ? serverSide
-            : KdeDecorations.ModeOf(toplevel.Surface) == KdeServerDecorationManager.DecorationMode.Server ||
-                Decorations.ModeOf(toplevel) == DecorationMode.ServerSide;
+    private bool IsServerDecorated(XdgToplevelWindow toplevel) => _decorationPreferences.IsServerSide(toplevel);
 
     private void OnUnmapped(ShellWindow window)
     {
@@ -462,7 +424,7 @@ internal sealed partial class MauiComp
     }
 
     private string? ChromeCursorAt(double x, double y) =>
-        IsGrabbing ? null : ShellTitlebar.CursorFor(FrameEdgeAt(x, y, out _));
+        IsGrabbing || _locked ? null : ShellTitlebar.CursorFor(FrameEdgeAt(x, y, out _));
 
     private void SetFullscreen(ShellWindow window, bool fullscreen)
     {
@@ -572,7 +534,11 @@ internal sealed partial class MauiComp
             }
 
             _focused = null;
-            Seat.Keyboard.NotifyEnter(null);
+            if (!_locked)
+            {
+                Seat.Keyboard.NotifyEnter(null);
+            }
+
             return;
         }
 
@@ -604,7 +570,11 @@ internal sealed partial class MauiComp
             active.Active = true;
         }
 
-        Seat.Keyboard.NotifyEnter(window.Window.Surface);
+        if (!_locked)
+        {
+            Seat.Keyboard.NotifyEnter(window.Window.Surface);
+        }
+
         _outputs.ScheduleAll();
     }
 
@@ -683,6 +653,11 @@ internal sealed partial class MauiComp
 
     private bool OnKeyBinding(uint time, uint key, bool pressed)
     {
+        if (_locked)
+        {
+            return false;
+        }
+
         var symbol = Seat.Keyboard.KeysymFor(key);
         var alt = Seat.Keyboard.State?.IsModActive("Mod1") == true;
 

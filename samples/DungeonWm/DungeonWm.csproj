@@ -18,6 +18,8 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Basin.Cli/Basin.Cli.csproj" />
     <ProjectReference Include="../../src/Basin.Core/Basin.Core.csproj" />
+    <ProjectReference Include="../../src/Basin.Scene3D.Gltf/Basin.Scene3D.Gltf.csproj" />
+    <ProjectReference Include="../../src/Basin.Scene3D.Scene/Basin.Scene3D.Scene.csproj" />
     <ProjectReference Include="../../src/Basin.Config/Basin.Config.csproj" />
     <ProjectReference Include="../../src/Basin.Backend.Headless/Basin.Backend.Headless.csproj" />
     <ProjectReference Include="../../src/Basin.Backend.Wayland/Basin.Backend.Wayland.csproj" />
@@ -25,6 +27,7 @@
     <ProjectReference Include="../../src/Basin.Backend.Libinput/Basin.Backend.Libinput.csproj" />
     <ProjectReference Include="../../src/Basin.Session/Basin.Session.csproj" />
     <ProjectReference Include="../../src/Basin.Renderers/Basin.Renderers.csproj" />
+    <ProjectReference Include="../../src/Basin.Renderers.Quill/Basin.Renderers.Quill.csproj" />
     <ProjectReference Include="../../src/Basin.Render.Gl/Basin.Render.Gl.csproj" />
     <ProjectReference Include="../../src/Basin.Render.Vulkan/Basin.Render.Vulkan.csproj" />
     <ProjectReference Include="../../src/Basin.Scene/Basin.Scene.csproj" />

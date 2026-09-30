@@ -33,14 +33,7 @@ internal sealed class DeviceRect : IDisposable
             return;
         }
 
-        var (x, nudgeX) = DevicePlacement.FromDevice(device.X, scale);
-        var (y, nudgeY) = DevicePlacement.FromDevice(device.Y, scale);
-        _node.SetPosition(originX + x, originY + y);
-        _node.DestinationWidth = DevicePlacement.ToLogicalSpan(device.Width + nudgeX, scale) + 1;
-        _node.DestinationHeight = DevicePlacement.ToLogicalSpan(device.Height + nudgeY, scale) + 1;
-        _node.DeviceNudge = (nudgeX, nudgeY);
-        _node.DevicePixels = (device.Width, device.Height);
-        _node.DeviceScale = scale;
+        _node.PlaceDevice(originX, originY, scale, device);
     }
 
     public unsafe void Fill(uint argb)

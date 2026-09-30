@@ -19,7 +19,7 @@ public sealed class BasinViewInputTests
         {
             CompositorTestHost.SkipWithoutWaylandClient();
             BasinCounters.Reset();
-            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "waylonia-tests" });
+            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "waylonia-tests", ConfigureServices = HostedDrivers.Without });
             View = new BasinToplevelView(Host, host => host.CreateViewOutput(320, 240, 1.0, "shell"))
             {
                 InputSink = Events.Add,

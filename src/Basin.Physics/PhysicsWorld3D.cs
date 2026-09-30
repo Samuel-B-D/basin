@@ -168,8 +168,10 @@ public sealed class PhysicsWorld3D : IDisposable
 
         _backend.ReadPose(body.Slot, out var pose);
         slot.Dragging = true;
+        slot.Resting = 0;
         slot.GrabLocal = pose.ToLocal(worldPoint);
         slot.DragTarget = worldPoint;
+        slot.DragTurn = default;
         _backend.BeginGrab(body.Slot, slot.GrabLocal, worldPoint);
         _awake = true;
     }
@@ -181,7 +183,14 @@ public sealed class PhysicsWorld3D : IDisposable
             return;
         }
 
-        _slots[body.Slot].DragTarget = worldPoint;
+        ref var slot = ref _slots[body.Slot];
+        if (slot.DragTarget == worldPoint)
+        {
+            return;
+        }
+
+        slot.DragTarget = worldPoint;
+        slot.Resting = 0;
         _backend.MoveGrab(body.Slot, worldPoint);
         _awake = true;
     }
@@ -193,7 +202,16 @@ public sealed class PhysicsWorld3D : IDisposable
             return;
         }
 
-        _backend.TurnGrab(body.Slot, Quaternion.Normalize(orientation));
+        ref var slot = ref _slots[body.Slot];
+        var turn = Quaternion.Normalize(orientation);
+        if (slot.DragTurn == turn)
+        {
+            return;
+        }
+
+        slot.DragTurn = turn;
+        slot.Resting = 0;
+        _backend.TurnGrab(body.Slot, turn);
         _awake = true;
     }
 
@@ -205,6 +223,7 @@ public sealed class PhysicsWorld3D : IDisposable
         }
 
         _slots[body.Slot].Dragging = false;
+        _slots[body.Slot].Resting = 0;
         _backend.EndGrab(body.Slot);
         _backend.ReadVelocity(body.Slot, out _, out var angular);
         _backend.SetVelocity(body.Slot, velocity, angular);
@@ -424,13 +443,21 @@ public sealed class PhysicsWorld3D : IDisposable
                 _moved[_movedCount++] = new PhysicsBody3D(this, i, slot.Generation);
             }
 
-            if (slot.Dragging || slot.Character)
+            if (slot.Character)
             {
                 slot.Resting = 0;
                 continue;
             }
 
             _backend.ReadVelocity(i, out var linear, out var angular);
+            if (slot.Dragging)
+            {
+                slot.Resting = linear.Length() < StopSpeed && angular.Length() < StopSpin
+                    ? Math.Min(slot.Resting + 1, RestSteps)
+                    : 0;
+                continue;
+            }
+
             if (linear.Length() < StopSpeed && angular.Length() < StopSpin)
             {
                 if (++slot.Resting >= RestSteps)
@@ -486,7 +513,7 @@ public sealed class PhysicsWorld3D : IDisposable
         for (var i = 0; i < _slotCount && !awake; i++)
         {
             ref var slot = ref _slots[i];
-            awake = slot.Live && (slot.Dragging || _backend.IsAwake(i));
+            awake = slot.Live && (slot.Dragging ? slot.Resting < RestSteps : _backend.IsAwake(i));
         }
 
         _awake = awake;
@@ -516,6 +543,7 @@ public sealed class PhysicsWorld3D : IDisposable
         public PhysicsPose3D Current;
         public Vector3 GrabLocal;
         public Vector3 DragTarget;
+        public Quaternion DragTurn;
         public Vector2 Wish;
         public Vector3 View;
         public int Resting;

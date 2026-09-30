@@ -56,7 +56,20 @@ public sealed class BasinCompositorHost : IDisposable
         }
 
         options.ConfigureServices?.Invoke(this, services);
-        Services = services.Freeze();
+        try
+        {
+            Services = services.Freeze();
+        }
+        catch
+        {
+            services.Dispose();
+            Scene.Root.Destroy();
+            Backend.Dispose();
+            Display.Dispose();
+            Renderer.Dispose();
+            throw;
+        }
+
         Shell = Services.Require<XdgShell>();
         Seat = Services.Require<Seat.Seat>();
         if (PlatformFacts.HasHostKeyboardLayout)

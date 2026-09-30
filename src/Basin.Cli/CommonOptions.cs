@@ -374,6 +374,12 @@ public static class CommonOptions
         };
     }
 
+    public static Option<string?> Command(string description = "run `sh -c <command>` on startup") => new("--command", "-c")
+    {
+        Description = description,
+        HelpName = "CMD",
+    };
+
     public static Option<string?> Client() => new("--client")
     {
         Description = "spawn this client once the socket is up",

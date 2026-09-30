@@ -11,6 +11,7 @@ public sealed class XdgToplevelWindow : IToplevelHandle
     private readonly HashSet<XdgToplevel.State> _states = [];
     private int _pendingWidth;
     private int _pendingHeight;
+    private bool _sizeRequested;
     private bool _configureScheduled;
 
     internal XdgToplevelWindow(XdgSurfaceState xdg, XdgToplevelResource resource)
@@ -279,12 +280,14 @@ public sealed class XdgToplevelWindow : IToplevelHandle
 
         _pendingWidth = width;
         _pendingHeight = height;
+        _sizeRequested = true;
         ScheduleConfigure();
     }
 
     internal void AdoptCommittedSize()
     {
         if (Xdg.HasUnackedConfigure ||
+            _sizeRequested ||
             _states.Contains(XdgToplevel.State.Maximized) ||
             _states.Contains(XdgToplevel.State.Fullscreen))
         {
@@ -372,6 +375,7 @@ public sealed class XdgToplevelWindow : IToplevelHandle
         }
 
         Resource.SendConfigure(_pendingWidth, _pendingHeight, states);
+        _sizeRequested = false;
 
         Restoring = null;
         return transaction is null ? Xdg.SendConfigure() : Xdg.SendConfigure(transaction);

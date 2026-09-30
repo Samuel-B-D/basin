@@ -238,31 +238,8 @@ internal sealed partial class TinyComp
         return null;
     }
 
-    private ulong? ToplevelIdOf(Surface? surface)
-    {
-        if (surface is null)
-        {
-            return null;
-        }
-
-        var infos = new ToplevelInfo[16];
-        var count = _toplevels.Enumerate(infos);
-        while (count < 0)
-        {
-            infos = new ToplevelInfo[infos.Length * 2];
-            count = _toplevels.Enumerate(infos);
-        }
-
-        for (var i = 0; i < count; i++)
-        {
-            if (ReferenceEquals(infos[i].Surface, surface))
-            {
-                return infos[i].Id;
-            }
-        }
-
-        return null;
-    }
+    private ulong? ToplevelIdOf(Surface? surface) =>
+        surface is not null && _toplevels.TryFind(surface, out var info) ? info.Id : null;
 
     private IGrabTarget? FindWindowByToplevelId(ulong toplevelId)
     {

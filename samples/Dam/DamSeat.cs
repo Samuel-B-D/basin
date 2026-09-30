@@ -20,8 +20,6 @@ internal sealed class DamSeat :
     ITouchActivitySink
 {
     private static readonly XkbKeysym Escape = XkbKeysym.FromName("Escape");
-    private static readonly XkbKeysym SwitchVt1 = XkbKeysym.FromName("XF86Switch_VT_1");
-    private static readonly XkbKeysym SwitchVt12 = XkbKeysym.FromName("XF86Switch_VT_12");
 
     private readonly Basin.Host.BasinHost _host;
     private readonly Basin.Seat.Seat _seat;
@@ -35,7 +33,6 @@ internal sealed class DamSeat :
     private readonly SeatIdleSource _idle;
     private readonly PointerDelivery _delivery;
     private readonly Action _stop;
-    private readonly bool _allowVtSwitch;
     private readonly BasinLogger _log;
 
     private readonly SeatBinder _binder;
@@ -70,7 +67,6 @@ internal sealed class DamSeat :
         _layout = layout;
         _cursorTheme = cursorTheme;
         _idle = idle;
-        _allowVtSwitch = allowVtSwitch;
         _stop = stop;
         _log = log;
 
@@ -81,11 +77,14 @@ internal sealed class DamSeat :
             Capture = services.Find<Basin.Capabilities.IScreenCapture>(),
         };
         _cursor.Shapes.CursorRequested += _cursor.ShowImage;
-        _delivery = new PointerDelivery(_seat, _cursor) { RelativePointer = services.Require<RelativePointerManager>() };
+        _delivery = new PointerDelivery(_seat, _cursor);
         _binder = new SeatBinder(_seat, layout, _pointer, _cursor)
         {
             Drm = host.Drm,
             Theme = cursorTheme,
+            RelativePointer = services.Find<RelativePointerManager>(),
+            VtSwitching = allowVtSwitch,
+            Constraints = services.Find<PointerConstraintDriver>(),
         };
         _binder.Key += OnKey;
         _binder.ModifiersChanged += _idle.NotifyActivity;
@@ -204,20 +203,6 @@ internal sealed class DamSeat :
             return true;
         }
 #endif
-        if (_allowVtSwitch && symbol.Value >= SwitchVt1.Value && symbol.Value <= SwitchVt12.Value)
-        {
-            try
-            {
-                _host.Session?.SwitchSession((int)(symbol.Value - SwitchVt1.Value + 1));
-            }
-            catch (NotSupportedException)
-            {
-                _log.Debug($"no seat manager to switch sessions");
-            }
-
-            return true;
-        }
-
         return false;
     }
 
@@ -226,7 +211,6 @@ internal sealed class DamSeat :
         _cursor.MoveTo(_pointer.X, _pointer.Y);
         var hit = _scene.SurfaceAt(_pointer.X, _pointer.Y);
         _delivery.Motion(timeMs, hit?.Surface, hit?.X ?? 0, hit?.Y ?? 0, _pointer.X, _pointer.Y);
-        _delivery.Relative(timeMs, dx, dy, unaccelDx, unaccelDy);
 
         PositionDragIcon();
         _idle.NotifyActivity();

@@ -169,18 +169,20 @@ public sealed class PackObligationTests
     {
         using var host = new CompositorTestHost();
         using var luts = new Basin.Color.ColorLutCache(host.Renderer);
+        var layers = new Basin.Scene.SceneLayers(host.Scene.Root);
         using var services = Registry(host)
             .Use<IFrameClock>(new FrameClock())
             .Use<IActivationTokens>(new DefaultActivationTokens())
             .Use<IBell>(SilentBell.Instance)
-            .Use<IColorTransformResolver>(luts)
-            .Install(DesktopPack.Desktop)
-            .Freeze();
+            .Use<IColorTransformResolver>(luts);
+        _ = new SessionLockSceneDriver(services, layers.Lock, host.Layout, layers.SetLocked);
+        services.Install(DesktopPack.Desktop).Freeze();
 
         Assert.True(services.Modules.ContainsKey("wp_fifo_manager_v1"));
         Assert.True(services.Modules.ContainsKey("wp_commit_timing_manager_v1"));
         Assert.True(services.Modules.ContainsKey("xdg_activation_v1"));
         Assert.True(services.Modules.ContainsKey("xdg_system_bell_v1"));
+        Assert.True(services.Modules.ContainsKey("ext_session_lock_manager_v1"));
     }
 
     private static BasinServices Registry(CompositorTestHost host) =>

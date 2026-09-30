@@ -310,7 +310,7 @@ public sealed class CrosshairTests
         var (compositor, client) = Prerequisites(row, "ssdwin");
         var panel = Path.Combine(Repository(), "scripts", "wlclients", "bin", "panel");
         Assert.SkipUnless(File.Exists(panel), "panel has not been built (make -C scripts/wlclients)");
-        using var session = new Session(compositor, row, $"{client} & sleep 10; {panel} top 40 keyboard & sleep 2; kill $!");
+        using var session = new Session(compositor, row, client);
         Assert.NotNull(await session.WaitForAsync(line => line.StartsWith("HUNG ssdwin", StringComparison.Ordinal)));
 
         var mark = session.Lines.Count;
@@ -325,9 +325,14 @@ public sealed class CrosshairTests
         Assert.StartsWith("FOCUS none", focus, StringComparison.Ordinal);
 
         mark = session.Lines.Count;
+        await session.SendAsync($$"""ipc process/spawn {"argv":["{{panel}}","top","40","keyboard"]}""");
+        var spawned = await session.WaitForAsync(line => line.StartsWith("OK process/spawn ", StringComparison.Ordinal), fresh: true);
+        Assert.NotNull(spawned);
+        var launch = spawned!.Split(' ').Single(field => field.StartsWith("launch_id=", StringComparison.Ordinal))["launch_id=".Length..];
         Assert.NotNull(await session.WaitForAsync(line => line == "KEYBOARD layer panel"));
         await After(session, mark, "MODE window");
         mark = session.Lines.Count;
+        await session.SendAsync($$"""ipc process/kill {"launch_id":{{launch}}}""");
         Assert.NotNull(await session.WaitForAsync(line => line == "KEYBOARD none"));
         await After(session, mark, "MODE crosshair");
         await session.Quit();
@@ -350,25 +355,11 @@ public sealed class CrosshairTests
 
     private static async Task<(double Yaw, Vector3 Facing, Vector3 Up)> SettledBody(Session session)
     {
-        (double Yaw, Vector3 Facing, Vector3 Up) body = default;
-        string? previous = null;
-        for (var attempt = 0; attempt < 30; attempt++)
-        {
-            var line = await session.WaitForAsync(l => l.StartsWith("BODY ssdwin ", StringComparison.Ordinal), poke: "physics-state", fresh: true);
-            Assert.NotNull(line);
-            var fields = line!.Split(' ');
-            var orientation = string.Join(' ', fields.Where(field => field.StartsWith("yaw=", StringComparison.Ordinal) || field.StartsWith("facing=", StringComparison.Ordinal) || field.StartsWith("up=", StringComparison.Ordinal)));
-            body = (Number(fields, "yaw=")[0], Vector(fields, "facing="), Vector(fields, "up="));
-            if (orientation == previous)
-            {
-                break;
-            }
-
-            previous = orientation;
-            await Task.Delay(200, TestContext.Current.CancellationToken);
-        }
-
-        return body;
+        await session.SettleAsync();
+        var line = await session.WaitForAsync(l => l.StartsWith("BODY ssdwin ", StringComparison.Ordinal), poke: "physics-state", fresh: true);
+        Assert.NotNull(line);
+        var fields = line!.Split(' ');
+        return (Number(fields, "yaw=")[0], Vector(fields, "facing="), Vector(fields, "up="));
     }
 
     private static double[] Number(string[] fields, string key) =>
@@ -382,20 +373,8 @@ public sealed class CrosshairTests
 
     private static async Task<string?> Steady(Session session)
     {
-        string? camera = null;
-        for (var attempt = 0; attempt < 30; attempt++)
-        {
-            var previous = camera;
-            camera = await session.WaitForAsync(line => line.StartsWith("CAMERA ", StringComparison.Ordinal), poke: "where", fresh: true);
-            if (camera == previous)
-            {
-                break;
-            }
-
-            await Task.Delay(150, TestContext.Current.CancellationToken);
-        }
-
-        return camera;
+        await session.SettleAsync();
+        return await session.WaitForAsync(line => line.StartsWith("CAMERA ", StringComparison.Ordinal), poke: "where", fresh: true);
     }
 
     private static string Config(double reach) =>

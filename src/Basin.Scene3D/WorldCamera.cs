@@ -40,4 +40,31 @@ public sealed class WorldCamera
 
     public WorldView ViewOf(in Box union, in Box slice) =>
         WorldView.Create(CameraToWorld, union, slice, FieldOfView, Near, Far);
+
+    public bool TryRayAt(OutputLayout layout, double x, double y, out WorldRay ray)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        ray = default;
+        var output = layout.OutputAt(x, y);
+        if (output is null)
+        {
+            var outputs = layout.Outputs;
+            if (outputs.Length == 0)
+            {
+                return false;
+            }
+
+            output = outputs[0].Output;
+        }
+
+        var union = layout.Bounds;
+        var slice = layout.BoxOf(output);
+        if (union.IsEmpty || slice.IsEmpty)
+        {
+            return false;
+        }
+
+        ray = ViewOf(union, slice).RayAt(x, y);
+        return true;
+    }
 }

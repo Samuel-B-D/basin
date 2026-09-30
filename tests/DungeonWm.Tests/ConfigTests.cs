@@ -14,6 +14,21 @@ public sealed class ConfigTests
     }
 
     [Fact]
+    public void A_spawn_runs_through_the_shell_and_an_array_is_an_argv()
+    {
+        var settings = DungeonWmConfig.Parse("[keybindings]\n\"Super+Return\" = \"spawn foot -e 'a b'\"\n\"Super+T\" = [\"foot\", \"-e\", \"htop\"]\n\"Super+K\" = \"takeover\"\n", BasinLog.For("test"));
+        var bindings = new DungeonWmBindings(settings.Bindings, BasinLog.For("test"));
+        var enter = Xkb.XkbKeysym.FromName("Return").Value;
+        var t = new Xkb.XkbKeysym('t').Value;
+        var k = new Xkb.XkbKeysym('k').Value;
+
+        Assert.Equal(["/bin/sh", "-c", "foot -e 'a b'"], bindings.Match(enter, Basin.Config.Modifiers.Super)!.Command!);
+        Assert.Equal(["foot", "-e", "htop"], bindings.Match(t, Basin.Config.Modifiers.Super)!.Command!);
+        Assert.Equal("takeover", bindings.Match(k, Basin.Config.Modifiers.Super)!.Action);
+        Assert.Null(bindings.Match(k, Basin.Config.Modifiers.Super | Basin.Config.Modifiers.Mod5));
+    }
+
+    [Fact]
     public void A_spawn_binding_is_an_action_and_a_bare_spawn_warns()
     {
         var sink = new CollectingSink();
@@ -41,8 +56,8 @@ public sealed class ConfigTests
     public void A_letter_binding_matches_the_unshifted_key_whatever_its_case()
     {
         var bindings = new DungeonWmBindings(new DungeonWmSettings().Bindings, BasinLog.For("test"));
-        Assert.Equal("close", bindings.Match(Basin.Config.Keysym.FromName("q"), Basin.Config.Modifiers.Super));
-        Assert.Equal("takeover", bindings.Match(Basin.Config.Keysym.FromName("f"), Basin.Config.Modifiers.Super));
+        Assert.Equal("close", bindings.Match(Basin.Config.Keysym.FromName("q"), Basin.Config.Modifiers.Super)?.Action);
+        Assert.Equal("takeover", bindings.Match(Basin.Config.Keysym.FromName("f"), Basin.Config.Modifiers.Super)?.Action);
         Assert.Null(bindings.Match(Basin.Config.Keysym.FromName("Q"), Basin.Config.Modifiers.Super));
     }
 
@@ -69,12 +84,12 @@ public sealed class ConfigTests
 
         var e = Basin.Config.Keysym.FromName("e");
         var bare = new DungeonWmBindings(DungeonWmConfig.Parse("[keybindings]\n\"Super+Q\" = \"close\"\n", BasinLog.For("test")).Bindings, BasinLog.For("test"));
-        Assert.Equal("use", bare.Match(e, Basin.Config.Modifiers.None));
-        Assert.Equal("rotate", bare.Match(Basin.Config.Keysym.FromName("r"), Basin.Config.Modifiers.None));
-        Assert.Equal("square", bare.Match(Basin.Config.Keysym.FromName("r"), Basin.Config.Modifiers.Shift));
+        Assert.Equal("use", bare.Match(e, Basin.Config.Modifiers.None)?.Action);
+        Assert.Equal("rotate", bare.Match(Basin.Config.Keysym.FromName("r"), Basin.Config.Modifiers.None)?.Action);
+        Assert.Equal("square", bare.Match(Basin.Config.Keysym.FromName("r"), Basin.Config.Modifiers.Shift)?.Action);
         var moved = new DungeonWmBindings(DungeonWmConfig.Parse("[keybindings]\n\"U\" = \"use\"\n", BasinLog.For("test")).Bindings, BasinLog.For("test"));
         Assert.Null(moved.Match(e, Basin.Config.Modifiers.None));
-        Assert.Equal("use", moved.Match(Basin.Config.Keysym.FromName("u"), Basin.Config.Modifiers.None));
+        Assert.Equal("use", moved.Match(Basin.Config.Keysym.FromName("u"), Basin.Config.Modifiers.None)?.Action);
     }
 
     [Fact]

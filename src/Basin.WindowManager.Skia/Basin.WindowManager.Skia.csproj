@@ -10,8 +10,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../Basin.WindowManager/Basin.WindowManager.csproj" />
+    <ProjectReference Include="../Basin.Icons.Skia/Basin.Icons.Skia.csproj" />
     <PackageReference Include="SkiaSharp" />
-    <PackageReference Include="Svg.Skia" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" Condition="$([MSBuild]::IsOSPlatform('Linux'))" />
   </ItemGroup>
 

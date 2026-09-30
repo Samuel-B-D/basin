@@ -9,84 +9,27 @@ internal sealed class PreviewSurface : IDisposable
 {
     private const byte FillAlpha = 90;
 
-    private readonly ManagerSurface _surface;
-    private Rect _rect;
-    private int _lastScale = -1;
-    private uint _lastColor;
-    private bool _started;
-    private bool _drawn;
+    private readonly OverlayRectSurface _overlay;
+    private uint _color;
 
-    internal PreviewSurface(
-        WlCompositor compositor,
-        WlShm shm,
-        ZwlrLayerShellV1 layerShell,
-        WlOutput wlOutput,
-        WmOutput output,
-        RiverWindowManager wm)
+    internal PreviewSurface(ManagerSurfaceHost host, WlOutput wlOutput, WmOutput output)
     {
-        Output = output;
-        _surface = new ManagerSurface(
-            compositor, shm, layerShell, wlOutput, ZwlrLayerShellV1.Layer.Top, "retro-wm-drop-preview");
-        _surface.SetAnchor(ZwlrLayerSurfaceV1.Anchor.Top | ZwlrLayerSurfaceV1.Anchor.Left);
-        _surface.Configured += wm.RequestManage;
+        _overlay = new OverlayRectSurface(host, wlOutput, output, ZwlrLayerShellV1.Layer.Top, "retro-wm-drop-preview");
+        _overlay.Paint += (canvas, _, _, _) => canvas.Clear(Theme.Color(_color).WithAlpha(FillAlpha));
     }
 
-    public WmOutput Output { get; }
+    public WmOutput Output => _overlay.Output;
 
     public void Show(Rect rect, int scale)
     {
-        scale = Math.Max(scale, 1);
-        if (rect.IsEmpty)
+        if (Theme.DropPreview != _color)
         {
-            return;
+            _color = Theme.DropPreview;
+            _overlay.Invalidate();
         }
 
-        if (!_started)
-        {
-            _started = true;
-            _rect = rect;
-            _surface.SetSize(rect.Width, rect.Height);
-            _surface.SetMargin(rect.Y, rect.X);
-            _surface.CommitInitial();
-            return;
-        }
-
-        if (!_surface.IsConfigured)
-        {
-            _rect = rect;
-            return;
-        }
-
-        var color = Theme.DropPreview;
-        var redraw = !_drawn || rect.Width != _rect.Width || rect.Height != _rect.Height
-            || scale != _lastScale || color != _lastColor;
-        _rect = rect;
-        if (redraw)
-        {
-            _surface.SetSize(rect.Width, rect.Height);
-            var pixels = _surface.Prepare(rect.Width, rect.Height, scale);
-            if (pixels == 0)
-            {
-                return;
-            }
-
-            using var surface = _surface.CreateCanvas(pixels);
-            if (surface is null)
-            {
-                return;
-            }
-
-            surface.Canvas.Clear(Theme.Color(color).WithAlpha(FillAlpha));
-            surface.Canvas.Flush();
-            _surface.SetInputRegion(Rect.Empty);
-            _drawn = true;
-            _lastScale = scale;
-            _lastColor = color;
-        }
-
-        _surface.SetMargin(rect.Y, rect.X);
-        _surface.Commit();
+        _overlay.Show(rect, scale);
     }
 
-    public void Dispose() => _surface.Dispose();
+    public void Dispose() => _overlay.Dispose();
 }

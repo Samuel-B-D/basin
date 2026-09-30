@@ -33,11 +33,14 @@ public sealed unsafe class IpcServer : IDisposable
         Session = session;
         _requestedPath = socketPath;
         Listens = listen;
-        Processes = new IpcProcessTracker(loop, SessionEnvironment);
+        _ownsProcesses = session.Processes is null;
+        Processes = session.Processes ?? new ProcessTracker(loop, SessionEnvironment);
         BasinCounters.Track();
     }
 
-    public IpcProcessTracker Processes { get; }
+    public ProcessTracker Processes { get; }
+
+    private readonly bool _ownsProcesses;
 
     public BasinServices Services { get; }
 
@@ -326,7 +329,10 @@ public sealed unsafe class IpcServer : IDisposable
         LineFront?.Dispose();
         LineFront = null;
         Events.Dispose();
-        Processes.Dispose();
+        if (_ownsProcesses)
+        {
+            Processes.Dispose();
+        }
         for (var i = _owned.Count - 1; i >= 0; i--)
         {
             _owned[i].Dispose();
@@ -349,26 +355,8 @@ public sealed unsafe class IpcServer : IDisposable
 
     internal void Forget(IpcConnection connection) => _connections.Remove(connection);
 
-    private Dictionary<string, string> SessionEnvironment()
-    {
-        var values = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (Session.WaylandSocket is { Length: > 0 } socket)
-        {
-            values["WAYLAND_DISPLAY"] = socket;
-        }
-
-        if (Session.XwaylandDisplay?.Invoke() is { Length: > 0 } display)
-        {
-            values["DISPLAY"] = display;
-        }
-
-        if (Path is { } path)
-        {
-            values[IpcProtocol.SocketVariable] = path;
-        }
-
-        return values;
-    }
+    private Dictionary<string, string?> SessionEnvironment() =>
+        ProcessTracker.SessionEnvironment(Session.WaylandSocket, Session.XwaylandDisplay?.Invoke(), Path);
 
     private void Listen()
     {

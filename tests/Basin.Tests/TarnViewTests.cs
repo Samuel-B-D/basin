@@ -88,7 +88,7 @@ public sealed class TarnViewTests
         var expected = PlatformFacts.HasDescriptors ? "127.0.0.1:9800" : "ws://127.0.0.1:9801";
         Assert.Equal(expected, TarnLink.DefaultEndpoint);
         Assert.Equal(expected, harness.View.Endpoint);
-        Assert.Equal(PlatformFacts.HasDescriptors, !TarnLink.IsWebSocket(TarnLink.DefaultEndpoint));
+        Assert.Equal(PlatformFacts.HasDescriptors, !Basin.Transport.Waypipe.WaypipeEndpoint.IsWebSocket(TarnLink.DefaultEndpoint));
     }
 
     [AvaloniaFact]

@@ -8,33 +8,29 @@ public sealed class ShellModifierState(Func<XkbState?> state)
     {
         get
         {
-            if (state() is not { } xkb)
+            var held = Basin.Config.HeldModifiers.From(state());
+            var shell = ShellModifiers.None;
+            if ((held & Basin.Config.Modifiers.Ctrl) != 0)
             {
-                return ShellModifiers.None;
+                shell |= ShellModifiers.Ctrl;
             }
 
-            var held = ShellModifiers.None;
-            if (xkb.IsModActive("Control"))
+            if ((held & Basin.Config.Modifiers.Alt) != 0)
             {
-                held |= ShellModifiers.Ctrl;
+                shell |= ShellModifiers.Alt;
             }
 
-            if (xkb.IsModActive("Mod1"))
+            if ((held & Basin.Config.Modifiers.Shift) != 0)
             {
-                held |= ShellModifiers.Alt;
+                shell |= ShellModifiers.Shift;
             }
 
-            if (xkb.IsModActive("Shift"))
+            if ((held & Basin.Config.Modifiers.Super) != 0)
             {
-                held |= ShellModifiers.Shift;
+                shell |= ShellModifiers.Super;
             }
 
-            if (xkb.IsModActive("Mod4"))
-            {
-                held |= ShellModifiers.Super;
-            }
-
-            return held;
+            return shell;
         }
     }
 

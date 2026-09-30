@@ -3,6 +3,7 @@ using Basin.Diagnostics;
 using Basin.AppMenu;
 using Basin.Capabilities;
 using Basin.Host;
+using Basin.Desktop;
 using Basin.Scene;
 using Basin.Shell.Xdg;
 using System7.Avalonia.Controls;
@@ -17,13 +18,14 @@ internal sealed partial class System7Shell
     private readonly List<ShellWindow> _stack = [];
     private readonly Dictionary<string, AppGroup> _apps = new(StringComparer.Ordinal);
     private readonly Dictionary<Surface, ShellWindow> _bySurface = [];
-    private readonly Dictionary<XdgSurfaceState, SceneSurface> _surfaceScenes = [];
+    private readonly NestedPopupPlacer _popups = new();
     private AppGroup _finder = null!;
     private AppGroup? _front;
     private ShellWindow? _active;
     private DragState? _drag;
     private GrayOutline? _outline;
     private XdgDecorationManager? _decorations;
+    private DecorationPreferences? _decorationPreferences;
     private XdgToplevelSource? _toplevels;
     private int _stagger;
 
@@ -50,14 +52,17 @@ internal sealed partial class System7Shell
         {
             _decorations.DefaultMode = DecorationMode.ServerSide;
             _decorations.ChooseMode = (window, preference) => RuleDecoration(window) ?? preference ?? DecorationMode.ServerSide;
-            _decorations.ModeChanged += (window, _) =>
-            {
-                if (WindowOf(window.Surface) is { Mapped: true } shell)
-                {
-                    Reframe(shell);
-                }
-            };
         }
+
+        _decorationPreferences = new DecorationPreferences(
+            _decorations, _services.Find<KdeServerDecorationManager>(), _services.Find<XdgToplevelSource>());
+        _decorationPreferences.Changed += (surface, _) =>
+        {
+            if (WindowOf(surface) is { Mapped: true } shell)
+            {
+                Reframe(shell);
+            }
+        };
 
         _toplevels = _services.Find<XdgToplevelSource>();
         if (_services.Find<XdgDialogManager>() is { } dialogs)
@@ -77,6 +82,8 @@ internal sealed partial class System7Shell
         }
 
         Shells.NewToplevel += OnNewToplevel;
+        _popups.ConstrainBox = toplevel =>
+            WindowOf(toplevel.Surface) is { } owner ? _layout.BoxOf(ViewOf(owner).Output) : null;
         Shells.NewPopup += OnNewPopup;
         var model = _services.Require<IToplevelModel>();
         capture.Attach(model, surface =>
@@ -135,7 +142,7 @@ internal sealed partial class System7Shell
     {
         var container = new SceneTree(_layers.Windows) { Enabled = false };
         var scene = new SceneSurface(container, toplevel.Surface);
-        _surfaceScenes[toplevel.Xdg] = scene;
+        _popups.Add(toplevel.Xdg, scene);
         var window = new ShellWindow(container, _finder) { Xdg = toplevel, Owner = WindowOf, Scene = scene, ContentNode = scene.Tree };
         _bySurface[toplevel.Surface] = window;
 
@@ -188,7 +195,7 @@ internal sealed partial class System7Shell
         toplevel.Destroyed += () =>
         {
             Forget(window, destroyed: true);
-            _surfaceScenes.Remove(toplevel.Xdg);
+            _popups.Remove(toplevel.Xdg);
             _bySurface.Remove(toplevel.Surface);
             if (!container.IsDestroyed)
             {
@@ -207,56 +214,11 @@ internal sealed partial class System7Shell
         toplevel.MinimizeRequested += () => HideApp(window.App);
     }
 
-    private void OnNewPopup(XdgPopupWindow popup)
-    {
-        if (popup.Parent is not { } parent || !_surfaceScenes.TryGetValue(parent, out var parentScene))
-        {
-            return;
-        }
-
-        var scene = new SceneSurface(parentScene.Tree, popup.Surface);
-        _surfaceScenes[popup.Xdg] = scene;
-
-        void Place()
-        {
-            var origin = parent.EffectiveGeometry;
-            var offset = popup.SurfacePosition;
-            scene.Tree.SetPosition(origin.X + offset.X, origin.Y + offset.Y);
-        }
-
-        void Constrain()
-        {
-            var root = popup.Parent;
-            while (root?.Role is XdgPopupWindow parentPopup)
-            {
-                root = parentPopup.Parent;
-            }
-
-            if (root?.Role is not XdgToplevelWindow toplevel || WindowOf(toplevel.Surface) is not { } owner ||
-                !parentScene.Tree.TryMapSceneToLocal(0, 0, out var localX, out var localY))
-            {
-                return;
-            }
-
-            var box = _layout.BoxOf(ViewOf(owner).Output);
-            var origin = parent.EffectiveGeometry;
-            var originX = (int)-localX + origin.X;
-            var originY = (int)-localY + origin.Y;
-            popup.Unconstrain(new Box(box.X - originX, box.Y - originY, box.Width, box.Height));
-        }
-
-        Constrain();
-        Place();
-        popup.Xdg.Committed += Place;
-        popup.GeometryChanged += Place;
-        popup.Repositioned += Constrain;
-        popup.Destroyed += () => _surfaceScenes.Remove(popup.Xdg);
-    }
+    private void OnNewPopup(XdgPopupWindow popup) => _popups.Attach(popup);
 
     private WindowKind KindOf(ShellWindow window)
     {
-        if (window.Xdg is { } xdg && _decorations is { } decorations &&
-            decorations.TryGetPreference(xdg, out _) && decorations.ModeOf(xdg) == DecorationMode.ClientSide)
+        if (window.Xdg is { } xdg && _decorationPreferences?.Preference(xdg.Surface) == false)
         {
             return WindowKind.Unframed;
         }
@@ -288,9 +250,8 @@ internal sealed partial class System7Shell
         window.Container.Enabled = false;
         _stack.Remove(window);
         window.App.Windows.Remove(window);
-        window.Imported?.Dispose();
-        window.Imported = null;
-        window.ImportedAddress = null;
+        window.MenuImport?.Dispose();
+        window.MenuImport = null;
         if (window.App.Windows.Count == 0 && !window.App.IsFinder)
         {
             _apps.Remove(window.App.Key);
@@ -335,13 +296,15 @@ internal sealed partial class System7Shell
     internal Box WorkArea(OutputView view)
     {
         var box = _layout.BoxOf(view.Output);
+        var usable = UsableOf(view.Output, box);
         if (!ReferenceEquals(view, MainView))
         {
-            return box;
+            return usable;
         }
 
-        var bar = DevicePlacement.ToLogicalSpan(MenuBar.Height * DevicePlacement.Chrome(view.Output.Scale), view.Output.Scale);
-        return new Box(box.X, box.Y + bar, box.Width, box.Height - bar);
+        var bar = DevicePlacement.ToLogicalSpan(MenuBar.Height * DevicePlacement.ChromeScale(view.Output.Scale), view.Output.Scale);
+        var top = Math.Max(usable.Y, box.Y + bar);
+        return new Box(usable.X, top, usable.Width, Math.Max(0, usable.Bottom - top));
     }
 
     private Box ClientDevice(ShellWindow window, OutputView view)
@@ -368,7 +331,7 @@ internal sealed partial class System7Shell
         var view = MainView ?? _outputs.Views[0];
         var area = WorkArea(view);
         var scale = view.Output.Scale;
-        var chrome = DevicePlacement.Chrome(scale);
+        var chrome = DevicePlacement.ChromeScale(scale);
         var (width, height) = window.Size;
         if (window.Parent is { } parent)
         {
@@ -430,7 +393,7 @@ internal sealed partial class System7Shell
 
         if (window.IsShell)
         {
-            var n = DevicePlacement.Chrome(view.Output.Scale);
+            var n = DevicePlacement.ChromeScale(view.Output.Scale);
             var content = window.ShellDevice;
             return window.IsAlert
                 ? new Box(content.X, content.Y, content.Width, content.Height)
@@ -449,7 +412,7 @@ internal sealed partial class System7Shell
 
         var view = ViewOf(window);
         var box = _layout.BoxOf(view.Output);
-        var n = DevicePlacement.Chrome(view.Output.Scale);
+        var n = DevicePlacement.ChromeScale(view.Output.Scale);
         frame.Title = window.ShellTitle;
         frame.IsActive = window.Active;
         var (dipW, dipH) = window.ContentDip;
@@ -461,7 +424,7 @@ internal sealed partial class System7Shell
         var frameBox = FrameBoxOf(window, view);
         if (window.ShellGrown)
         {
-            var (width, height) = DevicePlacement.OutputDevice(view.Output);
+            var (width, height) = DevicePlacement.OutputSize(view.Output);
             frame.Margin = new Avalonia.Thickness(frameBox.X / (double)n, frameBox.Y / (double)n, 0, 0);
             surface.Place(box.X, box.Y, view.Output.Scale, new Box(0, 0, width, height));
         }
@@ -547,6 +510,22 @@ internal sealed partial class System7Shell
 
         Raise(window);
         UpdateFrame(window);
+        if (!_locked)
+        {
+            FocusKeyboard(window);
+        }
+
+        SetFront(window.App);
+        if (menusChange && ReferenceEquals(_front, window.App))
+        {
+            RefreshMenus();
+        }
+
+        _outputs.ScheduleAll();
+    }
+
+    private void FocusKeyboard(ShellWindow window)
+    {
         if (window.ShellSurface?.Surface is { } chrome)
         {
             Seat.Keyboard.NotifyClearFocus();
@@ -560,14 +539,6 @@ internal sealed partial class System7Shell
                 Seat.Keyboard.NotifyEnter(surface);
             }
         }
-
-        SetFront(window.App);
-        if (menusChange && ReferenceEquals(_front, window.App))
-        {
-            RefreshMenus();
-        }
-
-        _outputs.ScheduleAll();
     }
 
     internal void ActivateFinder()
@@ -580,7 +551,11 @@ internal sealed partial class System7Shell
         }
 
         _active = null;
-        Seat.Keyboard.NotifyClearFocus();
+        if (!_locked)
+        {
+            Seat.Keyboard.NotifyClearFocus();
+        }
+
         SetFront(_finder);
         _outputs.ScheduleAll();
     }
@@ -609,7 +584,7 @@ internal sealed partial class System7Shell
         var view = ViewOf(window);
         var box = _layout.BoxOf(view.Output);
         var scale = view.Output.Scale;
-        var chrome = DevicePlacement.Chrome(scale);
+        var chrome = DevicePlacement.ChromeScale(scale);
         if (window.Zoomed && window.UserBox is { } user)
         {
             window.Zoomed = false;
@@ -869,6 +844,11 @@ internal sealed partial class System7Shell
 
     private bool OnPress(uint time, uint button, bool pressed, double x, double y)
     {
+        if (_locked)
+        {
+            return false;
+        }
+
         if (_seat.Router.Hovered is { } hovered)
         {
             if (ReferenceEquals(hovered, _menuBar?.Surface.Surface))
@@ -924,7 +904,7 @@ internal sealed partial class System7Shell
         var commandHeld = (HeldModifiers & _config.Command) != 0;
         if ((window.Frame is not null || (window.IsShell && !window.IsAlert)) && button == LeftButton)
         {
-            var n = DevicePlacement.Chrome(view.Output.Scale);
+            var n = DevicePlacement.ChromeScale(view.Output.Scale);
             var frameBox = FrameBoxOf(window, view);
             var lx = (dx - frameBox.X) / n;
             var ly = (dy - frameBox.Y) / n;
@@ -1058,9 +1038,9 @@ internal sealed partial class System7Shell
 
         var view = drag.Under ?? drag.View;
         var box = _layout.BoxOf(view.Output);
-        var (deviceWidth, deviceHeight) = DevicePlacement.OutputDevice(view.Output);
+        var (deviceWidth, deviceHeight) = DevicePlacement.OutputSize(view.Output);
         var scale = view.Output.Scale;
-        var chrome = DevicePlacement.Chrome(scale);
+        var chrome = DevicePlacement.ChromeScale(scale);
         var proposed = drag.Proposed;
         if (!ReferenceEquals(view, drag.View))
         {
@@ -1103,7 +1083,7 @@ internal sealed partial class System7Shell
         drag.Moved |= dx != 0 || dy != 0;
         if (drag.Grow)
         {
-            var chrome = DevicePlacement.Chrome(scale);
+            var chrome = DevicePlacement.ChromeScale(scale);
             var frame = drag.Window.Frame is not null || drag.Window.IsShell;
             var extraW = frame ? 3 * chrome : 0;
             var extraH = frame ? (ClientFrame.TitleHeight + 2) * chrome : 0;
@@ -1124,7 +1104,7 @@ internal sealed partial class System7Shell
             drag.Under = under;
             var area = WorkArea(under);
             var underScale = under.Output.Scale;
-            var top = area.Y + DevicePlacement.ToLogicalSpan(4 * DevicePlacement.Chrome(underScale), underScale);
+            var top = area.Y + DevicePlacement.ToLogicalSpan(4 * DevicePlacement.ChromeScale(underScale), underScale);
             drag.Valid = x >= area.X && x < area.Right && y >= top && y < area.Bottom;
             if (drag.Valid)
             {
@@ -1156,7 +1136,7 @@ internal sealed partial class System7Shell
         {
             var box = _layout.BoxOf(drag.View.Output);
             var scale = drag.View.Output.Scale;
-            var chrome = DevicePlacement.Chrome(scale);
+            var chrome = DevicePlacement.ChromeScale(scale);
             var inset = window.Frame is null && !window.IsShell ? (0, 0) : (chrome, ClientFrame.TitleHeight * chrome);
             if (window.IsShell)
             {

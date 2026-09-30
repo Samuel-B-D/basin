@@ -19,6 +19,67 @@ public static class TomlConfig
         return Path.Combine(configHome, name, name + ".toml");
     }
 
+    public static TomlLoad Load(string? namedPath, string name, bool none, Func<Stream>? template, BasinLogger log)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        if (none)
+        {
+            return default;
+        }
+
+        var named = namedPath is { Length: > 0 };
+        var file = named ? namedPath! : DefaultPath(name);
+        if (!named && template is not null && !File.Exists(file))
+        {
+            using var stream = template();
+            Seed(file, stream, log);
+        }
+
+        var table = Read(file, out var failure);
+        if (table is not null)
+        {
+            return new TomlLoad(table, file, null);
+        }
+
+        if (named)
+        {
+            return new TomlLoad(null, file, $"{file}: {failure}");
+        }
+
+        if (File.Exists(file))
+        {
+            log.Warn($"{file} did not parse, keeping defaults: {failure}");
+        }
+
+        return new TomlLoad(null, file, null);
+    }
+
+    public static bool Seed(string file, Stream template, BasinLogger log)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(file);
+        ArgumentNullException.ThrowIfNull(template);
+        try
+        {
+            if (Path.GetDirectoryName(file) is { Length: > 0 } directory)
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            using (var stream = new FileStream(file, FileMode.CreateNew, FileAccess.Write))
+            {
+                template.CopyTo(stream);
+            }
+
+            log.Info($"wrote the default configuration to {file}");
+            return true;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            log.Warn($"cannot write {file}, keeping the built-in defaults: {error.Message}");
+            return false;
+        }
+    }
+
     public static TomlTable? Read(string path, BasinLogger log)
     {
         var table = Read(path, out var failure);

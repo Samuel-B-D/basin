@@ -43,7 +43,7 @@ public sealed class IpcMetadataTests
         ];
         string[] readOnly =
         [
-            "ipc/version", "ipc/methods", "ipc/events", "session/describe", "outputs/list", "outputs/test", "windows/list",
+            "ipc/version", "ipc/methods", "ipc/events", "session/describe", "session/settle", "outputs/list", "outputs/test", "windows/list",
             "windows/get", "windows/stack", "windows/wait", "windows/wait-idle", "workspaces/list", "idle/status", "lock/status", "keyboard/keymap",
             "capture/output", "capture/window", "capture/region", "clipboard/read", "process/list", "process/log",
             "devices/list", "devices/get",

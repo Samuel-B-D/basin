@@ -17,9 +17,6 @@ internal sealed class CompositorTestHost : IDisposable
     private static extern unsafe int socketpair(int domain, int type, int protocol, int* sv);
 
     [DllImport("libc", SetLastError = true)]
-    private static extern int setenv(string name, string value, int overwrite);
-
-    [DllImport("libc", SetLastError = true)]
     private static extern unsafe int poll(PollFd* fds, nuint nfds, int timeout);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -197,7 +194,7 @@ internal sealed class CompositorTestHost : IDisposable
 
     public static bool RendererNeedsGpu(string renderer) => RendererCatalog.NeedsGpu(renderer);
 
-    public static bool RendererNeedsVulkan(string renderer) => renderer is "vulkan" or "skia-vulkan" or "skia-graphite";
+    public static bool RendererNeedsVulkan(string renderer) => RendererRows.NeedsVulkan(renderer);
 
     public static void SkipUnlessRunnable(string renderer)
     {
@@ -212,58 +209,16 @@ internal sealed class CompositorTestHost : IDisposable
         Xunit.Assert.SkipWhen(!VulkanRunnability.Runnable, VulkanRunnability.Blocker);
     }
 
-    public static bool IsRunnable(string renderer) =>
-        RendererCatalog.Names.Contains(renderer)
-        && (!RendererNeedsGpu(renderer) || File.Exists(RenderNodePath))
-        && (!RendererNeedsVulkan(renderer) || VulkanRunnability.Runnable);
+    public static bool IsRunnable(string renderer) => RendererRows.IsRunnable(renderer);
 
-    public static string RenderNodePath { get; } = PickRenderNode();
+    public static string RenderNodePath { get; } = RenderNode.Path;
 
-    private static string PickRenderNode()
-    {
-        if (Environment.GetEnvironmentVariable("BASIN_RENDER_NODE") is { Length: > 0 } forced)
-        {
-            return forced;
-        }
-
-        var nodes = Directory.Exists("/dev/dri")
-            ? Directory.GetFiles("/dev/dri", "renderD*").OrderBy(p => p, StringComparer.Ordinal).ToArray()
-            : [];
-        var node = nodes.FirstOrDefault(candidate => DrmDriverOf(candidate) != "nvidia")
-            ?? nodes.FirstOrDefault()
-            ?? "/dev/dri/renderD128";
-
-        if (DrmDriverOf(node) is not (null or "nvidia"))
-        {
-            const string icdDir = "/usr/share/vulkan/icd.d";
-            if (Directory.Exists(icdDir))
-            {
-                var icds = string.Join(':', Directory.GetFiles(icdDir, "*.json")
-                    .Where(p => !Path.GetFileName(p).Contains("nvidia", StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(p => p, StringComparer.Ordinal));
-
-                setenv("VK_DRIVER_FILES", icds, 1);
-                setenv("VK_ICD_FILENAMES", icds, 1);
-            }
-        }
-
-        return node;
-    }
-
-    private static bool NvidiaRenderNode => DrmDriverOf(RenderNodePath) == "nvidia";
+    private static bool NvidiaRenderNode => RenderNode.DriverOf(RenderNodePath) == "nvidia";
 
     private static bool DriverClosesFdsLazily => NvidiaRenderNode;
 
     public static bool GoldensComparable(string renderer) =>
         !(NvidiaRenderNode && renderer == "skia-graphite");
-
-    private static string? DrmDriverOf(string node)
-    {
-        var driver = $"/sys/class/drm/{Path.GetFileName(node)}/device/driver";
-        return Directory.Exists(driver)
-            ? Directory.ResolveLinkTarget(driver, returnFinalTarget: true)?.Name
-            : null;
-    }
 
     public HeadlessBackend Backend { get; }
 

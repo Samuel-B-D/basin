@@ -81,7 +81,7 @@ internal sealed partial class System7Shell
             ? _outputs.Views.FirstOrDefault(v => _layout.BoxOf(v.Output) is var b && at.X >= b.X && at.Y >= b.Y && at.X < b.Right && at.Y < b.Bottom) ?? MainView ?? _outputs.Views[0]
             : MainView ?? _outputs.Views[0];
         var scale = view.Output.Scale;
-        var n = DevicePlacement.Chrome(scale);
+        var n = DevicePlacement.ChromeScale(scale);
         var outputBox = _layout.BoxOf(view.Output);
         var area = WorkArea(view);
         var areaX = DevicePlacement.ToDevice(area.X - outputBox.X, scale);

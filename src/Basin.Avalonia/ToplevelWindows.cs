@@ -109,11 +109,9 @@ public sealed class ToplevelWindows : IDisposable
 
         host.Shell.NewToplevel += OnNewToplevel;
         host.Shell.NewPopup += OnNewPopup;
-        _layerShell = host.Services.Find<LayerShell>();
-        if (_layerShell is not null)
-        {
-            _layerShell.NewSurface += OnNewLayerSurface;
-        }
+        _layerDriver = host.Services.Find<ILayerShellDriver>() as ToplevelLayerShellDriver;
+        _layerTarget = OnNewLayerSurface;
+        _layerDriver?.Bind(_layerTarget);
         host.Session.BeforeDispatch += _ => DrainInput();
         if (host.Services.Find<Basin.Desktop.CursorShapeManager>() is { } shapes)
         {
@@ -1224,7 +1222,8 @@ public sealed class ToplevelWindows : IDisposable
         });
     }
 
-    private readonly LayerShell? _layerShell;
+    private readonly ToplevelLayerShellDriver? _layerDriver;
+    private readonly Action<LayerSurface> _layerTarget;
     private readonly Dictionary<int, LayerWindow> _layerWindows = [];
     private readonly List<(LayerSurface Layer, Entry Entry)> _layers = [];
 
@@ -1910,10 +1909,7 @@ public sealed class ToplevelWindows : IDisposable
         _disposed = true;
         ReleaseCursorSurface();
         _host.Shell.NewToplevel -= OnNewToplevel;
-        if (_layerShell is not null)
-        {
-            _layerShell.NewSurface -= OnNewLayerSurface;
-        }
+        _layerDriver?.Unbind(_layerTarget);
 
         if (_decorations is not null)
         {

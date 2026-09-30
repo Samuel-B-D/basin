@@ -2,13 +2,15 @@ using Basin.Scene;
 
 namespace Basin.Desktop;
 
-public sealed class SessionLockSceneDriver
+public sealed class SessionLockSceneDriver : ISessionLockDriver
 {
-    private readonly Seat.Seat _seat;
+    private readonly BasinServices? _services;
     private readonly SceneTree _lockTree;
     private readonly OutputLayout _layout;
     private readonly Action<bool> _setLocked;
     private readonly List<(LockSurface Lock, SceneSurface Scene)> _surfaces = [];
+    private Seat.Seat? _seat;
+    private SessionLockManager? _manager;
 
     public SessionLockSceneDriver(
         SessionLockManager manager,
@@ -16,22 +18,34 @@ public sealed class SessionLockSceneDriver
         SceneTree lockTree,
         OutputLayout layout,
         Action<bool> setLocked)
+        : this(lockTree, layout, setLocked)
     {
         ArgumentNullException.ThrowIfNull(manager);
         ArgumentNullException.ThrowIfNull(seat);
+        _seat = seat;
+        AttachTo(manager);
+    }
+
+    public SessionLockSceneDriver(
+        BasinServices services,
+        SceneTree lockTree,
+        OutputLayout layout,
+        Action<bool> setLocked)
+        : this(lockTree, layout, setLocked)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        _services = services;
+        services.Use<ISessionLockDriver>(this);
+    }
+
+    private SessionLockSceneDriver(SceneTree lockTree, OutputLayout layout, Action<bool> setLocked)
+    {
         ArgumentNullException.ThrowIfNull(lockTree);
         ArgumentNullException.ThrowIfNull(layout);
         ArgumentNullException.ThrowIfNull(setLocked);
-        _seat = seat;
         _lockTree = lockTree;
         _layout = layout;
         _setLocked = setLocked;
-
-        manager.LockRequested += OnLockRequested;
-        manager.Locked += () => Locked?.Invoke();
-        manager.Unlocked += OnUnlocked;
-        manager.Abandoned += () => Abandoned?.Invoke();
-        manager.NewLockSurface += OnNewLockSurface;
     }
 
     public TextInputManager? TextInput { get; set; }
@@ -52,6 +66,12 @@ public sealed class SessionLockSceneDriver
 
     public void UnlockNow() => OnUnlocked();
 
+    void ISessionLockDriver.Attach(SessionLockManager manager)
+    {
+        ArgumentNullException.ThrowIfNull(manager);
+        AttachTo(manager);
+    }
+
     public void Reconfigure()
     {
         foreach (var (lockSurface, lockScene) in _surfaces)
@@ -62,12 +82,29 @@ public sealed class SessionLockSceneDriver
         }
     }
 
+    private Seat.Seat LockSeat => _seat ??= _services!.Require<Seat.Seat>();
+
+    private void AttachTo(SessionLockManager manager)
+    {
+        if (_manager is not null)
+        {
+            throw new InvalidOperationException("this session-lock driver already drives a lock manager");
+        }
+
+        _manager = manager;
+        manager.LockRequested += OnLockRequested;
+        manager.Locked += () => Locked?.Invoke();
+        manager.Unlocked += OnUnlocked;
+        manager.Abandoned += () => Abandoned?.Invoke();
+        manager.NewLockSurface += OnNewLockSurface;
+    }
+
     private void OnLockRequested()
     {
         _setLocked(true);
-        _seat.Keyboard.NotifyClearFocus();
+        LockSeat.Keyboard.NotifyClearFocus();
         TextInput?.NotifyFocus(null);
-        _seat.Pointer.NotifyClearFocus();
+        LockSeat.Pointer.NotifyClearFocus();
     }
 
     private void OnUnlocked()
@@ -91,7 +128,7 @@ public sealed class SessionLockSceneDriver
         var box = _layout.BoxOf(lockSurface.Output.Output);
         lockScene.Tree.SetPosition(box.X, box.Y);
         _surfaces.Add((lockSurface, lockScene));
-        lockSurface.Mapped += () => _seat.Keyboard.NotifyEnter(lockSurface.Surface);
+        lockSurface.Mapped += () => LockSeat.Keyboard.NotifyEnter(lockSurface.Surface);
         lockSurface.Unmapped += () =>
         {
             var index = _surfaces.FindIndex(entry => entry.Lock == lockSurface);

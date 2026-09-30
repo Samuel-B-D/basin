@@ -29,16 +29,10 @@ internal sealed class DungeonWmPlaques : IDisposable
         }
 
         _painter = new PlaquePainter(_font);
-        string? declined;
-        if (renderer.Device is VulkanDevice vulkan)
+        _host = Basin.Renderers.QuillHosts.For(renderer, allocator, null, out var declined, out var vulkanDeclined);
+        if (vulkanDeclined is not null)
         {
-            _host = QuillVulkanUIHost.TryCreate(vulkan, vulkan.DevicePath, renderer.DmabufTextureFormats, out declined, allocator: allocator);
-        }
-        else
-        {
-            var shared = (renderer as GlRenderer)?.Device;
-            _host = QuillUIHost.TryCreate(
-                shared, renderer.Device?.DevicePath, renderer.DmabufTextureFormats, out declined, allocator: shared is null ? null : allocator);
+            log.Warn($"plaques cannot draw on the renderer's VulkanDevice: {vulkanDeclined}; trying a GlDevice");
         }
 
         Declined = declined;

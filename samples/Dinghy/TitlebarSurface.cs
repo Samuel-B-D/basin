@@ -8,11 +8,7 @@ internal sealed class TitlebarSurface : IDisposable
 {
     private const int ButtonGap = 1;
 
-    private readonly WlSurface _surface;
-    private readonly WmDecoration _decoration;
-    private readonly ShmSlots _slots;
-    private readonly OutputScales _scales;
-    private readonly HashSet<WlOutput> _entered = [];
+    private readonly DecorationSurface _surface;
 
     private int _width;
     private int _height;
@@ -24,7 +20,6 @@ internal sealed class TitlebarSurface : IDisposable
     private int _scale = 1;
     private bool _dirty = true;
     private bool _needsFullDamage = true;
-    private bool _disposed;
 
     private string? _lastTitle;
     private bool _lastActive;
@@ -34,34 +29,13 @@ internal sealed class TitlebarSurface : IDisposable
     private FrameStyle _lastStyle;
     private TitlebarButton? _lastHovered;
     private bool _lastLeftDown;
-    private WmBackgroundEffects? _effects;
-    private Basin.Box _blurred;
 
-    internal TitlebarSurface(WmWindow window, WlCompositor compositor, WlShm shm, OutputScales scales)
-    {
-        _scales = scales;
-        _surface = compositor.CreateSurface();
-        _surface.Enter += (_, e) =>
-        {
-            if (e.Output is not null)
-            {
-                _entered.Add(e.Output);
-            }
-        };
-        _surface.Leave += (_, e) =>
-        {
-            if (e.Output is not null)
-            {
-                _entered.Remove(e.Output);
-            }
-        };
-        _decoration = window.CreateDecorationAbove(_surface);
-        _slots = new ShmSlots(shm);
-    }
+    internal TitlebarSurface(WmWindow window, WlCompositor compositor, WlShm shm, OutputScales scales) =>
+        _surface = new DecorationSurface(window, compositor, shm, scales, above: true);
 
-    public bool Mapped { get; private set; }
+    public bool Mapped => _surface.Mapped;
 
-    public uint SurfaceId => _surface.Id;
+    public uint SurfaceId => _surface.SurfaceId;
 
     public TitlebarButton? ButtonAt(int contentWidth, int borderWidth, int localX, int localY, bool showMinimize, bool showMaximize)
     {
@@ -96,21 +70,7 @@ internal sealed class TitlebarSurface : IDisposable
         return null;
     }
 
-    public int ScaleFor(uint fallbackOutputName)
-    {
-        if (_entered.Count == 0)
-        {
-            return _scales.ScaleForName(fallbackOutputName);
-        }
-
-        var scale = 1;
-        foreach (var output in _entered)
-        {
-            scale = Math.Max(scale, _scales.ScaleFor(output));
-        }
-
-        return scale;
-    }
+    public int ScaleFor(uint fallbackOutputName) => _surface.ScaleFor(fallbackOutputName);
 
     public void EnsureBuffer(int contentWidth, int contentHeight, int scale, FrameStyle style)
     {
@@ -148,26 +108,17 @@ internal sealed class TitlebarSurface : IDisposable
         _surface.SetBufferScale(scale);
     }
 
-    public void UpdateInputRegion(WlCompositor compositor)
+    public void UpdateInputRegion()
     {
         if (_width <= 0 || _height <= 0)
         {
             return;
         }
 
-        var region = compositor.CreateRegion();
-        region.Add(0, 0, _width, _height);
-        if (_contentWidth > 0 && _contentHeight > 0)
-        {
-            region.Subtract(
-                _borderWidth,
-                _borderWidth + Theme.TitlebarHeight,
-                _contentWidth,
-                _contentHeight);
-        }
-
-        _surface.SetInputRegion(region);
-        region.Destroy();
+        var content = _contentWidth > 0 && _contentHeight > 0
+            ? new Rect(_borderWidth, _borderWidth + Theme.TitlebarHeight, _contentWidth, _contentHeight)
+            : default;
+        _surface.SetInputRegion([new Rect(0, 0, _width, _height)], content.Width > 0 ? [content] : []);
     }
 
     public bool Render(
@@ -206,17 +157,13 @@ internal sealed class TitlebarSurface : IDisposable
             return false;
         }
 
-        var stride = _bufferWidth * 4;
-        var pixels = _slots.Prepare(_bufferWidth, _bufferHeight, stride);
+        var pixels = _surface.Prepare(_bufferWidth, _bufferHeight);
         if (pixels == 0)
         {
             return false;
         }
 
-        _slots.CurrentBytes().Clear();
-
-        var info = new SKImageInfo(_bufferWidth, _bufferHeight, SKColorType.Bgra8888, SKAlphaType.Premul);
-        using var surface = SKSurface.Create(info, pixels, stride);
+        using var surface = Basin.WindowManager.Skia.DecorationCanvas.Create(_surface, pixels);
         if (surface is null)
         {
             return false;
@@ -230,20 +177,15 @@ internal sealed class TitlebarSurface : IDisposable
 
     public void Blur(WmBackgroundEffects effects, bool on)
     {
-        _effects = effects;
         var box = on && _width > 0 ? new Basin.Box(0, 0, _width, _borderWidth + Theme.TitlebarHeight) : default;
-        if (box == _blurred)
+        if (_surface.SetBlur(effects, box))
         {
-            return;
+            _dirty = true;
         }
-
-        _blurred = box;
-        effects.SetBlurRegion(_surface, box.IsEmpty ? [] : [box]);
-        _dirty = true;
     }
 
     public void SetOffset(int swallowTop) =>
-        _decoration.SetOffset(-_borderWidth, -_borderWidth - Theme.TitlebarHeight + swallowTop);
+        _surface.SetOffset(-_borderWidth, -_borderWidth - Theme.TitlebarHeight + swallowTop);
 
     public void Invalidate()
     {
@@ -251,36 +193,29 @@ internal sealed class TitlebarSurface : IDisposable
         _needsFullDamage = true;
     }
 
-    public void SyncNextCommit() => _decoration.SyncNextCommit();
+    public void SyncNextCommit() => _surface.SyncNextCommit();
 
     public void Commit()
     {
-        if (_slots.CurrentBuffer is not { } buffer)
+        if (!_surface.HasBuffer)
         {
             return;
         }
 
-        _surface.Attach(buffer, 0, 0);
         if (_needsFullDamage)
         {
-            _surface.DamageBuffer(0, 0, _bufferWidth, _bufferHeight);
+            _surface.Commit();
             _needsFullDamage = false;
-        }
-        else
-        {
-            DamageFrame();
+            return;
         }
 
-        _surface.Commit();
-        _slots.MarkAttached();
-        Mapped = true;
+        Span<Rect> damage = stackalloc Rect[4];
+        _surface.Commit(damage[..FrameDamage(damage)]);
     }
 
     public void Unmap()
     {
-        _surface.Attach(null, 0, 0);
-        _surface.Commit();
-        Mapped = false;
+        _surface.Unmap();
         _dirty = true;
         _needsFullDamage = true;
         _lastTitle = null;
@@ -290,23 +225,7 @@ internal sealed class TitlebarSurface : IDisposable
         _lastLeftDown = false;
     }
 
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _effects?.Forget(_surface);
-        _slots.Dispose();
-
-        _decoration.Dispose();
-        if (!_surface.IsDestroyed)
-        {
-            _surface.Destroy();
-        }
-    }
+    public void Dispose() => _surface.Dispose();
 
     public static (Rect Close, Rect? Hide, Rect? Maximize) ButtonRects(
         int contentWidth,
@@ -328,7 +247,7 @@ internal sealed class TitlebarSurface : IDisposable
         return (close, hide, maximize);
     }
 
-    private void DamageFrame()
+    private int FrameDamage(Span<Rect> damage)
     {
         var bw = Math.Max(_borderWidth, 0);
         var scale = Math.Max(_scale, 1);
@@ -340,21 +259,23 @@ internal sealed class TitlebarSurface : IDisposable
 
         if (cutX1 <= cutX0 || cutY1 <= cutY0)
         {
-            _surface.DamageBuffer(0, 0, _bufferWidth, _bufferHeight);
-            return;
+            damage[0] = new Rect(0, 0, _bufferWidth, _bufferHeight);
+            return 1;
         }
 
-        Damage(0, 0, _bufferWidth, cutY0);
-        Damage(0, cutY1, _bufferWidth, _bufferHeight - cutY1);
-        Damage(0, cutY0, cutX0, cutY1 - cutY0);
-        Damage(cutX1, cutY0, _bufferWidth - cutX1, cutY1 - cutY0);
+        var count = 0;
+        Add(damage, ref count, 0, 0, _bufferWidth, cutY0);
+        Add(damage, ref count, 0, cutY1, _bufferWidth, _bufferHeight - cutY1);
+        Add(damage, ref count, 0, cutY0, cutX0, cutY1 - cutY0);
+        Add(damage, ref count, cutX1, cutY0, _bufferWidth - cutX1, cutY1 - cutY0);
+        return count;
     }
 
-    private void Damage(int x, int y, int width, int height)
+    private static void Add(Span<Rect> damage, ref int count, int x, int y, int width, int height)
     {
         if (width > 0 && height > 0)
         {
-            _surface.DamageBuffer(x, y, width, height);
+            damage[count++] = new Rect(x, y, width, height);
         }
     }
 

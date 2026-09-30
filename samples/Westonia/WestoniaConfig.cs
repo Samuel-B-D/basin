@@ -39,6 +39,7 @@ internal sealed partial class Westonia
         };
         _inputConfigurator.Apply(WestonInputRules.From(_ini, message => _log.Warn($"{message}")));
         _inputConfigurator.Attach(Seat, _seat!.Binder, _input?.Configuration);
+        _seat.Binder.VtSwitching = _ini.Keyboard.VtSwitching;
         var keyboard = _ini.Keyboard;
         _report.Line($"KEYMAP {(_inputConfigurator.NamesSeatKeymap ? "weston.ini" : "system")} layout={keyboard.Layout ?? SystemLayout ?? "default"} " + $"compiled={(Seat.Keyboard.Keymap is null ? "no" : "yes")} " + $"repeat={keyboard.RepeatRate}/{keyboard.RepeatDelay}");
     }

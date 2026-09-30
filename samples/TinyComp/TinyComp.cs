@@ -60,13 +60,12 @@ internal sealed partial class TinyComp :
     private IPixelShader? _dimShader;
     private bool _dimShaderTried;
     private Basin.Effects.DropShadowTexture? _shadowTexture;
-    private LayerShell _layerShell = null!;
     private Basin.Desktop.SessionLockManager _sessionLock = null!;
     private Basin.Desktop.SessionLockSceneDriver _lockDriver = null!;
     private readonly XdgDecorationManager _decorations;
     private readonly XdgToplevelDragManager _toplevelDrags;
     private readonly Basin.Desktop.KdeServerDecorationManager _kdeDecorations;
-    private readonly Dictionary<Surface, bool> _ssdPreference = [];
+    private readonly Basin.Desktop.DecorationPreferences _decorationPreferences;
     private Basin.Capabilities.IUIHost? _uiHost;
     private Basin.Capabilities.IUIHost? _quillHost;
     private string? _quillDeclined;
@@ -129,49 +128,28 @@ internal sealed partial class TinyComp :
             return null;
         }
 
-        if (_renderer.Device is Basin.Render.Vulkan.VulkanDevice vulkan)
+        var host = Basin.Renderers.QuillHosts.For(_renderer, _allocator, _renderNode, out _quillDeclined, out var vulkanDeclined);
+        if (vulkanDeclined is not null)
         {
-            var host = Basin.UI.Quill.QuillVulkanUIHost.TryCreate(
-                vulkan, vulkan.DevicePath, _renderer.DmabufTextureFormats, out var vulkanDeclined, allocator: _allocator);
-            if (host is not null)
-            {
-                _log.Info($"quill frames share the {_config.Renderer} renderer's VulkanDevice");
-                _quillHost = host;
-                FrameHosts.Add(_quillHost);
-                return _quillHost;
-            }
-
             _log.Warn($"quill frames cannot draw on the {_config.Renderer} renderer's VulkanDevice: {vulkanDeclined}; trying a GlDevice");
         }
 
-        var shared = _renderer switch
+        switch (host)
         {
-            Basin.Render.Gl.GlRenderer gl => gl.Device,
-            Basin.Render.Skia.SkiaGlRenderer skia => skia.Device,
-            _ => null,
-        };
-
-        var glHost = Basin.UI.Quill.QuillUIHost.TryCreate(
-            shared,
-            _renderer.Device?.DevicePath ?? _renderNode,
-            _renderer.DmabufTextureFormats,
-            out _quillDeclined,
-            allocator: shared is null ? null : _allocator);
-        if (glHost is null)
-        {
-            return null;
+            case null:
+                return null;
+            case Basin.UI.Quill.QuillVulkanUIHost:
+                _log.Info($"quill frames share the {_config.Renderer} renderer's VulkanDevice");
+                break;
+            case Basin.UI.Quill.QuillUIHost { OwnsDevice: true } glHost:
+                _log.Info($"quill frames draw on their own GlDevice on {glHost.Device.DevicePath} beside the {_config.Renderer} renderer");
+                break;
+            default:
+                _log.Info($"quill frames share the {_config.Renderer} renderer's GlDevice");
+                break;
         }
 
-        if (glHost.OwnsDevice)
-        {
-            _log.Info($"quill frames draw on their own GlDevice on {glHost.Device.DevicePath} beside the {_config.Renderer} renderer");
-        }
-        else
-        {
-            _log.Info($"quill frames share the {_config.Renderer} renderer's GlDevice");
-        }
-
-        _quillHost = glHost;
+        _quillHost = host;
         FrameHosts.Add(_quillHost);
         return _quillHost;
     }
@@ -247,7 +225,7 @@ internal sealed partial class TinyComp :
     private Basin.Desktop.CursorShapeManager _cursorShapes = null!;
     private Basin.Desktop.ScreencopyManager _screencopy = null!;
     private Basin.Desktop.RelativePointerManager _relativePointer = null!;
-    private Basin.Desktop.PointerConstraintsManager _constraints = null!;
+    private Basin.Desktop.PointerConstraintDriver _constraints = null!;
     private Basin.Desktop.ForeignToplevelListManager _toplevelList = null!;
     private readonly WorkspacePolicy _workspaceModel;
     private Basin.Desktop.PointerGesturesManager _gestures = null!;
@@ -256,6 +234,7 @@ internal sealed partial class TinyComp :
     private Basin.Desktop.ColorManager _color = null!;
     private Basin.XWayland.XwaylandShellGlobal _xwaylandShell = null!;
     private Basin.XWayland.XWaylandServer? _xwayland;
+    private readonly ProcessTracker _processes;
     private Basin.XWayland.XWaylandWm? _xwm;
     private readonly List<XWindow> _xwindows = [];
     private readonly Basin.XWayland.XWaylandSceneDriver _xSceneDriver = new();
@@ -263,7 +242,7 @@ internal sealed partial class TinyComp :
     private Basin.Desktop.ContentTypeManager _contentType = null!;
     private IOutputConfiguration? _outputConfiguration;
     private Basin.Color.ColorOutputConfiguration? _colorConfiguration;
-    private Basin.Color.ColorCapabilityPack _colorPack = null!;
+    private Basin.Desktop.ColorCapabilityPack _colorPack = null!;
     private Basin.Desktop.OrientationSensor? _orientationSensor;
     private Basin.Capabilities.Defaults.LayoutOutputConfiguration? _layoutConfiguration;
     private Basin.Desktop.FifoManager _fifo = null!;
@@ -328,6 +307,8 @@ internal sealed partial class TinyComp :
 
     private Basin.Host.InitProcess? _initProcess;
     private Basin.Transport.Waypipe.WaypipeChannel? _channel;
+    private Basin.Transport.Waypipe.WaypipeAdoption? _adoption;
+    private Wayland.Server.WlServerDisplay.GlobalFilter? _privilegedFilter;
     private Config _config;
     private readonly string? _configPath;
     private string _rendererName = "vulkan";
@@ -427,6 +408,7 @@ internal sealed partial class TinyComp :
                     : Basin.Host.HostTransport.LibWayland,
                 SocketFd = socketFd,
             });
+        _processes = new ProcessTracker(_host.Loop, () => ProcessTracker.SessionEnvironment(_host.Socket, _xwayland?.DisplayName, _ipc?.Path));
         _channelEndpoint = channelEndpoint;
         _display = _host.Display;
         _socket = _host.Socket;
@@ -552,7 +534,7 @@ internal sealed partial class TinyComp :
         _gamma = servicePack.Drm.Gamma;
         _cursorTheme = servicePack.CursorTheme;
         _orientationSensor = new Basin.Desktop.OrientationSensor(_loop);
-        _colorPack = new Basin.Color.ColorCapabilityPack(_layout, _renderer);
+        _colorPack = new Basin.Desktop.ColorCapabilityPack(_layout, _renderer);
         _layoutConfiguration = _colorPack.Layout;
         _layoutConfiguration.Orientation = _orientationSensor;
         _colorConfiguration = _colorPack.Configuration;
@@ -672,6 +654,7 @@ internal sealed partial class TinyComp :
         }
 
         _services.UseDefault<IInputDeviceConfiguration>(_inputConfigurator);
+        CreateLayerDrivers();
         _services.Freeze();
         _dmabufGlobal = dmabufModule?.Global;
         WireInputCapture();
@@ -739,8 +722,6 @@ internal sealed partial class TinyComp :
         };
         _services.Require<XdgDialogManager>().ModalChanged += (toplevel, modal) =>
             FindWindow(toplevel)?.SetModal(modal);
-        _xdgToplevels.NoBorderRequested += (toplevel, noBorder) =>
-            RecordDecorationPreference(toplevel.Surface, !noBorder);
         _xdgToplevels.CaptureExclusionRequested += (toplevel, excluded) =>
             _xdgToplevels.SetExcludedFromCapture(toplevel, excluded);
         _xdgToplevels.MoveRequested += (toplevel, box) => FindWindow(toplevel)?.MoveTo(box.X, box.Y);
@@ -752,31 +733,17 @@ internal sealed partial class TinyComp :
             }
         };
 
-        _layerShell = _services.Require<LayerShell>();
         WireLayerShell();
         _toplevelDrags = _services.Require<XdgToplevelDragManager>();
         _decorations = _services.Require<XdgDecorationManager>();
-        _decorations.ModeChanged += (toplevel, mode) =>
-            RecordDecorationPreference(toplevel.Surface, mode == DecorationMode.ServerSide);
         _sessionLock = _services.Require<Basin.Desktop.SessionLockManager>();
         WireSessionLock();
         _screencopy = _services.Require<Basin.Desktop.ScreencopyManager>();
         _relativePointer = _services.Require<Basin.Desktop.RelativePointerManager>();
-        _constraints = _services.Require<Basin.Desktop.PointerConstraintsManager>();
-        _constraints.ConstraintCreated += constraint => constraint.Deactivated += () =>
-        {
-            if (_activeConstraint == constraint)
-            {
-                _activeConstraint = null;
-            }
-
-            SyncParentPointerLock();
-        };
-        _constraints.ConstraintActivated += constraint =>
-        {
-            _activeConstraint = constraint;
-            SyncParentPointerLock();
-        };
+        _constraints = _services.Require<Basin.Desktop.PointerConstraintDriver>();
+        _constraints.Allow = constraint => !IsOnDeformedWindow(constraint.Surface) &&
+            (constraint.Kind == Basin.Desktop.ConstraintKind.Lock || ScaleOfSurface(constraint.Surface) == 1.0);
+        _constraints.Changed += (_, _) => SyncParentPointerLock();
         _toplevelList = _services.Require<Basin.Desktop.ForeignToplevelListManager>();
         _gestures = _services.Require<Basin.Desktop.PointerGesturesManager>();
         _shortcutsInhibit = _services.Require<Basin.Desktop.KeyboardShortcutsInhibitManager>();
@@ -793,18 +760,21 @@ internal sealed partial class TinyComp :
             _scene.SurfaceBackdrop = new Basin.Desktop.BackgroundBlurDriver(
                 _services.Require<Basin.Desktop.BackgroundEffectManager>(), _blurEffect);
         }
-        _kdeDecorations.ModeRequested += (surface, mode) =>
-            RecordDecorationPreference(surface, mode == Basin.Desktop.KdeServerDecorationManager.DecorationMode.Server);
+        _decorationPreferences = new Basin.Desktop.DecorationPreferences(_decorations, _kdeDecorations, _xdgToplevels);
+        _decorationPreferences.Changed += (surface, serverSide) => FindWindow(surface)?.SetDecorated(serverSide);
         _services.Require<XdgToplevelIconManager>().IconChanged +=
             (toplevel, name) => FindWindow(toplevel)?.SetIconName(name);
-        _color = _services.Require<Basin.Desktop.ColorManager>();
+        if (!_colorPack.Attach(_services, _scene))
+        {
+            throw new InvalidOperationException("no color manager is registered");
+        }
+
+        _color = _colorPack.Manager;
         _compositor.SurfaceCreated += surface => surface.Destroyed += UpdateEdrDemand;
-        _outputColor = new Basin.Desktop.OutputColorDriver(_color, _colorPack.Configuration);
-        _lutDriver = new Basin.Desktop.SurfaceLutDriver(_scene, _color, _colorPack.Luts);
-        _lutDriver.CountChanged += attached => _report.Line($"COLOR luts={attached}");
+        _colorPack.Surfaces.CountChanged += attached => _report.Line(CompositorLines.Luts(attached));
         foreach (var view in Views)
         {
-            _outputColor.Add(view.Global, view.Output, view.Scene);
+            _colorPack.AddOutput(view.Global, view.Output, view.Scene);
             SyncBlendSpace(view);
         }
 
@@ -846,8 +816,9 @@ internal sealed partial class TinyComp :
         };
         _xwayland.Exited += () => _xwm = null;
         _report.Line($"XWAYLAND {_xwayland.DisplayName}");
-        _display.SetGlobalFilter((client, _, interfaceName) =>
-            !Basin.Desktop.PrivilegedProtocols.Contains(interfaceName) || IsTrusted(client));
+        _privilegedFilter = (client, _, interfaceName) =>
+            !Basin.Desktop.PrivilegedProtocols.Contains(interfaceName) || IsTrusted(client);
+        _display.SetGlobalFilter(_privilegedFilter);
         _textInput = _services.Require<Basin.Desktop.TextInputManager>();
         _lockDriver.TextInput = _textInput;
         _fractionalScale = _services.Require<Basin.Desktop.FractionalScaleManager>();
@@ -895,7 +866,8 @@ internal sealed partial class TinyComp :
             _outputsCreated = true;
             SetupTouch();
             WireLibinput(_input!);
-            _touchBinder!.PointerFrozen = () => ActiveLock() is not null;
+            _touchBinder!.RelativePointer = _relativePointer;
+            _touchBinder!.Constraints = _constraints;
             _touchBinder!.BindLibinput(_input!, start: false);
             WireTablets();
             _input!.Start();
@@ -1005,21 +977,11 @@ internal sealed partial class TinyComp :
 
         if (_channelEndpoint is { } endpoint)
         {
-            System.Net.EndPoint address = endpoint.Contains(':', StringComparison.Ordinal)
-                ? System.Net.IPEndPoint.Parse(endpoint)
-                : new System.Net.Sockets.UnixDomainSocketEndPoint(endpoint);
-            if (address is System.Net.Sockets.UnixDomainSocketEndPoint && File.Exists(endpoint))
-            {
-                File.Delete(endpoint);
-            }
-
             _report.Line($"CHANNEL {endpoint}");
-            _channel = Basin.Transport.Waypipe.WaypipeChannel.Listen(address);
+            _channel = Basin.Transport.Waypipe.WaypipeChannel.Listen(Basin.Transport.Waypipe.WaypipeEndpoint.ForListening(endpoint));
             _channel.Ended += failure => _log.Info($"channel ended{(failure is null ? string.Empty : $": {failure.Message}")}");
-            var remote = _display.CreateClient(_channel.Transport);
-            var globals = _channel.Globals;
-            _display.SetGlobalFilter((client, _, interfaceName) =>
-                client != remote || globals.Carries(interfaceName));
+            _adoption = new Basin.Transport.Waypipe.WaypipeAdoption(_display, _services.Require<ClientBufferRegistry>(), _compositor, _dmabufGlobal is not null, _privilegedFilter);
+            _adoption.Adopt(_channel);
             _log.Info($"channel attached; replaying it as one client");
         }
 
@@ -1048,8 +1010,13 @@ internal sealed partial class TinyComp :
         _pointerRefresh?.Dispose();
         _hotCornerTimer?.Remove();
         _hotCornerTimer = null;
+        _processes.TerminateAll(TimeSpan.FromMilliseconds(500));
+        _processes.Dispose();
         _ipc?.Dispose();
+        _settle?.Dispose();
         _ipc = null;
+        _adoption?.Dispose();
+        _adoption = null;
         _channel?.Dispose();
         _channel = null;
 

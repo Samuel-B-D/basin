@@ -82,6 +82,26 @@ public sealed class DamPolicyTests
     }
 
     [Fact]
+    public void The_window_geometry_origin_lands_on_the_layout_and_follows_a_change()
+    {
+        using var host = new DamTestHost();
+        var entry = CreateToplevel(host.Client);
+        entry.Surface.Commit();
+        host.PumpUntil(() => entry.Serial != 0);
+
+        entry.Xdg.SetWindowGeometry(20, 30, 1280, 720);
+        Map(host, entry, 1320, 780);
+        var view = Assert.Single(host.Dam.Views.Views);
+        Assert.Equal((-20, -30), (view.Scene.Tree.X, view.Scene.Tree.Y));
+
+        entry.Xdg.SetWindowGeometry(4, 30, 1280, 720);
+        entry.Surface.Commit();
+        host.PumpToServer();
+        Assert.Equal((-4, -30), (view.Scene.Tree.X, view.Scene.Tree.Y));
+        entry.Surface.Destroy();
+    }
+
+    [Fact]
     public void Transient_toplevel_is_centered()
     {
         using var host = new DamTestHost();

@@ -15,6 +15,7 @@ internal sealed partial class Dam : IDisposable
 {
     private readonly DamOptions _options;
     private IpcServer? _ipc;
+    private Basin.Host.FrameSettle? _settle;
     private readonly BasinLogger _log;
 
     private readonly IRenderer _renderer;
@@ -22,7 +23,7 @@ internal sealed partial class Dam : IDisposable
     private readonly Basin.Host.BasinHost _host;
     private readonly OutputLayout _layout = new();
     private readonly Scene _scene = new();
-    private Basin.Color.ColorCapabilityPack _colorPack = null!;
+    private Basin.Desktop.ColorCapabilityPack _colorPack = null!;
     private readonly BasinServices _services;
     private readonly OutputDriver _outputs;
     private readonly CompositorRunLoop _loop;
@@ -65,9 +66,9 @@ internal sealed partial class Dam : IDisposable
         }
 
         BasinReport.Line(CompositorLines.Frames(rendered));
-        if (BasinCounters.Enabled && (BasinCounters.LiveObjects != 0 || BasinCounters.PendingFrees != 0))
+        if (CompositorLines.Census() is { } census)
         {
-            log.Error($"{BasinCounters.CensusReport()}");
+            log.Error($"{census}");
         }
 
         return status;
@@ -85,7 +86,7 @@ internal sealed partial class Dam : IDisposable
         _host = Basin.Host.BasinHost.Create(
             Basin.Host.HostOptions.ForBackend(options.Backend.ToString().ToLowerInvariant()));
 
-        _colorPack = new Basin.Color.ColorCapabilityPack(_layout, _renderer);
+        _colorPack = new Basin.Desktop.ColorCapabilityPack(_layout, _renderer);
         var servicePack = new DesktopServicePack(_scene, _layout, _renderer, _host.Drm);
         var capturePack = servicePack.Capture;
         var cursorTheme = servicePack.CursorTheme;
@@ -145,15 +146,8 @@ internal sealed partial class Dam : IDisposable
             }
         };
         _outputs.ModeChanged += view => BasinReport.Line($"MODE {view.Output.Name} {view.Width}x{view.Height}");
-        _outputs.ScanoutChanged += (view, choice) => BasinReport.Line(choice switch
-        {
-            ScanoutChoice.DeviceBuffers =>
-                $"SCANOUT {view.Output.Name} device modifiers={view.SwapModifiers.Length}",
-            ScanoutChoice.DumbLinear =>
-                $"SCANOUT {view.Output.Name} dumb linear; every frame reads the framebuffer back",
-            _ =>
-                $"SCANOUT {view.Output.Name} device buffers refused by the plane; falling back to dumb linear",
-        });
+        _outputs.ScanoutChanged += (view, choice) =>
+            BasinReport.Line(CompositorLines.Scanout(view.Output.Name, choice, view.SwapModifiers.Length));
         Views = new DamViews(_scene, _layout, Seat, _outputs);
         Views.Attach(Shell, _services.Require<XdgToplevelSource>());
         if (xwayland is not null)
@@ -216,19 +210,22 @@ internal sealed partial class Dam : IDisposable
     private int RunLoop()
     {
         BasinReport.Line(CompositorLines.Socket(_host.Socket));
-        _ipc = _options.Ipc.AttachIfListening(_host.Loop, _services, _host.Socket, new IpcSessionInfo
+        _settle = new Basin.Host.FrameSettle(_outputs);
+        _ipc = _options.Ipc.Attach(_host.Loop, _services, _host.Socket, new IpcSessionInfo
         {
             Compositor = "dam",
             Backend = _options.Backend.ToString().ToLowerInvariant(),
             Renderer = _options.Renderer,
             XwaylandDisplay = () => _xServer?.DisplayName,
             Quit = Stop,
+            Settle = _settle,
         });
-        if (_ipc is not null)
-        {
-            _ipc.SyntheticInput = _damSeat.Injector;
-            _ipc.Start();
-        }
+        _ipc.SyntheticInput = _damSeat.Injector;
+        var lines = new IpcLineReport();
+        lines.AddInputLines(_ipc.Methods);
+        lines.AddSessionLines(_ipc.Methods);
+        _ipc.Start();
+        _ipc.StartLineFront();
 
         if (_options.Application.Length > 0)
         {
@@ -260,6 +257,7 @@ internal sealed partial class Dam : IDisposable
     {
         _host.DisconnectClients();
         _ipc?.Dispose();
+        _settle?.Dispose();
         _ipc = null;
         _colorPack?.Luts.Dispose();
         _client?.Dispose();

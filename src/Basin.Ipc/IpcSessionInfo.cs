@@ -16,6 +16,10 @@ public sealed record IpcSessionInfo
 
     public Action? Quit { get; init; }
 
+    public Basin.Capabilities.IFrameSettle? Settle { get; init; }
+
+    public ProcessTracker? Processes { get; init; }
+
     public string BasinVersion { get; init; } = DefaultVersion();
 
     private static string DefaultVersion()

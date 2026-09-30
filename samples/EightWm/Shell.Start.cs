@@ -21,6 +21,7 @@ internal sealed partial class Shell
     private readonly List<Tile> _tiles = [];
     private readonly List<DesktopEntry> _entries = [];
     private readonly DesktopEntries _desktop = new();
+    private DirectoryWatch? _desktopWatch;
 
     internal IconLoader Icons => _icons ??= new IconLoader();
 
@@ -41,6 +42,20 @@ internal sealed partial class Shell
     private void LoadConfig()
     {
         _config = Config.Load(_options.ConfigPath, _log);
+        _desktopWatch = new DirectoryWatch(_host.Loop);
+        _desktop.Watch(_desktopWatch);
+        _desktop.Changed += OnDesktopEntriesChanged;
+        BuildTiles();
+    }
+
+    private void OnDesktopEntriesChanged()
+    {
+        if (!_config.ScanDesktopFiles)
+        {
+            return;
+        }
+
+        _icons?.Clear();
         BuildTiles();
     }
 
@@ -85,7 +100,6 @@ internal sealed partial class Shell
         _entries.Clear();
         if (_config.ScanDesktopFiles)
         {
-            _desktop.Invalidate();
             _entries.AddRange(_desktop.Listable());
         }
 
@@ -262,7 +276,11 @@ internal sealed partial class Shell
         if (view.Background.Enabled)
         {
             var wanted = view.AppsVisible ? appsSurface : startSurface;
-            if (wanted is not null)
+            if (LayerHasKeyboard)
+            {
+                _router.SetKeyboardFocus(null);
+            }
+            else if (wanted is not null)
             {
                 _router.SetKeyboardFocus(wanted);
             }

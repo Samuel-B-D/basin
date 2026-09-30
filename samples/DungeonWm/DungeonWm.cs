@@ -8,8 +8,10 @@ using Basin.Render.Gl;
 using Basin.Render.Vulkan;
 using Basin.Render3D.Gl;
 using Basin.Render3D.Vulkan;
+using Basin.Renderers;
 using Basin.Scene;
 using Basin.Scene3D;
+using Basin.Scene3D.Scene;
 using Basin.Shell.Xdg;
 
 namespace DungeonWm;
@@ -29,8 +31,10 @@ internal sealed partial class DungeonWm : IDisposable
     private readonly SceneTree _worldLayer;
     private readonly BasinServices _services;
     private readonly OutputDriver _outputs;
+    private readonly ProcessTracker _processes;
     private readonly CompositorRunLoop _loop;
     private readonly SceneCapturePack _capturePack;
+    private readonly Basin.Desktop.ColorCapabilityPack _colorPack;
     private readonly CursorController _cursor;
     private readonly Basin.Backend.Libinput.LibinputBackend? _input;
     private readonly Basin.Seat.Backends.InputConfigurator _inputConfigurator = new();
@@ -39,9 +43,9 @@ internal sealed partial class DungeonWm : IDisposable
     private readonly IToplevelModel _toplevels;
     private readonly SurfacePresenceTracker _presence;
     private readonly FractionalScaleManager? _fractionalScale;
-    private readonly Dictionary<OutputView, WorldOutput> _worldOutputs = [];
+    private readonly Dictionary<OutputView, WorldSceneOutput> _worldOutputs = [];
     private readonly List<DungeonWmWindow> _windows = [];
-    private readonly Dictionary<XdgSurfaceState, SceneSurface> _surfaceScenes = [];
+    private readonly Basin.Desktop.NestedPopupPlacer _popups;
     private readonly List<SurfaceBox> _presenceScratch = [];
     private readonly DungeonWmWorld _world;
     private readonly DungeonWmFrames _frames;
@@ -51,7 +55,7 @@ internal sealed partial class DungeonWm : IDisposable
     private readonly Walker _walker;
     private readonly WorldPicker _picker;
     private readonly LayerShellSceneDriver _layerDriver;
-    private readonly SessionLockSceneDriver? _lockDriver;
+    private readonly SessionLockSceneDriver _lockDriver;
     private readonly Basin.XWayland.XWaylandServer? _xServer;
     private DungeonWmWindow? _focused;
     private DungeonWmWindow? _takeover;
@@ -59,7 +63,7 @@ internal sealed partial class DungeonWm : IDisposable
     private (System.Numerics.Vector3 Position, float Yaw, float Pitch)? _beforeTakeover;
     private bool _locked;
     private long _lastStep;
-    private long _lastSlowFrameDone;
+    private readonly WorldFrameCallbacks _frameCallbacks = new();
 
     public static int Run(DungeonWmOptions options, BasinLogger log, out long rendered)
     {
@@ -80,9 +84,9 @@ internal sealed partial class DungeonWm : IDisposable
         }
 
         BasinReport.Line(CompositorLines.Frames(rendered));
-        if (BasinCounters.Enabled && (BasinCounters.LiveObjects != 0 || BasinCounters.PendingFrees != 0))
+        if (CompositorLines.Census() is { } census)
         {
-            log.Error($"{BasinCounters.CensusReport()}");
+            log.Error($"{census}");
         }
 
         return status;
@@ -97,17 +101,18 @@ internal sealed partial class DungeonWm : IDisposable
         var stack = CreateStack(options.Renderer, log, out var rendererName);
         _renderer = stack.Renderer;
         _deviceAllocator = stack.DeviceAllocator;
-        _worldRenderer = rendererName == "vulkan"
-            ? new VulkanWorldRenderer(((VulkanRenderer)_renderer).Device, _settings.Render.Anisotropy)
-            : new GlWorldRenderer(((GlRenderer)_renderer).Device);
+        _worldRenderer = WorldRenderers.For(_renderer, _settings.Render.Anisotropy, out var worldDeclined)
+            ?? throw new InvalidOperationException($"the {rendererName} renderer cannot draw the world: {worldDeclined}");
         RendererName = rendererName;
 
         _host = BasinHost.Create(HostOptions.ForBackend(options.Backend.ToString().ToLowerInvariant()) with
         {
             SocketFd = options.SocketFd,
         });
+        _processes = new ProcessTracker(_host.Loop, () => ProcessTracker.SessionEnvironment(_host.Socket, _xServer?.DisplayName, _ipc?.Path));
 
         var kit = Kit.Load();
+        _popups = new Basin.Desktop.NestedPopupPlacer(_layout);
         _world = new DungeonWmWorld(kit, _settings);
         _frames = new DungeonWmFrames(kit.Images.Count > 0 ? kit.Images[0] : null, _settings.Frames, _settings.Map.Seed);
         for (var i = 0; i < Math.Max(1, _settings.Rooms); i++)
@@ -125,7 +130,7 @@ internal sealed partial class DungeonWm : IDisposable
         _walker.Teleport(_world.CenterOf(first, _settings.EyeHeight), 0);
         _workspaces.SetActive(first);
 
-        var colorPack = new Basin.Color.ColorCapabilityPack(_layout, _renderer);
+        _colorPack = new Basin.Desktop.ColorCapabilityPack(_layout, _renderer);
         var servicePack = new DesktopServicePack(_scene, _layout, _renderer, _host.Drm);
         _capturePack = servicePack.Capture;
         _capturePack.Capture.Background = new RenderColor(_settings.SkyColor.X, _settings.SkyColor.Y, _settings.SkyColor.Z, 1);
@@ -138,7 +143,7 @@ internal sealed partial class DungeonWm : IDisposable
         _services = _host.CreateServices()
             .Use(_layout)
             .With(servicePack)
-            .With(colorPack)
+            .With(_colorPack)
             .Use<IWorkspaceModel>(_workspaces);
         _services.Install(DesktopPack.For("dungeon-wm"));
         if (_renderer.Device is { } renderDevice)
@@ -173,9 +178,11 @@ internal sealed partial class DungeonWm : IDisposable
                 return injector.Key(time, keycode, pressed);
             },
         });
+        _layers = new SceneLayers(_scene.Root);
+        _layerDriver = new LayerShellSceneDriver(_services, _layout, _layers);
+        _lockDriver = new SessionLockSceneDriver(_services, _layers.Lock, _layout, SetLocked);
         _services.Freeze();
 
-        _layers = new SceneLayers(_scene.Root);
         _plaques = new DungeonWmPlaques(_renderer, _deviceAllocator, _scene.Root, log);
         _worldLayer = new SceneTree(_layers.Background);
         _worldLayer.LowerToBottom();
@@ -208,8 +215,8 @@ internal sealed partial class DungeonWm : IDisposable
         _outputs.Painted += OnPainted;
         _outputs.LayoutChanged += () =>
         {
-            _layerDriver?.Rearrange();
-            _lockDriver?.Reconfigure();
+            _layerDriver.Rearrange();
+            _lockDriver.Reconfigure();
             Relock();
         };
 
@@ -217,22 +224,21 @@ internal sealed partial class DungeonWm : IDisposable
             WindowOf(surface) is { } window ? new ToplevelCaptureTrees(window.Scene.Tree, null, window.Scene.Tree) : null);
 
         _shell.NewToplevel += OnNewToplevel;
+        _popups.ConstrainBox = toplevel =>
+            _takeover is { } taken && ReferenceEquals(taken.Surface, toplevel.Surface) &&
+            _layout.OutputAt(taken.Scene.Tree.X + taken.Geometry.X, taken.Scene.Tree.Y + taken.Geometry.Y) is { } output
+                ? _layout.BoxOf(output)
+                : null;
+        _popups.Changed += ScheduleAll;
         _shell.NewPopup += OnNewPopup;
 
-        _layerDriver = new LayerShellSceneDriver(_services.Require<LayerShell>(), _layout, _layers)
-        {
-            Accept = _ => _outputs.Views.Count > 0,
-            DefaultOutput = _ => _outputs.Views[0].Global,
-        };
+        _layerDriver.Accept = _ => _outputs.Views.Count > 0;
+        _layerDriver.DefaultOutput = _ => _outputs.Views[0].Global;
         _layerDriver.TrackPopups(_shell);
         TrackLayerKeyboard(_layerDriver);
 
-        if (_services.Find<SessionLockManager>() is { } sessionLock)
-        {
-            _lockDriver = new SessionLockSceneDriver(sessionLock, _seat, _layers.Lock, _layout, SetLocked);
-            _lockDriver.Locked += () => BasinReport.Line($"LOCKED");
-            _lockDriver.Unlocked += () => BasinReport.Line($"UNLOCKED");
-        }
+        _lockDriver.Locked += () => BasinReport.Line($"LOCKED");
+        _lockDriver.Unlocked += () => BasinReport.Line($"UNLOCKED");
 
         _workspaces.Windows = () => _windows;
         _workspaces.ActivateRequested = FlyToRoom;
@@ -240,14 +246,14 @@ internal sealed partial class DungeonWm : IDisposable
         {
             var room = _world.AddRoom();
             ReplaceHungWindows();
-            _workspaces.RaiseChanged();
+            _workspaces.Added(room);
             BasinReport.Line($"ROOM + {room.Workspace + 1}");
             ScheduleAll();
         };
         _workspaces.RemoveRequested = room =>
         {
             room.Removed = true;
-            _workspaces.RaiseChanged();
+            _workspaces.Removed(room);
             BasinReport.Line($"ROOM - {room.Workspace + 1}");
         };
         _workspaces.AssignRequested = (window, room) => Hang(window, room, null);
@@ -264,6 +270,7 @@ internal sealed partial class DungeonWm : IDisposable
 
         _world.Rebuilt += ScheduleAll;
 
+        WireColor();
         _outputs.CreateInitialOutputs();
         if (options.Backend == BackendKind.Drm && _outputs.Views.Count == 0)
         {
@@ -312,6 +319,7 @@ internal sealed partial class DungeonWm : IDisposable
         _disposing = true;
         _host.DisconnectClients();
         DropSnapshots();
+        _colorPack.Luts.Dispose();
         foreach (var output in _worldOutputs.Values)
         {
             output.Dispose();
@@ -336,6 +344,8 @@ internal sealed partial class DungeonWm : IDisposable
         BasinReport.Line(CompositorLines.Socket(_host.Socket));
         BasinReport.Line($"WORLD renderer={RendererName} rooms={_world.Map.Rooms.Count} seed={_settings.Map.Seed}");
         using var ipc = StartIpc();
+        using var settle = _settle;
+        using var processes = _processes;
         var startup = _options.Command is { } command ? InitProcess.Start(command, _host.Socket, _xServer?.DisplayName, _log) : null;
         var hangup = _host.Loop.AddSignal(Signal.Hangup, _ => Reload());
         _loop.Frames = _options.Frames;
@@ -355,21 +365,9 @@ internal sealed partial class DungeonWm : IDisposable
         }
 
         var node = Basin.Renderers.RendererCatalog.FindRenderNode() ?? throw new InvalidOperationException("no render node: the world needs a GPU renderer");
-        if (requested == "vulkan")
-        {
-            try
-            {
-                name = "vulkan";
-                return Basin.Renderers.RendererCatalog.Create("vulkan", node);
-            }
-            catch (Exception error) when (error is InvalidOperationException or DllNotFoundException or EntryPointNotFoundException)
-            {
-                log.Warn($"vulkan renderer unavailable ({error.Message}); falling back to gl");
-            }
-        }
-
-        name = "gl";
-        return Basin.Renderers.RendererCatalog.Create("gl", node);
+        name = requested;
+        return Basin.Renderers.RendererCatalog.CreateWithFallback(
+            ref name, node, fallback => log.Warn($"{fallback.Describe()}"), floor: "gl");
     }
 
     private void SetLocked(bool locked)
@@ -393,10 +391,10 @@ internal sealed partial class DungeonWm : IDisposable
     private void OnOutputAdded(OutputView view)
     {
         var allocator = _deviceAllocator ?? view.Allocator ?? throw new InvalidOperationException("no allocator for the world buffers");
-        _worldOutputs[view] = new WorldOutput(view, _worldLayer, allocator);
+        _worldOutputs[view] = new WorldSceneOutput(_worldLayer, allocator);
         _presence.AddOutput(view.Output, view.Global);
         _cursor.AddOutput(view.Output, view.Scene);
-        _layerDriver?.Rearrange();
+        _layerDriver.Rearrange();
         BasinReport.Line($"OUTPUT {view.Output.Name} {view.Output.CurrentMode.Width}x{view.Output.CurrentMode.Height}");
         SyncMode();
     }

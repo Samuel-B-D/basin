@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <BasinPlatforms>portable</BasinPlatforms>
+    <PackageId>Basin.Icons.Skia</PackageId>
+    <RootNamespace>Basin.Icons.Skia</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);NU5104</NoWarn>
+    <Description>Rasterizes an SVG or bitmap icon file to a square, fitted and centered, with SkiaSharp.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Basin.Render.Skia/Basin.Render.Skia.csproj" />
+    <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="Svg.Skia" />
+  </ItemGroup>
+
+</Project>

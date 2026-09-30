@@ -15,12 +15,10 @@ internal sealed class MenuSurface : IDisposable
     private const int ArrowWidth = 12;
 
     private readonly ManagerSurface _surface;
-    private (int Scale, int Hovered)? _lastKey;
+    private readonly WmMenuModel _model;
 
     internal MenuSurface(
-        WlCompositor compositor,
-        WlShm shm,
-        ZwlrLayerShellV1 layerShell,
+        ManagerSurfaceHost host,
         WlOutput wlOutput,
         WmOutput output,
         RiverWindowManager wm,
@@ -37,6 +35,14 @@ internal sealed class MenuSurface : IDisposable
             SurfaceSize = Measure(font);
         }
 
+        _model = new WmMenuModel(items.Count);
+        for (var i = 0; i < items.Count; i++)
+        {
+            _model.SetRow(i, items[i].Separator ? SeparatorHeight : ItemHeight, !items[i].Separator);
+        }
+
+        _model.Content = new Rect(1, 1, SurfaceSize.Width - 2, _model.RowsHeight());
+
         if (alignRight)
         {
             origin = origin with { X = origin.X - SurfaceSize.Width };
@@ -48,12 +54,9 @@ internal sealed class MenuSurface : IDisposable
         }
 
         var area = output.Area;
-        Origin = new Point(
-            Math.Clamp(origin.X, 0, Math.Max(area.Width - SurfaceSize.Width, 0)),
-            Math.Clamp(origin.Y, 0, Math.Max(area.Height - SurfaceSize.Height, 0)));
+        Origin = WmMenuModel.ClampInto(origin, SurfaceSize, new Size(area.Width, area.Height));
 
-        _surface = new ManagerSurface(
-            compositor, shm, layerShell, wlOutput, ZwlrLayerShellV1.Layer.Overlay, "deskbar-menu");
+        _surface = host.Create(wlOutput, ZwlrLayerShellV1.Layer.Overlay, "deskbar-menu");
         _surface.SetExclusiveZone(-1);
         _surface.SetAnchor(ZwlrLayerSurfaceV1.Anchor.Top | ZwlrLayerSurfaceV1.Anchor.Left);
         _surface.SetSize(SurfaceSize.Width, SurfaceSize.Height);
@@ -74,60 +77,24 @@ internal sealed class MenuSurface : IDisposable
 
     public uint SurfaceId => _surface.SurfaceId;
 
-    public int Hovered { get; private set; } = -1;
+    public int Hovered => _model.Hovered;
 
     private static int ItemHeight => (int)MathF.Ceiling(Theme.FontSize) + (PaddingY * 2) + 4;
 
-    public int? ItemAt(int x, int y)
-    {
-        if (x < 1 || x >= SurfaceSize.Width - 1)
-        {
-            return null;
-        }
-
-        var offset = 1;
-        for (var i = 0; i < Items.Count; i++)
-        {
-            var height = Items[i].Separator ? SeparatorHeight : ItemHeight;
-            if (y >= offset && y < offset + height)
-            {
-                return Items[i].Separator ? null : i;
-            }
-
-            offset += height;
-        }
-
-        return null;
-    }
+    public int? ItemAt(int x, int y) => _model.SelectableAt(x, y);
 
     public Rect ItemRect(int index)
     {
-        var offset = 1;
-        for (var i = 0; i < Items.Count; i++)
+        if (index < 0 || index >= Items.Count)
         {
-            var height = Items[i].Separator ? SeparatorHeight : ItemHeight;
-            if (i == index)
-            {
-                return new Rect(0, offset, SurfaceSize.Width, height);
-            }
-
-            offset += height;
+            return Rect.Empty;
         }
 
-        return Rect.Empty;
+        var row = _model.RowRect(index);
+        return new Rect(0, row.Y, SurfaceSize.Width, row.Height);
     }
 
-    public bool UpdateHover(int x, int y)
-    {
-        var next = ItemAt(x, y) ?? -1;
-        if (next != Hovered)
-        {
-            Hovered = next;
-            return true;
-        }
-
-        return false;
-    }
+    public bool UpdateHover(int x, int y) => _model.Hover(x, y);
 
     public bool Render(int scale)
     {
@@ -136,8 +103,7 @@ internal sealed class MenuSurface : IDisposable
             return false;
         }
 
-        var key = (scale, Hovered);
-        if (key == _lastKey)
+        if (!_model.NeedsRender(scale))
         {
             return false;
         }
@@ -159,7 +125,7 @@ internal sealed class MenuSurface : IDisposable
         Draw(canvas.Canvas, size);
         canvas.Canvas.Flush();
         _surface.SetInputRegion(new Rect(0, 0, size.Width, size.Height));
-        _lastKey = key;
+        _model.Rendered(scale);
         return true;
     }
 

@@ -25,11 +25,7 @@ internal static class Program
             HelpName = "BOOL",
             Arity = ArgumentArity.ZeroOrOne,
         });
-        var command = cli.Add(new Option<string?>("-c")
-        {
-            Description = "run this command through sh once the compositor is up",
-            HelpName = "CMD",
-        });
+        var command = cli.Add(CommonOptions.Command());
         var screenshot = cli.Add(CommonOptions.Screenshot());
         var frames = cli.Add(CommonOptions.Frames());
         _ = IpcCli.AddOption(cli);

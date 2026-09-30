@@ -43,7 +43,7 @@ internal sealed partial class DungeonWm
         world.Opacity = window.Fade;
         world.CanvasOpacity = window.CanvasFade;
         world.Room = source.Room;
-        world.Frame = source.ShownFrame is { } frame ? CopyFrame(frame) : null;
+        world.Frame = source.ShownFrame?.Clone();
         CopyCanvas(source, snapshot);
         if (snapshot.CanvasTexture is { } texture)
         {
@@ -108,27 +108,6 @@ internal sealed partial class DungeonWm
 
         ((BufferBase)canvas).Destroy();
     }
-
-    private static WorldWindowFrame CopyFrame(WorldWindowFrame frame) => new()
-    {
-        Visible = frame.Visible,
-        Rail = frame.Rail,
-        Depth = frame.Depth,
-        Recess = frame.Recess,
-        EdgeShare = frame.EdgeShare,
-        Moulding = frame.Moulding,
-        Material = frame.Material,
-        PlaqueWidth = frame.PlaqueWidth,
-        PlaqueHeight = frame.PlaqueHeight,
-        PlaqueGap = frame.PlaqueGap,
-        PlaqueThickness = frame.PlaqueThickness,
-        PlaqueMaterial = frame.PlaqueMaterial,
-        PlaqueTexture = frame.PlaqueTexture,
-        PlaqueSource = frame.PlaqueSource,
-        PlaquePixelWidth = frame.PlaquePixelWidth,
-        PlaquePixelHeight = frame.PlaquePixelHeight,
-        PlaqueVersion = frame.PlaqueVersion,
-    };
 
     private void AdoptSnapshot(DungeonWmWindow window, DungeonWmSnapshot snapshot)
     {

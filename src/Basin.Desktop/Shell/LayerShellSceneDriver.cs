@@ -3,7 +3,7 @@ using Basin.Shell.Xdg;
 
 namespace Basin.Desktop;
 
-public sealed class LayerShellSceneDriver
+public sealed class LayerShellSceneDriver : ILayerShellDriver
 {
     private readonly OutputLayout _layout;
     private readonly Func<LayerSurface, SceneTree> _treeFor;
@@ -16,21 +16,39 @@ public sealed class LayerShellSceneDriver
     private bool _trackingPopups;
     private bool _arranging;
     private bool _again;
+    private LayerShell? _shell;
 
     public LayerShellSceneDriver(LayerShell shell, OutputLayout layout, Func<LayerSurface, SceneTree> treeFor)
+        : this(layout, treeFor)
     {
         ArgumentNullException.ThrowIfNull(shell);
-        ArgumentNullException.ThrowIfNull(layout);
-        ArgumentNullException.ThrowIfNull(treeFor);
-        _layout = layout;
-        _treeFor = treeFor;
-        _popups = new PopupPlacer(layout);
-        shell.NewSurface += OnNewSurface;
+        AttachTo(shell);
     }
 
     public LayerShellSceneDriver(LayerShell shell, OutputLayout layout, SceneLayers layers)
         : this(shell, layout, layer => TreeOf(layers, layer.Layer))
     {
+    }
+
+    public LayerShellSceneDriver(BasinServices services, OutputLayout layout, Func<LayerSurface, SceneTree> treeFor)
+        : this(layout, treeFor)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.Use<ILayerShellDriver>(this);
+    }
+
+    public LayerShellSceneDriver(BasinServices services, OutputLayout layout, SceneLayers layers)
+        : this(services, layout, layer => TreeOf(layers, layer.Layer))
+    {
+    }
+
+    private LayerShellSceneDriver(OutputLayout layout, Func<LayerSurface, SceneTree> treeFor)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        ArgumentNullException.ThrowIfNull(treeFor);
+        _layout = layout;
+        _treeFor = treeFor;
+        _popups = new PopupPlacer(layout);
     }
 
     public Func<LayerSurface, bool>? Accept { get; set; }
@@ -54,6 +72,12 @@ public sealed class LayerShellSceneDriver
     public event Action<IOutput, Box>? UsableAreaChanged;
 
     public event Action? Arranged;
+
+    void ILayerShellDriver.Attach(LayerShell shell)
+    {
+        ArgumentNullException.ThrowIfNull(shell);
+        AttachTo(shell);
+    }
 
     public static SceneTree TreeOf(SceneLayers layers, LayerKind kind)
     {
@@ -283,6 +307,17 @@ public sealed class LayerShellSceneDriver
 
         var scene = _popups.Attach(popup, layerScene.Tree, constrainBox: () => PopupBoundsOf(layer));
         PopupSceneCreated?.Invoke(layer, popup, scene);
+    }
+
+    private void AttachTo(LayerShell shell)
+    {
+        if (_shell is not null)
+        {
+            throw new InvalidOperationException("this layer-shell driver already drives a layer shell");
+        }
+
+        _shell = shell;
+        shell.NewSurface += OnNewSurface;
     }
 
     private Box PopupBoundsOf(LayerSurface layer)

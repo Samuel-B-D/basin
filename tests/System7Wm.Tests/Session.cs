@@ -8,6 +8,7 @@ internal sealed class Session : IDisposable
     private readonly Process _process;
     private readonly List<string> _lines = [];
     private readonly Lock _gate = new();
+    private TaskCompletionSource _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly DirectoryInfo _home;
 
     public Session(string path, string renderer = "pixman", IReadOnlyDictionary<string, string>? environment = null, params string[] extra)
@@ -54,10 +55,15 @@ internal sealed class Session : IDisposable
         {
             if (e.Data is not null)
             {
+                TaskCompletionSource arrived;
                 lock (_gate)
                 {
                     _lines.Add(e.Data);
+                    arrived = _arrived;
+                    _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 }
+
+                arrived.TrySetResult();
             }
         };
         _process.ErrorDataReceived += (_, _) => { };
@@ -198,34 +204,61 @@ internal sealed class Session : IDisposable
     public async Task<string?> WaitForAsync(Func<string, bool> predicate, string? poke = null, bool fresh = false, int? since = null, int attempts = 100)
     {
         var floor = since ?? (fresh ? Mark() : 0);
-        for (var i = 0; i < attempts; i++)
+        var deadline = Environment.TickCount64 + (attempts * 100L);
+        var cancel = TestContext.Current.CancellationToken;
+        while (true)
         {
             if (poke is not null)
             {
                 await SendAsync(poke);
             }
 
-            lock (_gate)
+            var slotEnd = poke is null ? deadline : Math.Min(deadline, Environment.TickCount64 + 100);
+            while (true)
             {
-                for (var j = _lines.Count - 1; j >= floor; j--)
+                Task next;
+                lock (_gate)
                 {
-                    if (predicate(_lines[j]))
+                    for (var j = _lines.Count - 1; j >= floor; j--)
                     {
-                        return _lines[j];
+                        if (predicate(_lines[j]))
+                        {
+                            return _lines[j];
+                        }
                     }
+
+                    next = _arrived.Task;
                 }
+
+                var remaining = slotEnd - Environment.TickCount64;
+                if (remaining <= 0)
+                {
+                    break;
+                }
+
+                await Task.WhenAny(next, Task.Delay((int)remaining, cancel));
+                cancel.ThrowIfCancellationRequested();
             }
 
-            await Task.Delay(100, TestContext.Current.CancellationToken);
+            if (Environment.TickCount64 >= deadline)
+            {
+                return null;
+            }
         }
-
-        return null;
     }
 
     public Task<string?> WaitForLineAsync(string exact, int? since = null) => WaitForAsync(line => line == exact, since: since);
 
     public Task<string?> WaitForPrefixAsync(string prefix, int? since = null, int attempts = 100) =>
         WaitForAsync(line => line.StartsWith(prefix, StringComparison.Ordinal), since: since, attempts: attempts);
+
+    public async Task SettleAsync()
+    {
+        var mark = Mark();
+        await SendAsync("settle");
+        var reply = await WaitForAsync(line => line.StartsWith("OK session/settle ", StringComparison.Ordinal) || line.StartsWith("ERR ", StringComparison.Ordinal), since: mark);
+        Assert.True(reply is not null && reply.StartsWith("OK ", StringComparison.Ordinal), $"settle answered [{reply}]");
+    }
 
     public async Task<List<string>> StateAsync()
     {

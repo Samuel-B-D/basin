@@ -16,6 +16,8 @@ public sealed class LibinputBackend : IDisposable
     private bool _suspended;
     private LibinputDeviceConfiguration? _configuration;
 
+    public ISession Session => _session;
+
     public LibinputBackend(ICompositorEventLoop loop, ISession session)
     {
         _loop = loop;

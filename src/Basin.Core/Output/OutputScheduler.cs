@@ -23,6 +23,7 @@ public sealed class OutputScheduler : IDisposable
     private bool _pacedFromLastFrame;
     private long _commits;
     private bool _disposed;
+    private bool _idleRaised = true;
 
     public OutputScheduler(ICompositorEventLoop loop, IOutput output)
     {
@@ -36,6 +37,10 @@ public sealed class OutputScheduler : IDisposable
 
     public event Action? Repaint;
 
+    public event Action? Idle;
+
+    public bool IsIdle => !_repaintQueued && !_commitInFlight && !_timerArmed && !_idleQueued && !_firing;
+
     public long MissedVblanks { get; private set; }
 
     public int RenderAheadMillis { get; set; } = 7;
@@ -48,6 +53,7 @@ public sealed class OutputScheduler : IDisposable
         }
 
         _repaintQueued = true;
+        _idleRaised = false;
         if (_firing)
         {
             return;
@@ -204,6 +210,7 @@ public sealed class OutputScheduler : IDisposable
     {
         if (_disposed || !_repaintQueued)
         {
+            RaiseIfIdle();
             return;
         }
 
@@ -231,6 +238,28 @@ public sealed class OutputScheduler : IDisposable
             var interval = IntervalMs();
             _timerArmed = true;
             _timer.UpdateTimer((int)Math.Max(1, (long)Math.Ceiling(interval - elapsed)));
+        }
+
+        RaiseIfIdle();
+    }
+
+    private void RaiseIfIdle()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (!IsIdle)
+        {
+            _idleRaised = false;
+            return;
+        }
+
+        if (!_idleRaised)
+        {
+            _idleRaised = true;
+            Idle?.Invoke();
         }
     }
 
@@ -271,6 +300,8 @@ public sealed class OutputScheduler : IDisposable
                 QueueIdle();
             }
         }
+
+        RaiseIfIdle();
     }
 
     private int _scopedFires;

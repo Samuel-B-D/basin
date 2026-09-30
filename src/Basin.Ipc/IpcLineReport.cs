@@ -78,6 +78,19 @@ public sealed class IpcLineReport
         methods.AddLine(name, line, Format);
     }
 
+    public void AddInputLines(IpcMethodRegistry methods)
+    {
+        AddLine(methods, IpcMethodNames.InputPointerMove, "move {x:number} {y:number}");
+        AddLine(methods, IpcMethodNames.InputPointerButton, "button {button:int} {pressed:bool}");
+        AddLine(methods, IpcMethodNames.InputKey, "key {code:int} {pressed:bool}");
+    }
+
+    public void AddSessionLines(IpcMethodRegistry methods)
+    {
+        AddLine(methods, IpcMethodNames.SessionQuit, "quit");
+        methods.AddLine(IpcMethodNames.SessionSettle, "settle", IpcLineFront.Describe);
+    }
+
     public static bool Complete(IpcPendingReply pending, params string[] lines)
     {
         ArgumentNullException.ThrowIfNull(pending);

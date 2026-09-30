@@ -11,7 +11,6 @@ public sealed partial class NestedShell
     private readonly NestedToplevelSource _adopted;
     private SceneCapturePack? _capture;
     private SkiaRenderer? _captureRenderer;
-    private ToplevelInfo[] _idScratch = new ToplevelInfo[16];
     private XdgToplevelRequestHandler? _xdgHandler;
 
     public IToplevelModel? Toplevels => _model;
@@ -83,7 +82,7 @@ public sealed partial class NestedShell
 
         if (id == 0 && _model is { } model && window.Content.Surface is { } surface)
         {
-            id = FindBySurface(model, surface);
+            id = model.TryFind(surface, out var info) ? info.Id : 0;
         }
 
         window.ToplevelId = id;
@@ -191,28 +190,6 @@ public sealed partial class NestedShell
 
     private void StackChanged() => _capture?.Stack.RaiseChanged();
 
-    private ulong FindBySurface(IToplevelModel model, Surface surface)
-    {
-        var count = model.Enumerate(_idScratch);
-        while (count < 0)
-        {
-            _idScratch = new ToplevelInfo[_idScratch.Length * 2];
-            count = model.Enumerate(_idScratch);
-        }
-
-        for (var i = 0; i < count; i++)
-        {
-            if (_idScratch[i].Surface == surface)
-            {
-                var id = _idScratch[i].Id;
-                _idScratch.AsSpan(0, count).Clear();
-                return id;
-            }
-        }
-
-        _idScratch.AsSpan(0, count).Clear();
-        return 0;
-    }
 
     private void DisposeControl()
     {

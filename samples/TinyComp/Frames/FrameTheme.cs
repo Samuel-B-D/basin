@@ -1,11 +1,11 @@
 using System.Reflection;
 using Basin;
 using Basin.Freedesktop;
+using Basin.Icons.Skia;
 using Basin.Render.Skia;
 using Basin.Capabilities;
 using Basin.UI.Skia;
 using SkiaSharp;
-using Svg.Skia;
 
 namespace TinyComp;
 
@@ -115,50 +115,9 @@ internal sealed class FrameTheme : IDisposable
             _searches[scale] = search;
         }
 
-        SKImage? image = null;
-        if (search.Find(name) is { } path)
-        {
-            var decoded = path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase)
-                ? RasterizeSvg(path, IconSide * scale)
-                : DecodeBitmap(path);
-            if (decoded is not null)
-            {
-                image = SkiaCensus.Track(decoded);
-            }
-        }
-
+        var image = search.Find(name) is { } path ? IconRasterizer.Image(path, IconSide * scale) : null;
         _icons[(name, scale)] = image;
         return image;
-    }
-
-    private static SKImage? DecodeBitmap(string path)
-    {
-        using var bitmap = SKBitmap.Decode(path);
-        return bitmap is null ? null : SKImage.FromBitmap(bitmap);
-    }
-
-    private static SKImage? RasterizeSvg(string path, int sizePx)
-    {
-        using var svg = new SKSvg();
-        if (svg.Load(path) is not { } picture || picture.CullRect.Width <= 0 || picture.CullRect.Height <= 0)
-        {
-            return null;
-        }
-
-        using var surface = SKSurface.Create(new SKImageInfo(sizePx, sizePx, SKColorType.Bgra8888, SKAlphaType.Premul));
-        if (surface is null)
-        {
-            return null;
-        }
-
-        var bounds = picture.CullRect;
-        var fit = Math.Min(sizePx / bounds.Width, sizePx / bounds.Height);
-        surface.Canvas.Translate((sizePx - (bounds.Width * fit)) / 2f, (sizePx - (bounds.Height * fit)) / 2f);
-        surface.Canvas.Scale(fit);
-        surface.Canvas.Translate(-bounds.Left, -bounds.Top);
-        surface.Canvas.DrawPicture(picture);
-        surface.Canvas.Flush();
-        return surface.Snapshot();
     }
 
     public void Dispose()

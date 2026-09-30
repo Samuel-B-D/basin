@@ -929,9 +929,10 @@ public sealed class ZeroAllocationTests
         using var shader = host.Renderer.CompilePixelShader(Basin.Effects.GridStepGlowShader.Source, Basin.Effects.GridStepGlowShader.Uniforms);
         Assert.NotNull(shader);
         var bounds = new Box(0, 0, 160, 120);
+        var shaded = new Box(0, 0, 32, 24);
         var source = GridGlowShaderTests.StepScene(Basin.Effects.CanvasStepSides.All, lit: true);
         var grid = new Scene.SceneMesh(host.Scene.Root) { Bounds = bounds, Source = source };
-        var glow = new Scene.SceneShader(host.Scene.Root) { Shader = shader, Bounds = bounds };
+        var glow = new Scene.SceneShader(host.Scene.Root) { Shader = shader, Bounds = shaded };
         var values = new PixelShaderUniformValue[Basin.Effects.GridStepGlowShader.UniformCount];
         var lights = new Basin.Effects.GridLights { Radius = 30f };
 
@@ -940,7 +941,7 @@ public sealed class ZeroAllocationTests
             lights.Set(0, new Box(i % 160, 40, 30, 24), 1f);
             lights.SetPointer(160 - (i % 160), 20 + (i % 80), 0.6f);
             source.Lights = lights;
-            Basin.Effects.GridStepGlowShader.Pack(source, bounds, values);
+            Basin.Effects.GridStepGlowShader.Pack(source, shaded, values);
             shader!.SetUniforms(values);
             glow.NotifyShaderChanged();
             grid.NotifyMeshChanged();
@@ -971,9 +972,10 @@ public sealed class ZeroAllocationTests
         using var shader = host.Renderer.CompilePixelShader(Basin.Effects.GridGlowShader.Source, Basin.Effects.GridGlowShader.Uniforms);
         Assert.NotNull(shader);
         var bounds = new Box(0, 0, 160, 120);
+        var shaded = new Box(0, 0, 32, 24);
         var source = GridGlowShaderTests.Scene(lit: true, Basin.Effects.GridReveal.Full);
         var grid = new Scene.SceneMesh(host.Scene.Root) { Bounds = bounds, Source = source };
-        var glow = new Scene.SceneShader(host.Scene.Root) { Shader = shader, Bounds = bounds };
+        var glow = new Scene.SceneShader(host.Scene.Root) { Shader = shader, Bounds = shaded };
         var values = new PixelShaderUniformValue[Basin.Effects.GridGlowShader.UniformCount];
         var lights = new Basin.Effects.GridLights { Radius = 30f };
 
@@ -982,7 +984,7 @@ public sealed class ZeroAllocationTests
             lights.Set(0, new Box(i % 160, 40, 30, 24), 1f);
             lights.SetPointer(160 - (i % 160), 20 + (i % 80), 0.6f);
             source.Lights = lights;
-            Basin.Effects.GridGlowShader.Pack(source, bounds, values);
+            Basin.Effects.GridGlowShader.Pack(source, shaded, values);
             shader!.SetUniforms(values);
             glow.NotifyShaderChanged();
             grid.NotifyMeshChanged();

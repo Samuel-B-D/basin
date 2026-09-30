@@ -32,7 +32,7 @@ public sealed class ToplevelWindowTests
         {
             CompositorTestHost.SkipWithoutWaylandClient();
             BasinCounters.Reset();
-            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "waylonia-tests" });
+            Host = new BasinCompositorHost(new BasinCompositorOptions { AppName = "waylonia-tests", ConfigureServices = HostedDrivers.ToplevelLayers });
             Manager = new ToplevelWindows(Host, action => action());
 
             int serverFd, clientFd;
@@ -179,6 +179,40 @@ public sealed class ToplevelWindowTests
         xdgSurface.Destroy();
         surface.Destroy();
         harness.PumpUntil(() => harness.Manager.Windows.Count == 0);
+
+        harness.Dispose();
+        LeakTracking.Expect(0, BasinCounters.LiveObjects);
+    }
+
+    [AvaloniaFact]
+    public void A_layer_surface_reaches_a_host_window_through_the_toplevel_driver()
+    {
+        var harness = new Harness();
+        var client = harness.Client;
+        var layerShell = client.BindAt<Basin.Shell.Xdg.Protocol.ZwlrLayerShellV1>("zwlr_layer_shell_v1", 4);
+        var surface = client.Compositor.CreateSurface();
+        var layerSurface = layerShell.GetLayerSurface(
+            surface, null, Basin.Shell.Xdg.Protocol.ZwlrLayerShellV1.Layer.Top, "panel");
+        layerSurface.SetSize(200, 40);
+        var configured = false;
+        layerSurface.Configure += (_, e) =>
+        {
+            layerSurface.AckConfigure(e.Serial);
+            configured = true;
+        };
+
+        surface.Commit();
+        harness.PumpUntil(() => configured);
+        var buffer = client.CreateBuffer(200, 40, Fill.Solid(200, 40, 0xFF22AA55));
+        surface.Attach(buffer.Proxy, 0, 0);
+        surface.Damage(0, 0, 200, 40);
+        surface.Commit();
+        harness.PumpUntil(() => harness.Manager.LayerWindows.Count == 1);
+
+        layerSurface.Destroy();
+        surface.Destroy();
+        layerShell.Destroy();
+        harness.PumpUntil(() => harness.Manager.LayerWindows.Count == 0);
 
         harness.Dispose();
         LeakTracking.Expect(0, BasinCounters.LiveObjects);

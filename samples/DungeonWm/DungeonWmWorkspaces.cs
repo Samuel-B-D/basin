@@ -6,14 +6,27 @@ namespace DungeonWm;
 internal sealed class DungeonWmWorkspaces : IWorkspaceModel
 {
     private readonly WorkspaceObservers _observers = new();
-    private readonly DungeonWmWorld _world;
+    private readonly WorkspaceSet<MapRegion> _rooms = new();
 
     public DungeonWmWorkspaces(DungeonWmWorld world)
     {
-        _world = world;
+        _rooms.IdOf = IdOf;
+        _rooms.Describe = room => new WorkspaceInfo(
+            IdOf(room),
+            $"room {room.Workspace + 1}",
+            $"dungeon-wm-room-{room.Workspace + 1}",
+            ReferenceEquals(room, Active) ? WorkspaceStateFlags.Active : WorkspaceStateFlags.None,
+            [(uint)room.Workspace]);
+        foreach (var room in world.Map.Rooms)
+        {
+            if (!room.Removed)
+            {
+                _rooms.Add(room);
+            }
+        }
     }
 
-    public MapRegion? Active { get; private set; }
+    public MapRegion? Active => _rooms.Active;
 
     public Func<IEnumerable<DungeonWmWindow>> Windows { get; set; } = () => [];
 
@@ -29,17 +42,18 @@ internal sealed class DungeonWmWorkspaces : IWorkspaceModel
 
     public static ulong IdOf(MapRegion room) => (ulong)room.Workspace + 1;
 
-    public MapRegion? RoomOf(ulong id)
-    {
-        foreach (var room in _world.Map.Rooms)
-        {
-            if (!room.Removed && IdOf(room) == id)
-            {
-                return room;
-            }
-        }
+    public MapRegion? RoomOf(ulong id) => _rooms.ById(id);
 
-        return null;
+    public void Added(MapRegion room)
+    {
+        _rooms.Add(room);
+        _observers.Changed();
+    }
+
+    public void Removed(MapRegion room)
+    {
+        _rooms.Remove(room);
+        _observers.Changed();
     }
 
     public void SetActive(MapRegion? room)
@@ -49,7 +63,7 @@ internal sealed class DungeonWmWorkspaces : IWorkspaceModel
             return;
         }
 
-        Active = room;
+        _rooms.Active = room;
         _observers.Changed();
     }
 
@@ -75,28 +89,7 @@ internal sealed class DungeonWmWorkspaces : IWorkspaceModel
             return 0;
         }
 
-        var count = 0;
-        foreach (var room in _world.Map.Rooms)
-        {
-            if (room.Removed)
-            {
-                continue;
-            }
-
-            if (count >= workspaces.Length)
-            {
-                return -1;
-            }
-
-            workspaces[count++] = new WorkspaceInfo(
-                IdOf(room),
-                $"room {room.Workspace + 1}",
-                $"dungeon-wm-room-{room.Workspace + 1}",
-                ReferenceEquals(room, Active) ? WorkspaceStateFlags.Active : WorkspaceStateFlags.None,
-                [(uint)room.Workspace]);
-        }
-
-        return count;
+        return _rooms.Fill(workspaces);
     }
 
     public int EnumerateGroupOutputs(ulong groupId, Span<IOutput> outputs) =>
@@ -134,7 +127,7 @@ internal sealed class DungeonWmWorkspaces : IWorkspaceModel
             case WorkspaceRequestKind.Create:
                 CreateRequested?.Invoke();
                 return true;
-            case WorkspaceRequestKind.Remove when RoomOf(targetId) is { } room && _world.Map.Rooms.Count(r => !r.Removed) > 1:
+            case WorkspaceRequestKind.Remove when RoomOf(targetId) is { } room && _rooms.Count > 1:
                 RemoveRequested?.Invoke(room);
                 return true;
             case WorkspaceRequestKind.Assign when RoomOf(targetId) is { } room:

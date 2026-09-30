@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Basin.Renderers.Quill</PackageId>
+    <RootNamespace>Basin.Renderers</RootNamespace>
+    <Description>Chooses a Quill chrome host for any Basin renderer: its VulkanDevice, else its GlDevice, else a GlDevice of its own.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Basin.Renderers/Basin.Renderers.csproj" />
+    <ProjectReference Include="../Basin.UI.Quill.Gl/Basin.UI.Quill.Gl.csproj" />
+    <ProjectReference Include="../Basin.UI.Quill.Vulkan/Basin.UI.Quill.Vulkan.csproj" />
+  </ItemGroup>
+
+</Project>

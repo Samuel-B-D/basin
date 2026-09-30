@@ -73,86 +73,36 @@ internal sealed class Config
     public void SavePlacement(DeskbarPlacement placement, BasinLogger log)
     {
         Placement = placement;
-        var path = TomlConfig.DefaultPath("deskbar-wm");
-        try
+        Save(log, "the Deskbar placement", document =>
         {
-            WritePlacement(path, placement);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            log.Warn($"could not save the Deskbar placement to {path}: {error.Message}");
-        }
-    }
-
-    public void SaveKey(string section, string key, string value, BasinLogger log)
-    {
-        var path = TomlConfig.DefaultPath("deskbar-wm");
-        try
-        {
-            var lines = File.Exists(path) ? new List<string>(File.ReadAllLines(path)) : [];
-            SetKey(lines, section, key, value);
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllLines(path, lines);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            log.Warn($"could not save {section}.{key} to {path}: {error.Message}");
-        }
-    }
-
-    private static void WritePlacement(string path, DeskbarPlacement placement)
-    {
-        var lines = File.Exists(path) ? new List<string>(File.ReadAllLines(path)) : [];
-        SetKey(lines, "deskbar", "orientation",
-            placement.Orientation == BarOrientation.Horizontal ? "\"horizontal\"" : "\"vertical\"");
-        SetKey(lines, "deskbar", "side", placement.Side == BarSide.Left ? "\"left\"" : "\"right\"");
-        SetKey(lines, "deskbar", "end", placement.End == BarEnd.Top ? "\"top\"" : "\"bottom\"");
-        SetKey(lines, "deskbar", "state", placement.State switch
-        {
-            DeskbarState.Mini => "\"mini\"",
-            DeskbarState.Full => "\"full\"",
-            _ => "\"expando\"",
+            document.Set("deskbar", "orientation", TomlValue.From(placement.Orientation == BarOrientation.Horizontal ? "horizontal" : "vertical"));
+            document.Set("deskbar", "side", TomlValue.From(placement.Side == BarSide.Left ? "left" : "right"));
+            document.Set("deskbar", "end", TomlValue.From(placement.End == BarEnd.Top ? "top" : "bottom"));
+            document.Set("deskbar", "state", TomlValue.From(placement.State switch
+            {
+                DeskbarState.Mini => "mini",
+                DeskbarState.Full => "full",
+                _ => "expando",
+            }));
         });
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllLines(path, lines);
     }
 
-    private static void SetKey(List<string> lines, string section, string key, string value)
+    public void SaveKey(string section, string key, TomlValue value, BasinLogger log) =>
+        Save(log, $"{section}.{key}", document => document.Set(section, key, value));
+
+    private static void Save(BasinLogger log, string what, Action<TomlDocument> edit)
     {
-        var start = lines.FindIndex(line => line.Trim() == $"[{section}]");
-        if (start < 0)
+        var path = TomlConfig.DefaultPath("deskbar-wm");
+        try
         {
-            if (lines.Count > 0 && lines[^1].Length > 0)
-            {
-                lines.Add(string.Empty);
-            }
-
-            lines.Add($"[{section}]");
-            start = lines.Count - 1;
+            var document = File.Exists(path) ? TomlDocument.Load(path) : TomlDocument.Parse(string.Empty);
+            edit(document);
+            document.Save(path);
         }
-
-        var end = lines.Count;
-        for (var i = start + 1; i < lines.Count; i++)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException)
         {
-            if (lines[i].TrimStart().StartsWith('['))
-            {
-                end = i;
-                break;
-            }
+            log.Warn($"could not save {what} to {path}: {error.Message}");
         }
-
-        for (var i = start + 1; i < end; i++)
-        {
-            var text = lines[i].TrimStart();
-            if (text.StartsWith(key, StringComparison.Ordinal)
-                && text[key.Length..].TrimStart().StartsWith('='))
-            {
-                lines[i] = $"{key} = {value}";
-                return;
-            }
-        }
-
-        lines.Insert(start + 1, $"{key} = {value}");
     }
 
     public static Config Load(bool skipFile, BasinLogger log)
@@ -164,9 +114,8 @@ internal sealed class Config
             return config;
         }
 
-        var path = TomlConfig.DefaultPath("deskbar-wm");
-        SeedDefaultFile(path, log);
-        if (TomlConfig.Read(path, log) is not { } table)
+        var load = TomlConfig.Load(null, "deskbar-wm", none: false, TemplateStream, log);
+        if (load.Table is not { } table)
         {
             return config;
         }
@@ -317,29 +266,7 @@ internal sealed class Config
         };
     }
 
-    private static void SeedDefaultFile(string path, BasinLogger log)
-    {
-        if (File.Exists(path))
-        {
-            return;
-        }
-
-        try
-        {
-            using var stream = typeof(Config).Assembly.GetManifestResourceStream("deskbar-wm.toml");
-            if (stream is null)
-            {
-                return;
-            }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            using var output = File.Create(path);
-            stream.CopyTo(output);
-            log.Info($"wrote the default configuration to {path}");
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            log.Warn($"could not seed {path}: {error.Message}");
-        }
-    }
+    private static Stream TemplateStream() =>
+        typeof(Config).Assembly.GetManifestResourceStream("deskbar-wm.toml")
+            ?? throw new InvalidOperationException("deskbar-wm.toml is not embedded");
 }

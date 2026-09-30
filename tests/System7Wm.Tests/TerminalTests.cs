@@ -106,7 +106,7 @@ public sealed class TerminalTests
             var player = Path.Combine(shared.FullName, "pw-play");
             File.WriteAllText(player, $"#!/bin/sh\necho \"$1\" >> '{played}'\n");
             File.SetUnixFileMode(player, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            using var session = await StartAsync(new Dictionary<string, string> { ["PATH"] = $"{shared.FullName}:{Environment.GetEnvironmentVariable("PATH")}" });
+            using var session = await StartAsync(new Dictionary<string, string> { ["PATH"] = $"{shared.FullName}:{Environment.GetEnvironmentVariable("PATH")}", ["BASIN_MUTE"] = "" });
             await OpenAsync(session, "terminal sh -c 'printf \"\\007\"; sleep 30'");
             Assert.NotNull(await session.WaitForLineAsync("BEEP Simple Beep"));
             Assert.EndsWith("alert-Simple-Beep.wav", (await WaitForFileAsync(played)).Trim(), StringComparison.Ordinal);

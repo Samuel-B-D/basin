@@ -1,5 +1,6 @@
 using Basin.Capabilities;
 using Basin.Config;
+using Basin.Icons.Skia;
 using Basin.Render.Skia;
 using SkiaSharp;
 
@@ -32,10 +33,7 @@ public abstract class SkiaPromptView : IDisposable
         Theme = theme;
         Title = title;
         AppLine = appLine;
-        if (PromptIcon.Rasterize(iconPath, IconSize) is { } icon)
-        {
-            _icon = SkiaCensus.Track(icon);
-        }
+        _icon = IconRasterizer.Image(iconPath, IconSize);
     }
 
     public SkiaPromptTheme Theme { get; }

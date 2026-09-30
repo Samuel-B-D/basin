@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using Basin.Diagnostics;
 using Basin.Scene3D;
+using Basin.Scene3D.Gltf;
 
 namespace DungeonWm;
 
@@ -46,9 +47,9 @@ internal sealed class Kit
         return bytes;
     }
 
-    public static WorldImage DecodeImage(GlbDocument document, int image)
+    public static WorldImage DecodeImage(ReadOnlySpan<byte> encoded)
     {
-        var (rgba, width, height) = PngCodec.Decode(document.ReadImage(image));
+        var (rgba, width, height) = PngCodec.Decode(encoded);
         return new WorldImage(width, height, rgba);
     }
 
@@ -58,7 +59,7 @@ internal sealed class Kit
         var key = Convert.ToHexString(SHA256.HashData(bytes));
         if (!images.TryGetValue(key, out var decoded))
         {
-            decoded = DecodeImage(document, image);
+            decoded = DecodeImage(bytes);
             images[key] = decoded;
         }
 

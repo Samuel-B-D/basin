@@ -40,6 +40,8 @@ public sealed class WorldWindowFrame
 
     public bool HasPlaque => PlaqueWidth > 0 && PlaqueHeight > 0;
 
+    public WorldWindowFrame Clone() => (WorldWindowFrame)MemberwiseClone();
+
     public Vector2 OuterSize(float innerWidth, float innerHeight) =>
         new(innerWidth + (2 * Rail), innerHeight + (2 * Rail));
 

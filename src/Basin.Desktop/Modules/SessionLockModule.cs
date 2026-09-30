@@ -11,6 +11,8 @@ public sealed class SessionLockModule : DesktopModule<SessionLockManager>
 
     public override int Version => SessionLockManager.Version;
 
+    public override IReadOnlyList<Type> Drivers => [typeof(ISessionLockDriver)];
+
     public SessionLockState State => _state;
 
     public override void SeedDefaults(BasinServices services)
@@ -24,6 +26,7 @@ public sealed class SessionLockModule : DesktopModule<SessionLockManager>
         var manager = new SessionLockManager(
             services.Display, services.Require<CompositorGlobal>(), services.Find<OutputLayout>());
         _state.Attach(manager);
+        services.Require<ISessionLockDriver>().Attach(manager);
         return manager;
     }
 }

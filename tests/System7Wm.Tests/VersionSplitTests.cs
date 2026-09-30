@@ -35,7 +35,7 @@ public sealed class VersionSplitTests
         await session.SendAsync("key 28 1");
         await session.SendAsync("key 28 0");
         Assert.NotNull(await session.WaitForPrefixAsync("ALERTSOUND "));
-        await Task.Delay(300, TestContext.Current.CancellationToken);
+        await session.SettleAsync();
         Assert.EndsWith("grown=False", (await session.StateLineAsync("SHELL "))!, StringComparison.Ordinal);
         await session.SendAsync("panel Sound close");
         Assert.NotNull(await session.WaitForLineAsync("PANEL Sound closed"));

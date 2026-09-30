@@ -6,8 +6,6 @@ namespace Basin.Host;
 
 public sealed class InitProcess
 {
-    private const int ResourceOpenFiles = 7;
-
     private const short SpawnSetSigDefault = 0x04;
 
     private const short SpawnSetSigMask = 0x08;
@@ -22,21 +20,9 @@ public sealed class InitProcess
 
     private const int SigsetBytes = 128;
 
-    private const ulong DesiredOpenFiles = 4096;
-
-    private static RLimit? _originalOpenFiles;
-
     private readonly int _pgid;
 
     private InitProcess(int pgid) => _pgid = pgid;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RLimit
-    {
-        public ulong Current;
-
-        public ulong Maximum;
-    }
 
     private const int FileExists = 0;
 
@@ -50,12 +36,6 @@ public sealed class InitProcess
 
     [DllImport("libc", SetLastError = true)]
     private static extern int access([MarshalAs(UnmanagedType.LPUTF8Str)] string path, int mode);
-
-    [DllImport("libc", SetLastError = true)]
-    private static extern int getrlimit(int resource, out RLimit limit);
-
-    [DllImport("libc", SetLastError = true)]
-    private static extern int setrlimit(int resource, in RLimit limit);
 
     [DllImport("libc")]
     private static extern int posix_spawn(
@@ -136,25 +116,7 @@ public sealed class InitProcess
         return true;
     }
 
-    public static void RaiseFileLimit(BasinLogger log)
-    {
-        if (getrlimit(ResourceOpenFiles, out var original) != 0)
-        {
-            log.Error($"getrlimit failed, using the system default file descriptor limit");
-            return;
-        }
-
-        _originalOpenFiles = original;
-        var raised = Raised(original);
-        if (setrlimit(ResourceOpenFiles, in raised) != 0)
-        {
-            log.Error($"setrlimit failed, using the system default file descriptor limit of {original.Current}");
-            _originalOpenFiles = null;
-            return;
-        }
-
-        log.Info($"raised the file descriptor limit of the compositor process to {raised.Current}");
-    }
+    public static void RaiseFileLimit(BasinLogger log) => FileDescriptorLimit.Raise(log);
 
     public static InitProcess? Start(string command, string socket, string? display, BasinLogger log)
     {
@@ -190,7 +152,7 @@ public sealed class InitProcess
             argv = Block(["/bin/sh", "-c", command]);
             envp = Block(EnvironmentBlock(socket, display));
 
-            lowered = LowerFileLimit();
+            lowered = FileDescriptorLimit.LowerForSpawn();
             var error = posix_spawn(out var pid, "/bin/sh", IntPtr.Zero, attributes, argv, envp);
             if (error != 0)
             {
@@ -204,7 +166,7 @@ public sealed class InitProcess
         {
             if (lowered)
             {
-                RaiseFileLimitAgain(log);
+                FileDescriptorLimit.RaiseAfterSpawn(log);
             }
 
             if (initialized)
@@ -228,9 +190,6 @@ public sealed class InitProcess
         }
     }
 
-    private static RLimit Raised(RLimit original) =>
-        new() { Current = Math.Min(DesiredOpenFiles, original.Maximum), Maximum = original.Maximum };
-
     private static List<string> EnvironmentBlock(string socket, string? display)
     {
         var entries = new List<string>();
@@ -252,23 +211,6 @@ public sealed class InitProcess
         }
 
         return entries;
-    }
-
-    private static bool LowerFileLimit() =>
-        _originalOpenFiles is { } original && setrlimit(ResourceOpenFiles, in original) == 0;
-
-    private static void RaiseFileLimitAgain(BasinLogger log)
-    {
-        if (_originalOpenFiles is not { } original)
-        {
-            return;
-        }
-
-        var raised = Raised(original);
-        if (setrlimit(ResourceOpenFiles, in raised) != 0)
-        {
-            log.Error($"failed to raise the file descriptor limit of the compositor process again");
-        }
     }
 
     private static IntPtr[] Block(List<string> entries)

@@ -4,6 +4,8 @@ namespace Basin.Scene3D;
 
 public sealed class Skeleton
 {
+    public const int MaxJoints = 48;
+
     public Skeleton(
         string[] names,
         int[] parents,

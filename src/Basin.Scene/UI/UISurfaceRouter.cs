@@ -164,6 +164,12 @@ public sealed class UISurfaceRouter : IUISurfaceObserver
         return true;
     }
 
+    public bool PointerAxis(uint timeMs, in PointerAxis axis, IUISurface? target = null)
+    {
+        var horizontal = axis.Axis == Wayland.WlPointer.Axis.HorizontalScroll;
+        return PointerAxis(timeMs, horizontal ? axis.Value : 0, horizontal ? 0 : axis.Value, target);
+    }
+
     public bool TouchDown(uint timeMs, int id, double x, double y)
     {
         if (SurfaceAt(x, y) is not { } hit)

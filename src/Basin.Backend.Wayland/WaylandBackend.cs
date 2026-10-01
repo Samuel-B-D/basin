@@ -20,6 +20,8 @@ public sealed class WaylandBackend : IDisposable
     private bool _gone;
     private int _outputCounter;
     private Action<WaylandPointerDevice>? _pointerAdded;
+    private CursorImages? _frameCursors;
+    private ShmAllocator? _frameCursorAllocator;
     private Action<WaylandKeyboardDevice>? _keyboardAdded;
     private Action<WaylandTouchDevice>? _touchAdded;
 
@@ -294,6 +296,25 @@ public sealed class WaylandBackend : IDisposable
         }
     }
 
+    internal bool ShowFrameCursor(string name, double scale)
+    {
+        if (Pointer is not { } pointer)
+        {
+            return false;
+        }
+
+        if (_frameCursors is null)
+        {
+            var size = int.TryParse(Environment.GetEnvironmentVariable("XCURSOR_SIZE"), out var parsed) && parsed > 0 ? parsed : 24;
+            _frameCursorAllocator = new ShmAllocator();
+            _frameCursors = new CursorImages(_frameCursorAllocator, 256, 256, Environment.GetEnvironmentVariable("XCURSOR_THEME"), size, scale);
+        }
+
+        _frameCursors.Use(new CursorKey(scale, null), static () => { });
+        return (_frameCursors.Named(name) ?? _frameCursors.Named("left_ptr")) is { } image &&
+            pointer.SetFrameCursor(image.Buffer, image.HotspotX, image.HotspotY, scale);
+    }
+
     public void Dispose()
     {
         foreach (var output in _outputs.ToArray())
@@ -302,6 +323,10 @@ public sealed class WaylandBackend : IDisposable
         }
 
         Pointer?.Dispose();
+        _frameCursors?.Dispose();
+        _frameCursors = null;
+        _frameCursorAllocator?.Dispose();
+        _frameCursorAllocator = null;
         DisposeParent(ParentPrimarySelectionDevice);
         DisposeParent(ParentDataDevice);
         ParentPrimarySelectionDevice = null;

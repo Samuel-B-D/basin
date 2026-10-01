@@ -1,32 +1,45 @@
-using Basin;
-using Basin.Backend.Wayland;
 using Basin.Capabilities;
+using static Basin.Backend.Wayland.WaylandBackendLog;
 
-namespace TinyComp;
+namespace Basin.Backend.Wayland;
 
-internal sealed class HostChrome : HostFrameChrome
+public sealed class FrameHostChrome : HostFrameChrome
 {
     private const uint DoubleClickMillis = 400;
 
-    private readonly TinyComp _comp;
     private readonly IFrameRenderer _renderer;
     private readonly Action _onClose;
-    private readonly string _title;
+    private readonly Action<string> _setCursor;
 
     private FramePart _hot = FramePart.None;
     private FramePart _pressed = FramePart.None;
     private uint _lastTitlePressMs;
     private bool _faulted;
 
-    internal HostChrome(TinyComp comp, WaylandHostFrame frame, IUIHost host, IFrameRenderer renderer, string title, Action onClose)
+    public FrameHostChrome(
+        WaylandHostFrame frame,
+        IUIHost host,
+        IFrameRenderer renderer,
+        string? title = null,
+        string appId = "dev.basin.compositor",
+        Action? onClose = null,
+        Action<string>? setCursor = null)
         : base(frame, host)
     {
-        _comp = comp;
+        ArgumentNullException.ThrowIfNull(renderer);
         _renderer = renderer;
-        _title = title;
-        _onClose = onClose;
+        FixedTitle = title;
+        AppId = appId;
+        _onClose = onClose ?? frame.RequestClose;
+        _setCursor = setCursor ?? (name => frame.ShowCursor(name));
         Relayout();
     }
+
+    public string? FixedTitle { get; }
+
+    public string AppId { get; }
+
+    public bool Faulted => _faulted;
 
     protected override void Relayout()
     {
@@ -36,8 +49,7 @@ internal sealed class HostChrome : HostFrameChrome
         }
 
         var state = BuildState();
-        var scale = Frame.Scale;
-        var insets = _renderer.Measure(state, scale);
+        var insets = _renderer.Measure(state, Frame.Scale);
         if (!Frame.SetInsets(new HostFrameInsets(insets.Top, insets.Right, insets.Bottom, insets.Left)))
         {
             return;
@@ -80,14 +92,14 @@ internal sealed class HostChrome : HostFrameChrome
         {
             _faulted = true;
             Frame.SetInsets(default);
-            _comp.Log.Error($"host frame fault: {e.Message}");
+            Log.Error($"host frame fault: {e.Message}");
         }
     }
 
     private FrameState BuildState() => new()
     {
-        Title = _title,
-        AppId = "dev.basin.compositor",
+        Title = FixedTitle ?? Frame.Title,
+        AppId = AppId,
         Active = Frame.Activated,
         Maximized = Frame.Maximized,
         Fullscreen = Frame.Fullscreen,
@@ -95,9 +107,13 @@ internal sealed class HostChrome : HostFrameChrome
         Capabilities = FrameCapabilities.WindowMenu | FrameCapabilities.Maximize | FrameCapabilities.Minimize,
     };
 
-    protected override void OnPointerEnter(double x, double y) => UpdateHover(x, y);
+    protected override void OnPointerEnter(double x, double y)
+    {
+        _hot = FramePart.None;
+        UpdateHover(x, y, force: true);
+    }
 
-    protected override void OnPointerMotion(uint timeMs, double x, double y) => UpdateHover(x, y);
+    protected override void OnPointerMotion(uint timeMs, double x, double y) => UpdateHover(x, y, force: false);
 
     protected override void OnPointerLeave()
     {
@@ -107,22 +123,25 @@ internal sealed class HostChrome : HostFrameChrome
         }
 
         _hot = FramePart.None;
-
         _pressed = FramePart.None;
         Repaint(BuildState());
     }
 
-    private void UpdateHover(double x, double y)
+    private void UpdateHover(double x, double y, bool force)
     {
         var part = _renderer.PartAt(x, y, BuildState(), Frame.Scale);
-        if (part == _hot)
+        if (part == _hot && !force)
         {
             return;
         }
 
+        var changed = part != _hot;
         _hot = part;
-        _comp.SetHostChromeCursor(_renderer.CursorFor(part) ?? CursorForPart(part));
-        Repaint(BuildState());
+        _setCursor(_renderer.CursorFor(part) ?? CursorForPart(part));
+        if (changed)
+        {
+            Repaint(BuildState());
+        }
     }
 
     protected override void OnPointerButton(uint timeMs, uint button, bool pressed)
@@ -138,7 +157,6 @@ internal sealed class HostChrome : HostFrameChrome
             {
                 var released = _pressed;
                 _pressed = FramePart.None;
-
                 if (PointerInside && released == _hot)
                 {
                     Activate(released);
@@ -162,7 +180,6 @@ internal sealed class HostChrome : HostFrameChrome
                 }
 
                 _lastTitlePressMs = timeMs;
-
                 Frame.StartMove();
                 return;
             case FramePart.TopLeft or FramePart.Top or FramePart.TopRight or

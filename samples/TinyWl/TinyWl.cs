@@ -498,6 +498,7 @@ internal sealed class TinyWl : IDisposable
         if (handle is WaylandOutput nested)
         {
             nested.CloseRequested += () => _running = false;
+            entry.Chrome = Basin.Backend.Wayland.Skia.DefaultHostChrome.Wire(nested);
         }
 
         _log.Info($"output {handle.Name} {handle.CurrentMode.Width}x{handle.CurrentMode.Height}");
@@ -521,6 +522,7 @@ internal sealed class TinyWl : IDisposable
         _outputs.Remove(entry);
         _layout.Remove(handle);
         _layout.ArrangeHorizontally(_outputs.Select(o => o.Handle));
+        entry.Chrome?.Dispose();
         entry.Scheduler?.Dispose();
         entry.Scene?.Dispose();
         entry.Swapchain?.Dispose();
@@ -675,6 +677,7 @@ internal sealed class TinyWl : IDisposable
         _scene.Root.Destroy();
         foreach (var entry in _outputs)
         {
+            entry.Chrome?.Dispose();
             entry.Scheduler?.Dispose();
             entry.Scene?.Dispose();
             entry.Swapchain?.Dispose();

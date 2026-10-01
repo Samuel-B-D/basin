@@ -24,5 +24,7 @@ internal sealed class Output(IOutput output, OutputGlobal global)
 
     public OutputScheduler? Scheduler { get; set; }
 
+    public IDisposable? Chrome { get; set; }
+
     public Swapchain? Swapchain { get; set; }
 }

@@ -44,7 +44,7 @@ public sealed class SeatBinder
 
     public CursorImageTheme? Theme { get; set; }
 
-    public bool AdoptParentKeymap { get; set; }
+    public bool AdoptParentKeymap { get; set; } = true;
 
     public Func<InputDevice, Basin.Capabilities.IInjectedKeyboard?>? KeyboardFor { get; set; }
 

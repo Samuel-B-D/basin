@@ -279,7 +279,9 @@ internal sealed partial class TinyComp
         }
 
         var previousMetacity = _metacity;
+        var previousFlat = _flatTheme;
         _frameTheme = theme;
+        _flatTheme = previousFlat is null ? null : FlatThemeOf(theme);
         _metacity = metacity;
         foreach (var window in _windows)
         {
@@ -292,6 +294,7 @@ internal sealed partial class TinyComp
         }
 
         previousMetacity?.Dispose();
+        previousFlat?.Dispose();
         previous.Dispose();
         return null;
     }

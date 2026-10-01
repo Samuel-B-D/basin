@@ -34,6 +34,7 @@
     <Project Path="src/Basin.Frames.Quill/Basin.Frames.Quill.csproj" />
     <Project Path="src/Basin.Pty/Basin.Pty.csproj" />
     <Project Path="src/Basin.Backend.Wayland/Basin.Backend.Wayland.csproj" />
+    <Project Path="src/Basin.Backend.Wayland.Skia/Basin.Backend.Wayland.Skia.csproj" />
     <Project Path="src/Basin.Backend.Drm/Basin.Backend.Drm.csproj" />
     <Project Path="src/Basin.Backend.Libinput/Basin.Backend.Libinput.csproj" />
     <Project Path="src/Basin.Color/Basin.Color.csproj" />
@@ -77,6 +78,7 @@
     <Project Path="src/Basin.Physics.Box2D/Basin.Physics.Box2D.csproj" />
     <Project Path="src/Basin.Physics.Bepu/Basin.Physics.Bepu.csproj" />
     <Project Path="src/Basin.Scene/Basin.Scene.csproj" />
+    <Project Path="src/Basin.Audio.PipeWire/Basin.Audio.PipeWire.csproj" />
     <Project Path="src/Basin.Screencast.PipeWire/Basin.Screencast.PipeWire.csproj" />
     <Project Path="src/Basin.Testing/Basin.Testing.csproj" />
     <Project Path="src/Basin.Transport.Waypipe/Basin.Transport.Waypipe.csproj" />

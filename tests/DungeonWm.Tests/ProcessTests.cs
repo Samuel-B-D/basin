@@ -507,7 +507,14 @@ public sealed class ProcessTests
         private readonly Lock _gate = new();
         private TaskCompletionSource _arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        public const string NoPipeWire = "basin-tests-no-pipewire";
+
         public Session(string path, string row, string command, params string[] extra)
+            : this(path, row, command, new Dictionary<string, string> { ["PIPEWIRE_REMOTE"] = NoPipeWire, ["BASIN_MUTE"] = "1" }, extra)
+        {
+        }
+
+        public Session(string path, string row, string command, IReadOnlyDictionary<string, string> environment, params string[] extra)
         {
             var info = new ProcessStartInfo(path)
             {
@@ -516,6 +523,11 @@ public sealed class ProcessTests
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
             };
+            foreach (var (name, value) in environment)
+            {
+                info.Environment[name] = value;
+            }
+
             string[] config = extra.Contains("--config") ? [] : ["--config", "false"];
             string[] ipc = extra.Contains("--ipc") ? [] : ["--ipc", "false"];
             foreach (var argument in (string[])["--backend", "headless", "--renderer", row, .. config, .. ipc, "-c", command])

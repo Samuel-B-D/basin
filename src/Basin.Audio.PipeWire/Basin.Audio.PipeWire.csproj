@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Basin.Audio.PipeWire</PackageId>
+    <RootNamespace>Basin.Audio.PipeWire</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Description>Spatial audio mechanism over PipeWire for Basin: a session on the compositor loop, a watch of application audio streams, a ladder that matches a stream to its window, and one filter-chain voice per window with allocation-free control updates.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Basin.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Basin.Core/Basin.Core.csproj" />
+    <PackageReference Include="pipewire-dotnet" />
+  </ItemGroup>
+
+</Project>

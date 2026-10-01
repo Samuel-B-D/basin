@@ -65,6 +65,7 @@ internal sealed partial class DungeonWm
     private bool RunPlaque(DungeonWmWindow window, PlaqueButton button, bool nextRoom)
     {
         BasinReport.Line($"PLAQUE {window.AppId} {PlaqueLayout.Name(button)}{(nextRoom ? " next-room" : string.Empty)}");
+        SoundPlaque(window);
         switch (button)
         {
             case PlaqueButton.Close:

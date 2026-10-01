@@ -25,8 +25,22 @@ internal sealed partial class DungeonWm
         var restart = DungeonWmConfig.RestartChanges(_settings, loaded);
         var avatarChanged = AvatarChanged(_settings, loaded);
         var sizeChanged = loaded.PixelsPerMeter != _settings.PixelsPerMeter || !loaded.Frames.SameGeometry(_settings.Frames);
+        var audioBefore = _settings.Audio;
+        var soundsBefore = _settings.Sounds;
         CarryOver(loaded);
         ApplyLive(sizeChanged);
+        if (audioBefore != _settings.Audio)
+        {
+            ApplyAudio(audioBefore);
+            _roomVoiceRegion = null;
+            RequestRoomVoice();
+        }
+
+        if (soundsBefore != _settings.Sounds)
+        {
+            ApplySounds(soundsBefore);
+        }
+
         if (avatarChanged)
         {
             StartAvatar();
@@ -69,6 +83,8 @@ internal sealed partial class DungeonWm
         _settings.RehangDistance = loaded.RehangDistance;
         _settings.ThrowScale = loaded.ThrowScale;
         _settings.ThrowMinSpeed = loaded.ThrowMinSpeed;
+        _settings.Audio = loaded.Audio;
+        _settings.Sounds = loaded.Sounds;
         _settings.AvatarModel = loaded.AvatarModel;
         _settings.AvatarScale = loaded.AvatarScale;
         _settings.AvatarShow = loaded.AvatarShow;

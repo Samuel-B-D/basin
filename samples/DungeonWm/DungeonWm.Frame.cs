@@ -30,6 +30,8 @@ internal sealed partial class DungeonWm
             animating |= StepSnapshots(seconds);
             TrackRoom();
             CompletePendingTakeover();
+            UpdateAudio();
+            UpdateSounds(seconds);
         }
 
         if (_crosshair && ReferenceEquals(view, CrosshairView()))

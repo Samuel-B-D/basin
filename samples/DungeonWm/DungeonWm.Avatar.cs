@@ -67,9 +67,17 @@ internal sealed partial class DungeonWm
 
     private partial void OnInteract(DungeonWmWindow window) => _avatar?.Trigger("interact");
 
-    private partial void OnJump() => _avatar?.Jumped();
+    private partial void OnJump()
+    {
+        _avatar?.Jumped();
+        SoundJump();
+    }
 
-    private partial void OnLand() => _avatar?.Landed();
+    private partial void OnLand()
+    {
+        _avatar?.Landed();
+        SoundLand();
+    }
 
     private partial void OnPickUp(DungeonWmWindow window) => _avatar?.Trigger("pick-up");
 

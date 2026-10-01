@@ -69,6 +69,10 @@ internal sealed class DungeonWmSettings
 
     public float PropDensity { get; set; } = 60;
 
+    public AudioSettings Audio { get; set; } = new();
+
+    public SoundSettings Sounds { get; set; } = new();
+
     public string? AvatarModel { get; set; }
 
     public float AvatarScale { get; set; } = 0.75f;

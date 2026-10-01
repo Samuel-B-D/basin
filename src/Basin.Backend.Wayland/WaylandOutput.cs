@@ -160,7 +160,13 @@ public sealed class WaylandOutput : OutputBase, IPresentingOutput
     {
         ArgumentNullException.ThrowIfNull(title);
         _toplevel.SetTitle(title);
+        Title = title;
+        _hostFrame?.RaiseStateChanged();
     }
+
+    public string Title { get; private set; } = string.Empty;
+
+    public void RequestClose() => CloseRequested?.Invoke();
 
     public event Action? CloseRequested;
 
@@ -442,9 +448,9 @@ public sealed class WaylandOutput : OutputBase, IPresentingOutput
         }
     }
 
-    private void ApplyWindowGeometry()
+    private void ApplyWindowGeometry(bool committingContent = false)
     {
-        if (!_geometryPending || !_contentCommitted || _hostFrame is not { HasContent: true } frame)
+        if (!_geometryPending || !(_contentCommitted || committingContent) || _hostFrame is not { HasContent: true } frame)
         {
             return;
         }
@@ -602,7 +608,7 @@ public sealed class WaylandOutput : OutputBase, IPresentingOutput
             RenderFences.WaitSyncFile(state.InFenceFd);
         }
 
-        ApplyWindowGeometry();
+        ApplyWindowGeometry(committingContent: true);
         var callback = _surface.Frame(_frameCallback);
         if (!ReferenceEquals(callback, _frameCallback))
         {

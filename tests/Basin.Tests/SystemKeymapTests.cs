@@ -131,17 +131,57 @@ public sealed class SystemKeymapTests : IDisposable
     }
 
     [Fact]
-    public void The_environment_answers_for_itself()
+    public void A_variable_overrides_its_own_field_and_the_files_fill_the_rest()
     {
-        Write("etc/vconsole.conf", "XKBLAYOUT=jp\n");
+        Write("etc/X11/xorg.conf.d/00-keyboard.conf", """
+            Section "InputClass"
+                    Option "XkbLayout" "jp"
+                    Option "XkbModel" "jp106"
+                    Option "XkbOptions" "terminate:ctrl_alt_bksp"
+            EndSection
+            """);
+        Environment.SetEnvironmentVariable("XKB_DEFAULT_OPTIONS", "ctrl:nocaps");
+
+        var names = SystemKeymap.Read(_root);
+
+        Assert.Equal("jp", names.Layout);
+        Assert.Equal("jp106", names.Model);
+        Assert.Equal("ctrl:nocaps", names.Options);
+    }
+
+    [Fact]
+    public void A_layout_from_the_environment_brings_its_own_variant()
+    {
+        Write("etc/default/keyboard", "XKBLAYOUT=de\nXKBVARIANT=nodeadkeys\nXKBMODEL=pc105\n");
         Environment.SetEnvironmentVariable("XKB_DEFAULT_LAYOUT", "se");
-        try
-        {
-            Assert.Null(SystemKeymap.Read(_root).Layout);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("XKB_DEFAULT_LAYOUT", null);
-        }
+
+        var names = SystemKeymap.Read(_root);
+
+        Assert.Equal("se", names.Layout);
+        Assert.Null(names.Variant);
+        Assert.Equal("pc105", names.Model);
+
+        Environment.SetEnvironmentVariable("XKB_DEFAULT_VARIANT", "dvorak");
+        Assert.Equal("dvorak", SystemKeymap.Read(_root).Variant);
+    }
+
+    [Fact]
+    public void A_variant_from_the_environment_applies_to_the_system_layout()
+    {
+        Write("etc/vconsole.conf", "XKBLAYOUT=de\n");
+        Environment.SetEnvironmentVariable("XKB_DEFAULT_VARIANT", "nodeadkeys");
+
+        var names = SystemKeymap.Read(_root);
+
+        Assert.Equal("de", names.Layout);
+        Assert.Equal("nodeadkeys", names.Variant);
+    }
+
+    [Fact]
+    public void The_environment_alone_names_the_keymap_on_an_unconfigured_system()
+    {
+        Environment.SetEnvironmentVariable("XKB_DEFAULT_LAYOUT", "fr");
+
+        Assert.Equal("fr", SystemKeymap.Read(_root).Layout);
     }
 }

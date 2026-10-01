@@ -42,6 +42,7 @@
     <ProjectReference Include="../../src/Basin.Color/Basin.Color.csproj" />
     <ProjectReference Include="../../src/Basin.Host/Basin.Host.csproj" />
     <ProjectReference Include="../../src/Basin.Ipc/Basin.Ipc.csproj" />
+    <ProjectReference Include="../../src/Basin.Audio.PipeWire/Basin.Audio.PipeWire.csproj" />
     <ProjectReference Include="../../src/Basin.Kinematics/Basin.Kinematics.csproj" />
     <ProjectReference Include="../../src/Basin.Physics/Basin.Physics.csproj" />
     <ProjectReference Include="../../src/Basin.Physics.Bepu/Basin.Physics.Bepu.csproj" />
@@ -52,6 +53,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Assets/KayKit/**/*.glb" LogicalName="KayKit/%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Assets/Kenney/*.wav" LogicalName="Kenney/%(Filename)%(Extension)" />
     <EmbeddedResource Include="dungeon-wm.toml" LogicalName="dungeon-wm.toml" />
     <EmbeddedResource Include="../../assets/fonts/Selawik-Semibold.ttf" LogicalName="Selawik-Semibold.ttf" />
   </ItemGroup>

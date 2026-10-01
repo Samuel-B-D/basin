@@ -22,6 +22,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="../Basin.Tests/Audio/AudioDaemonFixture.cs" Link="Audio/AudioDaemonFixture.cs" />
+    <Compile Include="../Basin.Tests/Audio/AudioSignal.cs" Link="Audio/AudioSignal.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

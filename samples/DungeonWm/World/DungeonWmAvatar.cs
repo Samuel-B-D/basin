@@ -35,6 +35,8 @@ internal sealed class DungeonWmAvatar
         _jumpStart = Clip("jump-start", report);
         _airborne = Clip("airborne", report);
         _land = Clip("land", report);
+        WalkContacts = FootContacts.Find(model.Skeleton, _walk);
+        RunContacts = FootContacts.Find(model.Skeleton, _run);
         foreach (var state in new[] { "pick-up", "throw", "interact" })
         {
             if (Clip(state, report) is { } clip)
@@ -61,6 +63,16 @@ internal sealed class DungeonWmAvatar
     public string? Playing => _oneShot?.Name;
 
     public bool Animating { get; private set; } = true;
+
+    public FootContacts? WalkContacts { get; }
+
+    public FootContacts? RunContacts { get; }
+
+    public int StepFoot { get; private set; } = -1;
+
+    public bool StepRunning { get; private set; }
+
+    public bool Striding { get; private set; }
 
     public void Trigger(string state)
     {
@@ -109,6 +121,11 @@ internal sealed class DungeonWmAvatar
         Avatar.Position = feet;
         Avatar.Yaw = yaw;
         Evaluate(speed, _time, running, supported);
+        var runWeight = running ? Math.Clamp((speed - _settings.WalkSpeed) / MathF.Max(_settings.RunSpeed - _settings.WalkSpeed, 0.1f), 0, 1) : 0;
+        StepRunning = runWeight > 0.5f;
+        Striding = supported && !_airborneState && speed > 0.3f;
+        var contacts = StepRunning ? RunContacts : WalkContacts;
+        StepFoot = Striding && contacts is not null ? contacts.Crossed(_time - seconds, _time) : -1;
     }
 
     public void Freeze(float time)

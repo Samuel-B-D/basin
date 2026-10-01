@@ -4,31 +4,27 @@ namespace Basin.Seat;
 
 public static class SystemKeymap
 {
-    private static readonly string[] EnvironmentNames =
-    [
-        "XKB_DEFAULT_RULES", "XKB_DEFAULT_MODEL", "XKB_DEFAULT_LAYOUT",
-        "XKB_DEFAULT_VARIANT", "XKB_DEFAULT_OPTIONS",
-    ];
-
     public static KeymapNames Read() => Read("/");
 
     public static KeymapNames Read(string root)
     {
         ArgumentNullException.ThrowIfNull(root);
-        foreach (var name in EnvironmentNames)
-        {
-            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable(name)))
-            {
-                return default;
-            }
-        }
-
-        return FromXorgConfig(Path.Combine(root, "etc/X11/xorg.conf.d/00-keyboard.conf"))
+        var system = FromXorgConfig(Path.Combine(root, "etc/X11/xorg.conf.d/00-keyboard.conf"))
             ?? FromShellFile(Path.Combine(root, "etc/default/keyboard"))
             ?? FromShellFile(Path.Combine(root, "etc/vconsole.conf"))
             ?? FromConsoleKeymap(root)
             ?? default;
+        var layout = Variable("XKB_DEFAULT_LAYOUT");
+        var variant = Variable("XKB_DEFAULT_VARIANT");
+        return new KeymapNames(
+            Variable("XKB_DEFAULT_RULES") ?? system.Rules,
+            Variable("XKB_DEFAULT_MODEL") ?? system.Model,
+            layout ?? system.Layout,
+            layout is not null ? variant : variant ?? system.Variant,
+            Variable("XKB_DEFAULT_OPTIONS") ?? system.Options);
     }
+
+    private static string? Variable(string name) => Empty(Environment.GetEnvironmentVariable(name));
 
     private static KeymapNames? FromXorgConfig(string path)
     {

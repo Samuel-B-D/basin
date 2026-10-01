@@ -11,7 +11,7 @@ namespace DungeonWm;
 
 internal sealed partial class DungeonWm
 {
-    private static readonly string[] EventNames = ["dungeonwm/room-entered", "dungeonwm/window-hung", "dungeonwm/window-detached", "dungeonwm/takeover", "dungeonwm/mode"];
+    private static readonly string[] EventNames = ["dungeonwm/room-entered", "dungeonwm/window-hung", "dungeonwm/window-detached", "dungeonwm/takeover", "dungeonwm/mode", "dungeonwm/audio"];
 
     private readonly IpcLineReport _report = new();
     private IpcServer? _ipc;
@@ -258,6 +258,35 @@ internal sealed partial class DungeonWm
             Describe("Reread the configuration file, as SIGHUP does, and print a RELOAD line naming the keys that need a restart.", IpcMethodTraits.Idempotent),
             Reload);
 
+        _report.Register(methods, "dungeonwm/audio", "audio",
+            Describe("Print the audio mode and one VOICE line for each window that plays: its direction, distance, path, gain, cutoff and reverb.", IpcMethodTraits.ReadOnly),
+            PrintAudio);
+
+        _report.Register(methods, "dungeonwm/sounds", "sounds",
+            Describe("Print whether the sound effects play, how many have played, and the count of each kind: steps, jumps, landings, impacts, hangs and plaque clicks.", IpcMethodTraits.ReadOnly),
+            PrintSounds);
+
+        _report.Register(methods, "dungeonwm/audio-mode", "audio-mode {mode}",
+            Describe("Set the audio mode to auto, hrtf, pan or off until the next reload. Every voice is built again.", IpcMethodTraits.Idempotent),
+            (ref IpcParams p, IpcReply _) =>
+            {
+                var mode = p.GetString("mode");
+                if (p.Failed)
+                {
+                    return;
+                }
+
+                if (Array.IndexOf(AudioSettings.Modes, mode) < 0)
+                {
+                    p.Invalid($"no audio mode {mode}: expected auto, hrtf, pan or off");
+                    return;
+                }
+
+                _audioModeOverride = mode;
+                RestartAudio();
+                PrintAudio();
+            });
+
         RegisterPhysicsCommands(methods);
         RegisterPlaqueCommands(methods);
         RegisterCrosshairCommands(methods);
@@ -392,6 +421,7 @@ internal sealed partial class DungeonWm
         if (!StartHang(window))
         {
             BasinReport.Line($"HUNG {window.AppId} room={room.Workspace + 1} slot={SlotName(window.Slot)}");
+            SoundHung(window);
             RaiseEvent("dungeonwm/window-hung");
         }
 

@@ -78,6 +78,7 @@ internal sealed partial class TinyComp :
     private Basin.Frames.Quill.QuillFrameTheme? _quillTheme;
     private FrameStyle _frameStyle;
     private FrameTheme? _frameTheme;
+    private Basin.UI.Skia.FlatFrameTheme? _flatTheme;
     private MetacityFrames? _metacity;
 
     internal IFrameRenderer? CreateFrameRenderer() => CreateFrameRenderer(_frameStyle);
@@ -85,7 +86,7 @@ internal sealed partial class TinyComp :
     internal IFrameRenderer? CreateFrameRenderer(FrameStyle style) => style switch
     {
         FrameStyle.Beos => new BeosFrameRenderer(FrameThemeOrLoad()),
-        FrameStyle.Flat => new SkiaFrameRenderer(FrameThemeOrLoad()),
+        FrameStyle.Flat => new Basin.UI.Skia.FlatFrameRenderer(FlatThemeOrLoad()),
         FrameStyle.Metacity => (_metacity ??= MetacityFrames.Load(_config, FrameThemeOrLoad())).CreateRenderer(),
         FrameStyle.Quill => CreateQuillFrameRenderer(),
         _ => null,
@@ -96,7 +97,7 @@ internal sealed partial class TinyComp :
         if (QuillHost() is null)
         {
             _log.Error($"[frame] style = \"quill\" cannot run beside the {_config.Renderer} renderer: {_quillDeclined}; the flat frames are used instead");
-            return new SkiaFrameRenderer(FrameThemeOrLoad());
+            return new Basin.UI.Skia.FlatFrameRenderer(FlatThemeOrLoad());
         }
 
         return new Basin.Frames.Quill.QuillFrameRenderer(QuillThemeOrLoad());
@@ -208,6 +209,11 @@ internal sealed partial class TinyComp :
 
     private FrameTheme FrameThemeOrLoad() => _frameTheme ??= new FrameTheme((float)_config.FontSize);
 
+    private Basin.UI.Skia.FlatFrameTheme FlatThemeOrLoad() => _flatTheme ??= FlatThemeOf(FrameThemeOrLoad());
+
+    private static Basin.UI.Skia.FlatFrameTheme FlatThemeOf(FrameTheme theme) =>
+        new(theme.Typeface, theme.FontSize) { Icons = theme.IconFor };
+
     internal Basin.Capabilities.IUIHost UIHost => _uiHost ??= SkiaUIHosts.For(_renderer);
 
     internal FrameHosts FrameHosts => _frameHosts ??= new FrameHosts(UIHost);
@@ -251,7 +257,7 @@ internal sealed partial class TinyComp :
     private Basin.Desktop.LayerShellSceneDriver _layerDriver = null!;
     private readonly Basin.Desktop.PopupPlacer _popupPlacer;
     private readonly OutputLayout _layout = new();
-    private readonly List<HostChrome> _hostChrome = [];
+    private readonly List<Basin.Backend.Wayland.FrameHostChrome> _hostChrome = [];
     private bool _probed;
     private bool _outputsCreated;
     private readonly List<Basin.Render.Vulkan.VulkanDeviceBlitter> _blitters = [];
@@ -1095,6 +1101,7 @@ internal sealed partial class TinyComp :
         _host.Dispose();
         _metacity?.Dispose();
         DisposeStepTextures();
+        _flatTheme?.Dispose();
         _frameTheme?.Dispose();
         _renderer.Dispose();
     }

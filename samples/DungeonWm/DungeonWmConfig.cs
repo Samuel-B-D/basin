@@ -191,6 +191,36 @@ internal static class DungeonWmConfig
             physics.ReportUnknown();
         }
 
+        if (reader.Section("audio") is { } audio)
+        {
+            var current = settings.Audio;
+            settings.Audio = new AudioSettings(
+                audio.Choice("mode", current.Mode, AudioSettings.Modes),
+                audio.Text("hrtf") is { Length: > 0 } hrtf ? hrtf : current.Hrtf,
+                (float)Math.Clamp(audio.Number("reference_distance", (double)current.ReferenceDistance), 0.05, 100),
+                (float)Math.Clamp(audio.Number("rolloff", (double)current.Rolloff), 0, 8),
+                (float)Math.Clamp(audio.Number("max_distance", (double)current.MaxDistance), 1, 1000),
+                (float)Math.Clamp(audio.Number("rear_loss_db", (double)current.RearLossDb), 0, 60),
+                (float)Math.Clamp(audio.Number("doorway_cutoff_hz", (double)current.DoorwayCutoffHz), 100, 20000),
+                (float)Math.Clamp(audio.Number("doorway_loss_db", (double)current.DoorwayLossDb), 0, 60),
+                (float)Math.Clamp(audio.Number("doorway_octaves", (double)current.DoorwayOctaves), 0, 8),
+                (float)Math.Clamp(audio.Number("reverb", (double)current.Reverb), 0, 1),
+                (float)Math.Clamp(audio.Number("reverb_floor", (double)current.ReverbFloor), 0, 1),
+                (float)Math.Clamp(audio.Number("reverb_max_s", (double)current.ReverbMaxSeconds), 0.1, 10),
+                Math.Clamp(audio.Number("max_voices", current.MaxVoices), 0, 64),
+                Math.Clamp(audio.Number("update_hz", current.UpdateHz), 1, 240));
+            audio.ReportUnknown();
+        }
+
+        if (reader.Section("sounds") is { } sounds)
+        {
+            var current = settings.Sounds;
+            settings.Sounds = new SoundSettings(
+                sounds.Flag("enabled", current.Enabled),
+                (float)Math.Clamp(sounds.Number("volume", (double)current.Volume), 0, 1));
+            sounds.ReportUnknown();
+        }
+
         if (reader.Section("avatar") is { } avatar)
         {
             settings.AvatarModel = avatar.Text("model");

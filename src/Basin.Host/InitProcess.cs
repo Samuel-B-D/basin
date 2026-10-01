@@ -24,6 +24,8 @@ public sealed class InitProcess
 
     private InitProcess(int pgid) => _pgid = pgid;
 
+    public int ProcessGroup => _pgid;
+
     private const int FileExists = 0;
 
     private const int FileExecutable = 1;
@@ -118,7 +120,7 @@ public sealed class InitProcess
 
     public static void RaiseFileLimit(BasinLogger log) => FileDescriptorLimit.Raise(log);
 
-    public static InitProcess? Start(string command, string socket, string? display, BasinLogger log)
+    public static InitProcess? Start(string command, string socket, string? display, BasinLogger log, IReadOnlyDictionary<string, string>? environment = null)
     {
         log.Info($"running init executable '{command}'");
 
@@ -150,7 +152,7 @@ public sealed class InitProcess
                 (short)(SpawnSetSid | SpawnSetSigMask | SpawnSetSigDefault));
 
             argv = Block(["/bin/sh", "-c", command]);
-            envp = Block(EnvironmentBlock(socket, display));
+            envp = Block(EnvironmentBlock(socket, display, environment));
 
             lowered = FileDescriptorLimit.LowerForSpawn();
             var error = posix_spawn(out var pid, "/bin/sh", IntPtr.Zero, attributes, argv, envp);
@@ -190,13 +192,13 @@ public sealed class InitProcess
         }
     }
 
-    private static List<string> EnvironmentBlock(string socket, string? display)
+    private static List<string> EnvironmentBlock(string socket, string? display, IReadOnlyDictionary<string, string>? environment)
     {
         var entries = new List<string>();
         foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
             var name = (string)entry.Key;
-            if (name is "WAYLAND_DISPLAY" || (display is not null && name is "DISPLAY"))
+            if (name is "WAYLAND_DISPLAY" || (display is not null && name is "DISPLAY") || (environment?.ContainsKey(name) ?? false))
             {
                 continue;
             }
@@ -208,6 +210,17 @@ public sealed class InitProcess
         if (display is not null)
         {
             entries.Add($"DISPLAY={display}");
+        }
+
+        if (environment is not null)
+        {
+            foreach (var (name, value) in environment)
+            {
+                if (name is not ("WAYLAND_DISPLAY" or "DISPLAY"))
+                {
+                    entries.Add($"{name}={value}");
+                }
+            }
         }
 
         return entries;

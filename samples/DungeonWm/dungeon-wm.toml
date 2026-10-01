@@ -107,6 +107,44 @@ throw_min_speed = 0.6
 # Kilograms per cubic meter of a prop.
 prop_density = 60
 
+[audio]
+# Where a window's sound comes from: auto, hrtf, pan or off.
+# auto selects hrtf for headphones and pan for any other sink.
+mode = "auto"
+# The SOFA file for hrtf mode.
+hrtf = "/usr/share/libmysofa/default.sofa"
+# Meters inside which a window plays at full gain.
+reference_distance = 1.0
+# How fast the gain falls with distance. 1.0 is the inverse distance law.
+rolloff = 1.0
+# Meters past which a window is silent.
+max_distance = 40.0
+# Extra decibels of loss for a source behind you in pan mode.
+rear_loss_db = 3.0
+# The low-pass cutoff in hertz for sound that comes through a doorway.
+doorway_cutoff_hz = 2500.0
+# Decibels of loss for each doorway after the first.
+doorway_loss_db = 4.0
+# Octaves the cutoff falls for each doorway after the first.
+doorway_octaves = 1.0
+# The level of the room reverb, 0 to 1.
+reverb = 0.3
+# The smallest direct level the reverb level is scaled by.
+reverb_floor = 0.05
+# The longest reverb time in seconds.
+reverb_max_s = 2.0
+# The most windows that play spatialized at once.
+max_voices = 8
+# The most HRTF updates per second for each window.
+update_hz = 30
+
+[sounds]
+# Footsteps, jumps, landings, window impacts, hooks and plaque buttons.
+# BASIN_MUTE=1 silences them whatever this says.
+enabled = true
+# The level of every effect, 0 to 1.
+volume = 0.8
+
 [avatar]
 # A GLB with a skin. Empty uses the built-in Rogue_Hooded.
 model = ""

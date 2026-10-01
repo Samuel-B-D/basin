@@ -57,7 +57,6 @@ internal sealed class System7Seat : IDisposable
         _touch.Router.Chrome = new Basin.Seat.Backends.UISurfaceTouchChrome(_router);
         _seat.Keyboard.SetKeymap(Basin.Seat.SystemKeymap.Read());
 
-        _binder.AdoptParentKeymap = true;
         _binder.RelativePointer = services.Find<Basin.Desktop.RelativePointerManager>();
         _binder.Constraints = services.Find<Basin.Desktop.PointerConstraintDriver>();
         _binder.Key += OnKey;

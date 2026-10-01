@@ -191,6 +191,16 @@ public sealed class WaylandHostFrame : IDisposable
         return true;
     }
 
+    public bool ShowCursor(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return !_disposed && _backend.ShowFrameCursor(name, Scale);
+    }
+
+    public void RequestClose() => _output.RequestClose();
+
+    public string Title => _output.Title;
+
     public void StartMove()
     {
         if (!_disposed && _backend.ParentSeat is { } seat && _backend.LastPointerSerial is { } serial)

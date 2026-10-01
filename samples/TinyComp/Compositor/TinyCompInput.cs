@@ -445,8 +445,6 @@ internal sealed partial class TinyComp
         _report.Line($"CURSOR left_ptr {_cursor.Images?.Size ?? 0}px {_cursor.DrawnBy}");
     }
 
-    internal void SetHostChromeCursor(string name) => _cursor.ShowNamed(name);
-
     private static bool IsTrusted(WlClient client)
     {
         if (Basin.Desktop.SecurityContextManager.ContextOf(client) is not null)

@@ -70,6 +70,8 @@ internal sealed unsafe class ParentCursorSurface : IDisposable
 
     internal void NotifyLeave() => _entered = false;
 
+    internal bool HasImage => _hasImage || _hidden;
+
     internal bool Show(IBuffer image, int hotspotX, int hotspotY, double scale)
     {
         if (image.Width <= 0 || image.Height <= 0)

@@ -20,7 +20,7 @@ public sealed class ControlTests : IDisposable
         Assert.NotNull(await session.WaitForAsync(line => line.StartsWith("MAPPED ssdwin", StringComparison.Ordinal)));
 
         var methods = Run(basinctl, "--socket", socket, "methods");
-        foreach (var name in new[] { "dungeonwm/camera", "dungeonwm/walk", "dungeonwm/look", "dungeonwm/teleport", "dungeonwm/hang", "dungeonwm/throw", "dungeonwm/physics-state", "dungeonwm/world", "dungeonwm/reload" })
+        foreach (var name in new[] { "dungeonwm/camera", "dungeonwm/walk", "dungeonwm/look", "dungeonwm/teleport", "dungeonwm/hang", "dungeonwm/throw", "dungeonwm/physics-state", "dungeonwm/world", "dungeonwm/reload", "dungeonwm/audio", "dungeonwm/audio-mode" })
         {
             Assert.Contains(name, methods, StringComparison.Ordinal);
         }
@@ -46,6 +46,7 @@ public sealed class ControlTests : IDisposable
             UseShellExecute = false,
         };
         start.Environment["XDG_RUNTIME_DIR"] = _runtime.FullName;
+        start.Environment["PIPEWIRE_REMOTE"] = ProcessTests.Session.NoPipeWire;
         foreach (var word in new[] { "--launch", "--", compositor, "--backend", "headless", "--renderer", "gl", "--config", "false" })
         {
             start.ArgumentList.Add(word);
@@ -90,7 +91,7 @@ public sealed class ControlTests : IDisposable
         Assert.True(process.WaitForExit(20_000));
     }
 
-    private static string Tool(string name)
+    internal static string Tool(string name)
     {
         var project = name == "basinctl" ? "BasinCtl" : "BasinMcp";
         var framework = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));

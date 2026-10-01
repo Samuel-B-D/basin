@@ -309,6 +309,7 @@ internal sealed partial class DungeonWm
         {
             FlashBody(impact.A);
             FlashBody(impact.B);
+            SoundImpact(impact);
         }
 
         var flashing = false;
@@ -426,6 +427,7 @@ internal sealed partial class DungeonWm
                 _world.Release(rehang.Window);
                 Hang(rehang.Window, rehang.Room, slot);
                 BasinReport.Line($"HUNG {rehang.Window.AppId} room={rehang.Room.Workspace + 1} slot={SlotName(rehang.Window.Slot)}");
+                SoundHung(rehang.Window);
                 RaiseEvent("dungeonwm/window-hung");
             }
         }

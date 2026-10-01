@@ -1,13 +1,11 @@
-using System.Reflection;
 using Basin;
 using Basin.Render.Skia;
 using Basin.Capabilities;
-using Basin.UI.Skia;
 using SkiaSharp;
 
-namespace TinyComp;
+namespace Basin.UI.Skia;
 
-internal sealed class SkiaFrameRenderer(FrameTheme theme) : IFrameRenderer
+public sealed class FlatFrameRenderer(FlatFrameTheme theme) : IFrameRenderer
 {
     public Type SurfaceContract => typeof(ISkiaUISurface);
 

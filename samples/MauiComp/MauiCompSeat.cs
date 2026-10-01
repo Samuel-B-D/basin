@@ -62,7 +62,6 @@ internal sealed class MauiCompSeat : IDisposable
         _touch.Router.HitTester = new Basin.Seat.Backends.SceneTouchHitTester(scene);
         _touch.Router.Chrome = new Basin.Seat.Backends.UISurfaceTouchChrome(_router);
 
-        _binder.AdoptParentKeymap = true;
         _binder.Key += OnKey;
         _binder.ModifiersChanged += OnModifiers;
         _binder.Button += OnButton;

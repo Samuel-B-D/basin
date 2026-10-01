@@ -75,7 +75,6 @@ internal sealed class WestoniaSeat : IDisposable
         _touch.Router.Activity =
             services.Find<Basin.Capabilities.IIdleSource>() as Basin.Seat.SeatIdleSource;
 
-        _binder.AdoptParentKeymap = true;
         _binder.RelativePointer = services.Find<Basin.Desktop.RelativePointerManager>();
         _binder.Constraints = services.Find<Basin.Desktop.PointerConstraintDriver>();
         _binder.Key += OnKey;

@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="../../assets/fonts/Selawik-Semibold.ttf" LogicalName="Selawik-Semibold.ttf" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../Basin.Core/Basin.Core.csproj" />
     <ProjectReference Include="../Basin.Render.Skia/Basin.Render.Skia.csproj" />
     <PackageReference Include="SkiaSharp" />

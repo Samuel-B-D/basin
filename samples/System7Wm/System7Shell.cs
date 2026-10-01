@@ -148,6 +148,7 @@ internal sealed partial class System7Shell : IDisposable
             Scales = options.Scales,
             ContinuousRepaint = options.Frames > 0,
             NestedName = index => $"system7-wm-{index + 1}",
+            DecorateNested = false,
             HeadlessMode = new OutputMode(1024, 768, 60_000),
         };
         _loop = new CompositorRunLoop(_host, _outputs);

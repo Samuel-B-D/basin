@@ -174,12 +174,11 @@ internal sealed class DamViews
     {
         var layout = _layout.Bounds;
         var (width, height) = view.GeometrySize();
-        var (originX, originY) = view.GeometryOrigin();
         var filled = view.IsPrimary || layout.Width < width || layout.Height < height;
         var x = filled ? layout.X : (layout.Width - width) / 2;
         var y = filled ? layout.Y : (layout.Height - height) / 2;
-        view.Placed = (originX, originY, width, height);
-        view.Scene.Tree.SetPosition(x - originX, y - originY);
+        view.Placed = (width, height);
+        view.Scene.Tree.SetPosition(x, y);
     }
 
     public void SetFullscreen(DamView view, bool fullscreen)
@@ -257,9 +256,7 @@ internal sealed class DamViews
                 return;
             }
 
-            var (originX, originY) = view.GeometryOrigin();
-            var (width, height) = view.GeometrySize();
-            if (view.Placed != (originX, originY, width, height))
+            if (view.Placed != view.GeometrySize())
             {
                 Place(view);
             }

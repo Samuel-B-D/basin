@@ -18,6 +18,7 @@ public sealed class OutputDriver : IDisposable
     private readonly List<IAllocator> _ownedAllocators = [];
     private readonly OutputState _frameState = new();
     private readonly Dictionary<OutputView, Action<SceneNode?, Box>> _secondaryDamage = [];
+    private readonly Dictionary<OutputView, IDisposable> _hostChrome = [];
     private OutputView? _preparing;
 
     private const OutputStateFields FrameFields =
@@ -72,6 +73,10 @@ public sealed class OutputDriver : IDisposable
     public bool LastOnly { get; set; }
 
     public bool FullRepaint { get; set; }
+
+    public bool DecorateNested { get; set; } = true;
+
+    public Func<WaylandOutput, WaylandHostFrame, IDisposable?>? HostChrome { get; set; }
 
     public bool DebugDamageTint { get; set; }
 
@@ -504,8 +509,29 @@ public sealed class OutputDriver : IDisposable
         AddView(card);
     }
 
+    private void AttachHostChrome(OutputView view, WaylandOutput nested, WaylandHostFrame frame)
+    {
+        if (_hostChrome.Remove(view, out var previous))
+        {
+            previous.Dispose();
+        }
+
+        var chrome = HostChrome is { } custom
+            ? custom(nested, frame)
+            : DecorateNested ? Basin.Backend.Wayland.Skia.DefaultHostChrome.Attach(nested, frame) : null;
+        if (chrome is not null)
+        {
+            _hostChrome[view] = chrome;
+        }
+    }
+
     private void Teardown(OutputView view)
     {
+        if (_hostChrome.Remove(view, out var chrome))
+        {
+            chrome.Dispose();
+        }
+
         if (_secondaryDamage.Remove(view, out var damage))
         {
             _scene.Damaged -= damage;
@@ -605,6 +631,7 @@ public sealed class OutputDriver : IDisposable
         if (view.Output is WaylandOutput nested)
         {
             nested.CloseRequested += () => RemoveView(view);
+            nested.HostFrameAvailable += frame => AttachHostChrome(view, nested, frame);
         }
 
         if (FullRepaint)

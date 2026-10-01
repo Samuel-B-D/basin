@@ -48,6 +48,7 @@ internal sealed partial class DungeonWm
                 EndHang(window);
                 PlaceOnSlot(window);
                 BasinReport.Line($"HUNG {window.AppId} room={(window.Room?.Workspace ?? -1) + 1} slot={SlotName(window.Slot)}");
+                SoundHung(window);
                 RaiseEvent("dungeonwm/window-hung");
                 continue;
             }

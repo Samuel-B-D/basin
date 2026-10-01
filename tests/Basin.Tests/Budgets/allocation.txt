@@ -37,6 +37,11 @@
 # 3D world pass per renderer with a portal and a mip-copied window, and 1000 picks
 # with the visibility walk. Both tests also assert zero in every configuration.
 #
+# The audio rows come from SpatialVoiceAllocationTests: 1000 updates of one voice
+# on a private PipeWire daemon, every update changing a control past its quantum.
+# sound-play-and-mix is 400 plays on a linked SoundPlayer with the mixing that
+# the PipeWire loop runs between them.
+#
 # scope    kind     path                          bytes
 server     exact    commit-with-frame-callback     3072
 server     exact    frame-callback-fire               0
@@ -208,3 +213,7 @@ dungeon-wm     exact    world-frame-vulkan                0
 dungeon-wm     exact    pick                              0
 server-managed exact    ipc-wait-idle-commit              0
 server-managed exact    ipc-call-version-intercepted   7200
+audio      exact    voice-update-pan                  0
+audio      exact    voice-update-hrtf                 0
+audio      exact    voice-update-reverb               0
+audio      exact    sound-play-and-mix                0

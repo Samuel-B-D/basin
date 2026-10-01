@@ -80,6 +80,7 @@ internal sealed partial class DungeonWm
         _workspaces.RaiseMembersChanged();
         BasinReport.Line($"MAPPED {window.AppId} room={room.Workspace + 1} slot={SlotName(window.Slot)} size={window.World.SurfaceWidth}x{window.World.SurfaceHeight}");
         StartHang(window);
+        AudioWindowMapped(window);
         ScheduleAll();
     }
 
@@ -89,6 +90,7 @@ internal sealed partial class DungeonWm
         {
             return;
         }
+
 
         if (ReferenceEquals(_takeover, window))
         {
@@ -100,6 +102,8 @@ internal sealed partial class DungeonWm
         {
             AdoptSnapshot(window, snapshot);
         }
+
+        AudioWindowUnmapped(window, snapshot);
 
         window.Scene.Tree.Enabled = false;
         window.Hanging = -1;

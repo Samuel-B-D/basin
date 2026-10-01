@@ -109,7 +109,7 @@ internal sealed partial class DungeonWm : IDisposable
         {
             SocketFd = options.SocketFd,
         });
-        _processes = new ProcessTracker(_host.Loop, () => ProcessTracker.SessionEnvironment(_host.Socket, _xServer?.DisplayName, _ipc?.Path));
+        _processes = new ProcessTracker(_host.Loop, LaunchEnvironment);
 
         var kit = Kit.Load();
         _popups = new Basin.Desktop.NestedPopupPlacer(_layout);
@@ -269,6 +269,8 @@ internal sealed partial class DungeonWm : IDisposable
         };
 
         _world.Rebuilt += ScheduleAll;
+        _world.Rebuilt += RebuildDoorways;
+        RebuildDoorways();
 
         WireColor();
         _outputs.CreateInitialOutputs();
@@ -295,6 +297,8 @@ internal sealed partial class DungeonWm : IDisposable
         servicePack.CursorTheme.Images = _cursor.Images;
         StartPhysics();
         StartAvatar();
+        StartAudio();
+        StartSounds();
 
         if (xwaylandModule is not null)
         {
@@ -317,6 +321,8 @@ internal sealed partial class DungeonWm : IDisposable
     public void Dispose()
     {
         _disposing = true;
+        StopAudio();
+        StopSounds();
         _host.DisconnectClients();
         DropSnapshots();
         _colorPack.Luts.Dispose();
@@ -346,7 +352,16 @@ internal sealed partial class DungeonWm : IDisposable
         using var ipc = StartIpc();
         using var settle = _settle;
         using var processes = _processes;
-        var startup = _options.Command is { } command ? InitProcess.Start(command, _host.Socket, _xServer?.DisplayName, _log) : null;
+        InitProcess? startup = null;
+        if (_options.Command is { } command)
+        {
+            startup = InitProcess.Start(command, _host.Socket, _xServer?.DisplayName, _log, InitLaunchTag(out var tag));
+            if (startup is not null)
+            {
+                _launchGroups[tag] = startup.ProcessGroup;
+            }
+        }
+
         var hangup = _host.Loop.AddSignal(Signal.Hangup, _ => Reload());
         _loop.Frames = _options.Frames;
         _loop.Run();

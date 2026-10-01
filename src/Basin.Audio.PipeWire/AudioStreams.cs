@@ -1,0 +1,271 @@
+using Basin.Diagnostics;
+using System.Globalization;
+using PipeWire;
+
+namespace Basin.Audio.PipeWire;
+
+public sealed class AudioStreams : IDisposable
+{
+    public const string VoiceKey = "basin.voice";
+
+    public const string LaunchKey = "basin.launch.id";
+
+    private const string StreamClass = "Stream/Output/Audio";
+
+    private readonly AudioSession _session;
+    private readonly Dictionary<uint, Pending> _nodes = [];
+    private readonly Dictionary<uint, ClientEntry> _clients = [];
+    private readonly Dictionary<uint, AudioStream> _streams = [];
+    private bool _disposed;
+
+    public AudioStreams(AudioSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        _session = session;
+        _session.GlobalAdded += OnGlobalAdded;
+        _session.GlobalRemoved += OnGlobalRemoved;
+        foreach (var global in session.Globals.Values)
+        {
+            OnGlobalAdded(global);
+        }
+
+        BasinCounters.Track();
+    }
+
+    public IReadOnlyCollection<AudioStream> Streams => _streams.Values;
+
+    public event Action<AudioStream>? Added;
+
+    public event Action<AudioStream>? Changed;
+
+    public event Action<AudioStream>? Removed;
+
+    public AudioStream? Find(uint nodeId) => _streams.GetValueOrDefault(nodeId);
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _session.GlobalAdded -= OnGlobalAdded;
+        _session.GlobalRemoved -= OnGlobalRemoved;
+        foreach (var pending in _nodes.Values)
+        {
+            pending.Node.Dispose();
+        }
+
+        foreach (var client in _clients.Values)
+        {
+            client.Proxy.Dispose();
+        }
+
+        _nodes.Clear();
+        _clients.Clear();
+        _streams.Clear();
+        BasinCounters.Untrack();
+    }
+
+    internal static AudioStream Describe(uint nodeId, IReadOnlyDictionary<string, string?> node, IReadOnlyDictionary<string, string?>? client)
+    {
+        string? Get(string key) => node.TryGetValue(key, out var value) && value is { Length: > 0 }
+            ? value
+            : client is not null && client.TryGetValue(key, out var fromClient) && fromClient is { Length: > 0 } ? fromClient : null;
+
+        var api = Get("client.api");
+        return new AudioStream(nodeId)
+        {
+            Serial = ULong(Get("object.serial")),
+            ClientId = (uint)ULong(Get("client.id")),
+            VerifiedPid = client is not null && client.TryGetValue("pipewire.sec.pid", out var pid) ? Int(pid) : 0,
+            ReportedPid = Int(Get("application.process.id")),
+            FlatpakAppId = Get("pipewire.access.portal.app_id"),
+            ApplicationName = Get("application.name"),
+            MediaRole = Get("media.role"),
+            ViaPulse = api == "pipewire-pulse",
+            LaunchId = (long)ULong(Get(LaunchKey)),
+        };
+    }
+
+    private static ulong ULong(string? text) =>
+        ulong.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value) ? value : 0;
+
+    private static int Int(string? text) =>
+        int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value) ? value : 0;
+
+    private void OnGlobalAdded(PipeWireGlobal global)
+    {
+        if (!global.IsNode || global.GetProperty("media.class") != StreamClass || _nodes.ContainsKey(global.Id) ||
+            _session.IsVoiceNode(global.GetProperty("node.name")))
+        {
+            return;
+        }
+
+        var node = _session.Registry.BindNode(global.Id);
+        var pending = new Pending(global.Id, node);
+        _nodes[global.Id] = pending;
+        node.Info += (_, info) =>
+        {
+            if (info.Properties.Count == 0)
+            {
+                return;
+            }
+
+            pending.Properties = info.Properties;
+            Resolve(pending);
+        };
+    }
+
+    private void OnGlobalRemoved(uint id)
+    {
+        if (_clients.Remove(id, out var client))
+        {
+            client.Proxy.Dispose();
+            return;
+        }
+
+        if (_nodes.Remove(id, out var pending))
+        {
+            pending.Node.Dispose();
+            if (pending.ClientId != 0)
+            {
+                ReleaseClient(pending.ClientId);
+            }
+
+            if (_streams.Remove(id, out var stream))
+            {
+                Removed?.Invoke(stream);
+            }
+        }
+    }
+
+    private void Resolve(Pending pending)
+    {
+        if (pending.Properties is not { } properties)
+        {
+            return;
+        }
+
+        if (properties.TryGetValue(VoiceKey, out var voice) && voice == "true")
+        {
+            if (_streams.Remove(pending.Id, out var published))
+            {
+                Removed?.Invoke(published);
+            }
+
+            return;
+        }
+
+        var clientId = (uint)ULong(properties.GetValueOrDefault("client.id"));
+        if (clientId != 0 && pending.ClientId == 0)
+        {
+            pending.ClientId = clientId;
+            AcquireClient(clientId, pending);
+        }
+
+        IReadOnlyDictionary<string, string?>? client = null;
+        if (clientId != 0 && _clients.TryGetValue(clientId, out var entry))
+        {
+            if (entry.Properties is null && !entry.Failed)
+            {
+                return;
+            }
+
+            client = entry.Properties;
+        }
+
+        var stream = Describe(pending.Id, properties, client);
+        var added = !_streams.ContainsKey(pending.Id);
+        _streams[pending.Id] = stream;
+        if (added)
+        {
+            Added?.Invoke(stream);
+        }
+        else
+        {
+            Changed?.Invoke(stream);
+        }
+    }
+
+    private void AcquireClient(uint clientId, Pending waiter)
+    {
+        if (_clients.TryGetValue(clientId, out var entry))
+        {
+            entry.References++;
+            entry.Waiters.Add(waiter);
+            return;
+        }
+
+        PipeWireClient proxy;
+        try
+        {
+            proxy = _session.Registry.BindClient(clientId);
+        }
+        catch (PipeWireException)
+        {
+            return;
+        }
+
+        entry = new ClientEntry(proxy) { References = 1 };
+        entry.Waiters.Add(waiter);
+        _clients[clientId] = entry;
+        proxy.Info += (_, info) =>
+        {
+            if (info.Properties.Count == 0)
+            {
+                return;
+            }
+
+            entry.Properties = info.Properties;
+            foreach (var node in entry.Waiters.ToArray())
+            {
+                Resolve(node);
+            }
+        };
+        proxy.Error += (_, _) =>
+        {
+            entry.Failed = true;
+            foreach (var node in entry.Waiters.ToArray())
+            {
+                Resolve(node);
+            }
+        };
+    }
+
+    private void ReleaseClient(uint clientId)
+    {
+        if (!_clients.TryGetValue(clientId, out var entry))
+        {
+            return;
+        }
+
+        entry.Waiters.RemoveAll(waiter => !_nodes.ContainsKey(waiter.Id));
+        entry.References--;
+    }
+
+    private sealed class Pending(uint id, PipeWireNode node)
+    {
+        public uint Id { get; } = id;
+
+        public PipeWireNode Node { get; } = node;
+
+        public uint ClientId { get; set; }
+
+        public IReadOnlyDictionary<string, string?>? Properties { get; set; }
+    }
+
+    private sealed class ClientEntry(PipeWireClient proxy)
+    {
+        public PipeWireClient Proxy { get; } = proxy;
+
+        public int References { get; set; }
+
+        public bool Failed { get; set; }
+
+        public List<Pending> Waiters { get; } = [];
+
+        public IReadOnlyDictionary<string, string?>? Properties { get; set; }
+    }
+}

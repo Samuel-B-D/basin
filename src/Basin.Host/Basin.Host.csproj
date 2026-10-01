@@ -12,6 +12,7 @@
     <ProjectReference Include="../Basin.Session/Basin.Session.csproj" />
     <ProjectReference Include="../Basin.Backend.Drm/Basin.Backend.Drm.csproj" />
     <ProjectReference Include="../Basin.Backend.Wayland/Basin.Backend.Wayland.csproj" />
+    <ProjectReference Include="../Basin.Backend.Wayland.Skia/Basin.Backend.Wayland.Skia.csproj" />
     <ProjectReference Include="../Basin.Backend.Headless/Basin.Backend.Headless.csproj" />
   </ItemGroup>
 

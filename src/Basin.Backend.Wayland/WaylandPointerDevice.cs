@@ -7,6 +7,7 @@ namespace Basin.Backend.Wayland;
 public sealed class WaylandPointerDevice : IParentCursor, IDisposable
 {
     private readonly ParentCursorSurface _cursor;
+    private readonly ParentCursorSurface _frameCursor;
     private readonly WlPointer _pointer;
     private ZwpPointerGestureSwipeV1? _swipe;
     private ZwpRelativePointerV1? _relative;
@@ -16,6 +17,7 @@ public sealed class WaylandPointerDevice : IParentCursor, IDisposable
 
     private WaylandHostFrame? _frame;
     private Point _frameOrigin;
+    private uint _frameSerial;
     private WlPointer.AxisSource _axisSource = WlPointer.AxisSource.Wheel;
     private ScrollAxisState _verticalAxis;
     private ScrollAxisState _horizontalAxis;
@@ -24,6 +26,7 @@ public sealed class WaylandPointerDevice : IParentCursor, IDisposable
     internal WaylandPointerDevice(WaylandBackend backend, WlPointer pointer)
     {
         _cursor = new ParentCursorSurface(backend, pointer);
+        _frameCursor = new ParentCursorSurface(backend, pointer);
         _pointer = pointer;
         pointer.Enter += (_, e) =>
         {
@@ -33,6 +36,7 @@ public sealed class WaylandPointerDevice : IParentCursor, IDisposable
             {
                 _current = output;
                 _frame = null;
+                _frameCursor.NotifyLeave();
                 _cursor.NotifyEnter(e.Serial);
                 Enter?.Invoke(output, e.SurfaceX.ToDouble() * output.SurfaceToPhysical, e.SurfaceY.ToDouble() * output.SurfaceToPhysical);
                 return;
@@ -44,7 +48,17 @@ public sealed class WaylandPointerDevice : IParentCursor, IDisposable
                 _frame = frame;
                 _frameOrigin = origin;
 
-                _cursor.NotifyEnter(e.Serial);
+                _frameSerial = e.Serial;
+                if (_frameCursor.HasImage)
+                {
+                    _cursor.NotifyLeave();
+                    _frameCursor.NotifyEnter(e.Serial);
+                }
+                else
+                {
+                    _cursor.NotifyEnter(e.Serial);
+                }
+
                 frame.OnPointerEnter(
                     e.SurfaceX.ToDouble() + origin.X,
                     e.SurfaceY.ToDouble() + origin.Y);
@@ -56,6 +70,7 @@ public sealed class WaylandPointerDevice : IParentCursor, IDisposable
             _current = null;
             _frame = null;
             _cursor.NotifyLeave();
+            _frameCursor.NotifyLeave();
 
             if (frame is not null)
             {
@@ -274,6 +289,17 @@ public sealed class WaylandPointerDevice : IParentCursor, IDisposable
 
     public void HideCursor() => _cursor.Hide();
 
+    internal bool SetFrameCursor(IBuffer image, int hotspotX, int hotspotY, double scale)
+    {
+        if (_frame is not null)
+        {
+            _cursor.NotifyLeave();
+            _frameCursor.NotifyEnter(_frameSerial);
+        }
+
+        return _frameCursor.Show(image, hotspotX, hotspotY, scale);
+    }
+
     public void Dispose()
     {
         _relative?.Dispose();
@@ -285,6 +311,7 @@ public sealed class WaylandPointerDevice : IParentCursor, IDisposable
         _pinch = null;
         _swipe = null;
         _cursor.Dispose();
+        _frameCursor.Dispose();
     }
 
     private struct ScrollAxisState

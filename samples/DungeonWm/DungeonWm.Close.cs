@@ -194,6 +194,7 @@ internal sealed partial class DungeonWm
 
     private void DropSnapshot(DungeonWmSnapshot snapshot)
     {
+        AudioSnapshotDropped(snapshot);
         _physics?.Release(snapshot);
         _world.World.Windows.Remove(snapshot.World);
         snapshot.World.Room?.Windows.Remove(snapshot.World);

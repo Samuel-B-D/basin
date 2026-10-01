@@ -212,5 +212,18 @@ internal sealed class DungeonWmPhysics : IDisposable
         return null;
     }
 
+    public DungeonWmSnapshot? SnapshotOf(PhysicsBody3D body)
+    {
+        foreach (var (snapshot, candidate) in _snapshots)
+        {
+            if (candidate == body)
+            {
+                return snapshot;
+            }
+        }
+
+        return null;
+    }
+
     public void Dispose() => World.Dispose();
 }

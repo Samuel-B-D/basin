@@ -63,6 +63,7 @@
     <ProjectReference Include="../../src/Basin.Backend.Headless/Basin.Backend.Headless.csproj" />
     <ProjectReference Include="../../src/Basin.Backend.Hosted/Basin.Backend.Hosted.csproj" />
     <ProjectReference Include="../../src/Basin.Backend.Wayland/Basin.Backend.Wayland.csproj" />
+    <ProjectReference Include="../../src/Basin.Backend.Wayland.Skia/Basin.Backend.Wayland.Skia.csproj" />
     <ProjectReference Include="../../src/Basin.Rashader/Basin.Rashader.csproj" />
     <ProjectReference Include="../../src/Basin.Rashader.Gl/Basin.Rashader.Gl.csproj" />
     <ProjectReference Include="../../src/Basin.Rashader.Vulkan/Basin.Rashader.Vulkan.csproj" />
@@ -98,6 +99,7 @@
     <ProjectReference Include="../../src/Basin.Physics.Box2D/Basin.Physics.Box2D.csproj" />
     <ProjectReference Include="../../src/Basin.Physics.Bepu/Basin.Physics.Bepu.csproj" />
     <ProjectReference Include="../../src/Basin.Scene/Basin.Scene.csproj" />
+    <ProjectReference Include="../../src/Basin.Audio.PipeWire/Basin.Audio.PipeWire.csproj" />
     <ProjectReference Include="../../src/Basin.Screencast.PipeWire/Basin.Screencast.PipeWire.csproj" />
     <ProjectReference Include="../../src/Basin.Seat/Basin.Seat.csproj" />
     <ProjectReference Include="../../src/Basin.Shell.River/Basin.Shell.River.csproj" />

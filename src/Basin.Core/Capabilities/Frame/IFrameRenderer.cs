@@ -6,11 +6,17 @@ public interface IFrameRenderer
 
     FrameInsets Measure(in FrameState state, double scale);
 
+    FrameInsets Outsets(in FrameState state, double scale) => default;
+
     void Draw(IUISurface surface, in Box clientBox, in FrameState state, in FrameInteraction interaction);
 
     FramePart PartAt(double x, double y, in FrameState state, double scale);
 
     bool OpaqueChrome => false;
+
+    bool Animating(in FrameState state, in FrameInteraction interaction) => false;
+
+    bool FollowsPlacement => false;
 
     bool BackdropRegion(in FrameState state, double scale, Pixman.PixmanRegion32 into) => false;
 

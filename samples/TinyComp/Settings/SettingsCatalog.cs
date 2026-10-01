@@ -32,7 +32,7 @@ internal static class SettingsCatalog
 
     private static readonly string[] Closings = ["none", "fade", "zoom", "fire", "fire-gpu", "glide", "sheet", "fall-apart"];
 
-    public static IReadOnlyList<string> FrameStyles { get; } = ["beos", "flat", "metacity", "quill", "none"];
+    public static IReadOnlyList<string> FrameStyles { get; } = ["beos", "flat", "metacity", "msstyles", "quill", "none"];
 
     public static IReadOnlyList<string> PostStages { get; } = ["invert", "magnify", "zoom", "color-blindness", "show-paint"];
 
@@ -112,6 +112,40 @@ internal static class SettingsCatalog
             {
                 Default = "0", Min = 0, Max = 15, Step = 1, Group = "Metacity", Visible = static d => Style(d, "metacity"),
             },
+            new(Frames, "frame.msstyles", "theme", "Theme", SettingKind.Choice)
+            {
+                ChoicesFrom = "msstyles-themes", Group = "Visual style", Visible = static d => Style(d, "msstyles"),
+            },
+            new(Frames, "frame.msstyles", "color", "Color scheme", SettingKind.Choice)
+            {
+                Default = "\"\"", ChoicesFrom = "msstyles-colors", Group = "Visual style", Visible = static d => Style(d, "msstyles"),
+            },
+            new(Frames, "frame.msstyles", "size", "Size", SettingKind.Choice)
+            {
+                Default = "\"\"", ChoicesFrom = "msstyles-sizes", Group = "Visual style", Visible = static d => Style(d, "msstyles"),
+            },
+            new(Frames, "frame.msstyles", "look", "Look", SettingKind.Choice)
+            {
+                Default = "\"auto\"", Choices = ["auto", "classic-xp", "basic", "glass"], Group = "Visual style", Visible = static d => Style(d, "msstyles"),
+            },
+            new(Frames, "frame.msstyles", "font", "Caption font", SettingKind.Text)
+            {
+                Default = "\"\"", Group = "Visual style", Visible = static d => Style(d, "msstyles"),
+                Note = "Used when the theme's caption font is not installed.",
+            },
+            new(Frames, "frame.msstyles", "colorization", "Glass color", SettingKind.Color)
+            {
+                Default = "\"#45409efe\"", Alpha = true, Group = "Visual style", Visible = static d => Style(d, "msstyles"),
+                Note = "#aarrggbb: the alpha is the strength of the tint.",
+            },
+            new(Frames, "frame.msstyles", "backdrop_blur", "Backdrop blur", SettingKind.Real)
+            {
+                Default = "0", Min = 0, Max = 15, Step = 1, Group = "Visual style", Visible = static d => Style(d, "msstyles"),
+            },
+            new(Frames, "frame.msstyles", "painter", "Painter", SettingKind.Choice)
+            {
+                Default = "\"skia\"", Choices = ["skia", "quill"], Group = "Visual style", Visible = static d => Style(d, "msstyles"),
+            },
             new(Frames, "frame.quill", "palette", "Palette", SettingKind.Choice)
             {
                 Default = "\"dark\"", Choices = ["dark", "light"], Group = "Quill", Visible = static d => Style(d, "quill"),
@@ -158,6 +192,11 @@ internal static class SettingsCatalog
             Flag(Effects, "effects", "dim_inactive", "Dim inactive windows", "Window appearance"),
             Flag(Effects, "effects", "drop_shadow", "Drop shadows", "Window appearance"),
             Flag(Effects, "effects", "highlight", "Switcher highlight", "Window appearance"),
+            new(Effects, "effects", "blur_kernel", "Client blur", SettingKind.Choice)
+            {
+                Default = "\"kawase\"", Choices = ["kawase", "vista"], Group = "Window appearance",
+                Note = "vista is Aero glass's blur, which has no strength of its own.",
+            },
             new(Effects, "effects", "post", "Post stages", SettingKind.Names)
             {
                 Default = "\"none\"", Choices = PostStages, Group = "Post stages",

@@ -122,6 +122,69 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
         }
         """;
 
+    private const string DwmDownSource = """
+        #version 300 es
+        precision highp float;
+        uniform sampler2D src;
+        uniform vec2 u_srcScale;
+        uniform vec2 u_srcInvSize;
+        uniform vec4 u_srcClamp;
+        out vec4 color;
+        vec4 tap(vec2 uv) { return texture(src, clamp(uv, u_srcClamp.xy, u_srcClamp.zw)); }
+        void main() {
+            vec2 uv = gl_FragCoord.xy * u_srcScale * u_srcInvSize;
+            vec2 h = 0.5 * u_srcInvSize;
+            color = (tap(uv + vec2(-h.x, -h.y)) + tap(uv + vec2(h.x, -h.y)) + tap(uv + vec2(-h.x, h.y)) + tap(uv + vec2(h.x, h.y))) * 0.25;
+        }
+        """;
+
+    private const string DwmBlurSource = """
+        #version 300 es
+        precision highp float;
+        uniform sampler2D src;
+        uniform vec2 u_srcScale;
+        uniform vec2 u_srcInvSize;
+        uniform vec4 u_srcClamp;
+        uniform sampler2D u_plain;
+        uniform vec2 u_targetSize;
+        uniform vec4 u_box;
+        uniform vec4 u_cornerRadius;
+        uniform float u_opacity;
+        out vec4 color;
+        const float W[16] = float[16](
+            0.02800, 0.04784, 0.05251, 0.03851,
+            0.04784, 0.08168, 0.09191, 0.06534,
+            0.05251, 0.09101, 0.10268, 0.07235,
+            0.03851, 0.06534, 0.07235, 0.05251);
+        const float O[4] = float[4](-1.824, -0.608, 0.608, 1.824);
+        vec4 tap(vec2 uv) { return texture(src, clamp(uv, u_srcClamp.xy, u_srcClamp.zw)); }
+        float basin_rounded_box(vec2 position, vec2 center, vec2 extents, vec4 radius) {
+            vec2 p = position - center;
+            float r = p.x > 0.0
+                ? (p.y < 0.0 ? radius.y : radius.w)
+                : (p.y < 0.0 ? radius.x : radius.z);
+            vec2 q = abs(p) - extents + vec2(r);
+            return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
+        }
+        void main() {
+            vec2 uv = gl_FragCoord.xy * u_srcScale * u_srcInvSize;
+            vec4 sum = vec4(0.0);
+            for (int r = 0; r < 4; r++) {
+                for (int c = 0; c < 4; c++) {
+                    sum += W[r * 4 + c] * tap(uv + vec2(O[c], O[r]) * u_srcInvSize);
+                }
+            }
+            float coverage = u_opacity;
+            if (u_cornerRadius != vec4(0.0)) {
+                float f = basin_rounded_box(gl_FragCoord.xy, u_box.xy, u_box.zw, u_cornerRadius);
+                float df = fwidth(f);
+                coverage *= 1.0 - clamp(0.5 + f / df, 0.0, 1.0);
+            }
+            vec3 plain = texture(u_plain, gl_FragCoord.xy / u_targetSize).rgb;
+            color = vec4(mix(plain, sum.rgb, coverage), 1.0);
+        }
+        """;
+
     private sealed class Program
     {
         public uint Handle;
@@ -160,6 +223,8 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
     private readonly Program _down;
     private readonly Program _up;
     private readonly Program _onscreen;
+    private readonly Program _dwmDown;
+    private readonly Program _dwmBlur;
     private readonly Dictionary<(int Width, int Height), Pyramid> _pyramids = [];
     private readonly Dictionary<uint, (int Width, int Height)> _backdrops = [];
     private readonly float[] _colorMatrix = new float[BlurColorMatrix.Length];
@@ -182,7 +247,9 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
 
     public BackgroundEffects Supported => BackgroundEffects.Blur | BackgroundEffects.Contrast;
 
-    public int ExpandSize => _widest.ExpandSize;
+    public int ExpandSize => Math.Max(_widest.ExpandSize, _anyVistaDwm ? VistaDwmKernel.ExpandSize : 0);
+
+    private bool _anyVistaDwm;
 
     public BlurCorners Corners { get; set; }
 
@@ -192,6 +259,7 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
     {
         ArgumentNullException.ThrowIfNull(key);
         _surfaces[key] = options;
+        _anyVistaDwm |= options.Kernel == BlurKernel.VistaDwm;
         if (options.Strength is { } strength)
         {
             Widen(BlurStrength.For(strength));
@@ -210,6 +278,7 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
         set
         {
             _options = value;
+            _anyVistaDwm |= value.Kernel == BlurKernel.VistaDwm;
             _strength = BlurStrength.For(value.Strength);
             BlurColorMatrix.Build(value.Saturation, value.Contrast, _colorMatrix);
             EnsureNoise();
@@ -237,6 +306,8 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
         _down = Compile(DownSource);
         _up = Compile(UpSource);
         _onscreen = Compile(OnscreenSource);
+        _dwmDown = Compile(DwmDownSource);
+        _dwmBlur = Compile(DwmBlurSource);
         BlurColorMatrix.Build(_options.Saturation, _options.Contrast, _colorMatrix);
         EnsureNoise();
         _device.TextureDeleting += ForgetTexture;
@@ -250,8 +321,9 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
         var gl = _device.Gl;
         _current = context.Key is { } key && _surfaces.TryGetValue(key, out var stored) ? stored : new BlurSurfaceOptions();
         _active = _current.Strength is { } strength ? BlurStrength.For(strength) : _strength;
+        var kernel = _current.Kernel ?? _options.Kernel;
         var levels = _active.Iterations;
-        var pad = _active.ExpandSize;
+        var pad = kernel == BlurKernel.VistaDwm ? VistaDwmKernel.ExpandSize : _active.ExpandSize;
         TrackBackdrop(context.Backdrop, context.TargetWidth, context.TargetHeight);
         var pyramid = PyramidFor(context.TargetWidth, context.TargetHeight);
         var padded = new Box(
@@ -276,6 +348,21 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
             gl.Disable(EnableCap.ScissorTest);
             var flat = pyramid.Chain[0];
             result = new GlBackdropResult(flat.Texture, flat.Width, flat.Height, context.Bounds);
+            return true;
+        }
+
+        if (kernel == BlurKernel.VistaDwm)
+        {
+            BlurPass(
+                _dwmDown, pyramid.Chain[1], context.Backdrop, context.TargetWidth, context.TargetHeight, srcScale: 2f,
+                RegionAtLevel(padded, 1), context.Bounds);
+            var half = pyramid.Chain[1];
+            BlurPass(
+                _dwmBlur, pyramid.Chain[0], half.Texture, half.Width, half.Height, srcScale: 0.5f,
+                RegionAtLevel(padded, 0), RegionAtLevel(context.Bounds, 1));
+            gl.Disable(EnableCap.ScissorTest);
+            var blurred = pyramid.Chain[0];
+            result = new GlBackdropResult(blurred.Texture, blurred.Width, blurred.Height, context.Bounds);
             return true;
         }
 
@@ -346,7 +433,7 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
             (srcValid.Y + 0.5f) / srcHeight,
             (srcValid.Right - 0.5f) / srcWidth,
             (srcValid.Bottom - 0.5f) / srcHeight);
-        if (program.ColorMatrix0 >= 0)
+        if (program.Plain >= 0)
         {
             gl.Uniform4(program.ColorMatrix0, _surfaceMatrix[0], _surfaceMatrix[1], _surfaceMatrix[2], _surfaceMatrix[3]);
             gl.Uniform4(program.ColorMatrix1, _surfaceMatrix[4], _surfaceMatrix[5], _surfaceMatrix[6], _surfaceMatrix[7]);
@@ -541,6 +628,8 @@ public sealed class GlBackdropBlur : IGlBackdropEffect, IBackdropBlur
         gl.DeleteProgram(_down.Handle);
         gl.DeleteProgram(_up.Handle);
         gl.DeleteProgram(_onscreen.Handle);
+        gl.DeleteProgram(_dwmDown.Handle);
+        gl.DeleteProgram(_dwmBlur.Handle);
         if (_noiseTexture != 0)
         {
             gl.DeleteTexture(_noiseTexture);

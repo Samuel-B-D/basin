@@ -146,6 +146,30 @@ public class NestedHostFrameTests
     }
 
     [Fact]
+    public void A_shadow_is_drawn_but_left_out_of_the_window_geometry()
+    {
+        using var host = new NestedBackendTestHost(NestedParentOptions.Undecorating);
+        var output = host.CreateOutput();
+        var frame = output.HostFrame!;
+        var shadow = new HostFrameInsets(Top: 14, Right: 20, Bottom: 20, Left: 14);
+        var total = new HostFrameInsets(Chrome.Top + shadow.Top, Chrome.Right + shadow.Right, Chrome.Bottom + shadow.Bottom, Chrome.Left + shadow.Left);
+        Assert.True(frame.SetInsets(total, shadow));
+        Map(host, output);
+        Assert.Equal(800 - Chrome.Left - Chrome.Right, output.CurrentMode.Width);
+        Assert.Equal(800 + shadow.Left + shadow.Right, frame.OuterWidth);
+        Assert.True(frame.Attach(new MemoryBuffer(frame.OuterWidth, frame.OuterHeight, DrmFormat.Argb8888)));
+        host.Pump();
+
+        var geometry = host.Parent.Invoke(() => host.Parent.Toplevels[0].Xdg.WindowGeometry);
+
+        Assert.Equal(-Chrome.Left, geometry.X);
+        Assert.Equal(-Chrome.Top, geometry.Y);
+        Assert.Equal(800, geometry.Width);
+        Assert.Equal(600, geometry.Height);
+        Assert.False(frame.SetInsets(Chrome, shadow));
+    }
+
+    [Fact]
     public void Insets_that_leave_no_room_are_clamped_rather_than_rejected()
     {
         using var host = new NestedBackendTestHost(NestedParentOptions.Undecorating with { Width = 140, Height = 140 });

@@ -210,6 +210,8 @@ internal sealed partial class TinyComp
         RouteMotion((uint)Environment.TickCount, _cursorX, _cursorY);
     }
 
+    private const double RestoreDragThreshold = 8;
+
     private bool DragTo(double x, double y)
     {
         switch (_mode)
@@ -219,6 +221,20 @@ internal sealed partial class TinyComp
                 {
                     _ = PhysicsDragTo(window, 0, 0, follow: true);
                     return true;
+                }
+
+                if (window.Maximized)
+                {
+                    if (Math.Abs(x - _grabStartX) + Math.Abs(y - _grabStartY) < RestoreDragThreshold)
+                    {
+                        return true;
+                    }
+
+                    var before = window.GeometrySize.Width;
+                    if (window.RestoreForDrag() is { } restored && before > 0)
+                    {
+                        _grabX = Math.Clamp(_grabX * restored.Width / before, 0, Math.Max(0, restored.Width - 1));
+                    }
                 }
 
                 var beforeX = window.X;

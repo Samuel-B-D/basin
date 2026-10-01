@@ -8,6 +8,10 @@ internal sealed class SettingsContext
 
     public required IReadOnlyList<string> MetacityThemes { get; init; }
 
+    public IReadOnlyList<Basin.Themes.MsStyles.MsStylesThemeEntry> MsStylesThemes { get; init; } = [];
+
+    public IReadOnlyList<string> MsStylesThemeNames { get; init; } = [];
+
     public required IReadOnlyCollection<string> FromFlags { get; init; }
 
     public required IReadOnlyList<SettingsOutput> Outputs { get; init; }

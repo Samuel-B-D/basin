@@ -259,26 +259,26 @@ public static class SettingsWidgets
     }
 
     public static void ColorRow(
-        Prowl.PaperUI.Paper paper, SettingsTheme theme, string id, string label, ISettingValue<string> value)
+        Prowl.PaperUI.Paper paper, SettingsTheme theme, string id, string label, ISettingValue<string> value, bool alpha = false)
     {
         ArgumentNullException.ThrowIfNull(value);
         using var row = Row(paper, theme, id, label, value.IsDirty, value.Badge, value.Error, value.Hint);
         var current = value.Value;
-        var valid = TryParseColor(current, out var parsed);
+        var valid = TryParseColor(current, alpha, out var parsed);
         var open = paper.GetElementStorage(row.Outer, "open", false);
         var swatch = MathF.Round(theme.RowHeight * 0.6f);
         paper.Box("swatch").Size(swatch, swatch).Rounded(4).BorderColor(open ? theme.Accent : theme.Border).BorderWidth(open ? 2 : 1)
             .BackgroundColor(valid ? parsed : new Color32(0, 0, 0, 0)).Cursor(PaperCursor.Pointer)
             .OnClick((paper, row.Outer), static (context, _) =>
                 context.paper.SetElementStorage(context.Outer, "open", !context.paper.GetElementStorage(context.Outer, "open", false)));
-        TextField(paper, theme, "hex", theme.ControlWidth - swatch - 8f, current, "#rrggbb", value, static (setting, text) =>
+        TextField(paper, theme, "hex", theme.ControlWidth - swatch - 8f, current, alpha ? "#aarrggbb" : "#rrggbb", (value, alpha), static (context, text) =>
         {
-            if (!TryParseColor(text, out _))
+            if (!TryParseColor(text, context.alpha, out _))
             {
                 return false;
             }
 
-            setting.Value = text.Trim();
+            context.value.Value = text.Trim();
             return true;
         });
         row.EndLine();
@@ -287,6 +287,9 @@ public static class SettingsWidgets
             ColorPicker(paper, theme, row.Outer, value, valid ? parsed : new Color32(0x80, 0x80, 0x80, 0xff));
         }
     }
+
+    private static string KeepAlpha(string? current, string hex) =>
+        current is { Length: 9 } && current[0] == '#' ? string.Concat("#", current.AsSpan(1, 2), hex.AsSpan(1)) : hex;
 
     public static string Hex(Color32 color) =>
         string.Create(CultureInfo.InvariantCulture, $"#{color.R:x2}{color.G:x2}{color.B:x2}");
@@ -554,7 +557,9 @@ public static class SettingsWidgets
         return new ScrollScope(paper, theme, handle, outerScope, content.Enter(), scrolled);
     }
 
-    public static bool TryParseColor(string? text, out Color32 color)
+    public static bool TryParseColor(string? text, out Color32 color) => TryParseColor(text, false, out color);
+
+    public static bool TryParseColor(string? text, bool alpha, out Color32 color)
     {
         color = default;
         if (text is null)
@@ -563,6 +568,13 @@ public static class SettingsWidgets
         }
 
         var span = text.AsSpan().Trim();
+        if (alpha && span.Length == 9 && span[0] == '#' &&
+            uint.TryParse(span[1..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var argb))
+        {
+            color = new Color32((byte)(argb >> 16), (byte)(argb >> 8), (byte)argb, (byte)(argb >> 24));
+            return true;
+        }
+
         if (span.Length != 7 || span[0] != '#' ||
             !uint.TryParse(span[1..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var rgb))
         {
@@ -734,7 +746,7 @@ public static class SettingsWidgets
         {
             (hue, saturation, brightness) = ToHsv(color);
             paper.SetElementStorage(outer, "hue", hue);
-            value.Value = Hex(color);
+            value.Value = KeepAlpha(value.Value, Hex(color));
         }
 
         public void DrawSquare(Canvas canvas, Rect rect)
@@ -796,7 +808,7 @@ public static class SettingsWidgets
         private void Commit()
         {
             paper.SetElementStorage(outer, "hue", hue);
-            var hex = Hex(FromHsv(hue, saturation, brightness));
+            var hex = KeepAlpha(value.Value, Hex(FromHsv(hue, saturation, brightness)));
             if (!string.Equals(hex, value.Value, StringComparison.OrdinalIgnoreCase))
             {
                 value.Value = hex;

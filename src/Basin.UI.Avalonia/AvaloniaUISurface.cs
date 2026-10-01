@@ -27,6 +27,7 @@ public sealed class AvaloniaUISurface : IUISurface
     private readonly global::Avalonia.Point[] _touchPoints = new global::Avalonia.Point[TouchCapacity];
     private readonly bool[] _touchLive = new bool[TouchCapacity];
     private RawInputModifiers _modifiers;
+    private bool _keyHandled;
     private bool _pointerInside;
     private volatile bool _damagePending;
     private volatile bool _disposed;
@@ -309,7 +310,7 @@ public sealed class AvaloniaUISurface : IUISurface
 
             _modifiers = EvdevInput.WithKey(_modifiers, key, pressed);
             var physical = EvdevInput.PhysicalKeyOf(key);
-            Raise(new RawKeyEventArgs(
+            var args = new RawKeyEventArgs(
                 _keyboard,
                 timeMs,
                 InputRootOf(),
@@ -317,7 +318,9 @@ public sealed class AvaloniaUISurface : IUISurface
                 physical.ToQwertyKey(),
                 _modifiers,
                 physical,
-                physical.ToQwertyKeySymbol(_modifiers.HasFlag(RawInputModifiers.Shift))));
+                physical.ToQwertyKeySymbol(_modifiers.HasFlag(RawInputModifiers.Shift)));
+            Raise(args);
+            _keyHandled = pressed && args.Handled;
         });
     }
 
@@ -383,6 +386,12 @@ public sealed class AvaloniaUISurface : IUISurface
         var committed = new string(text);
         OnUiThread(() =>
         {
+            if (_keyHandled)
+            {
+                _keyHandled = false;
+                return;
+            }
+
             if (Ready)
             {
                 Raise(new RawTextInputEventArgs(_keyboard, 0, InputRootOf(), committed));

@@ -11,7 +11,7 @@ background    = "#171a1f"    # desktop color, #rrggbb
 # mode      = "3840x2560@60"  # WIDTHxHEIGHT or WIDTHxHEIGHT@HZ
 
 [frame]
-style         = "flat"       # beos | flat | metacity | quill | none
+style         = "flat"       # beos | flat | metacity | msstyles | quill | none
 corner_radius = 0            # logical pixels
 font_size     = 14           # title size in logical pixels
 
@@ -21,6 +21,17 @@ font_size     = 14           # title size in logical pixels
 # button_layout = "menu:minimize,maximize,close" # marco's button layout
 # palette       = "light"                        # light | dark
 # backdrop_blur = 0                              # 0 off, 1 to 15
+
+# Windows visual style frames.
+# [frame.msstyles]
+# theme         = "Luna"       # a name under themes/ or msstyles/, or a path
+# color         = ""           # color scheme, empty for the theme's first
+# size          = ""           # size variant, empty for the theme's first
+# look          = "auto"       # auto | classic-xp | basic | glass
+# font          = ""           # caption font when the theme's is missing
+# colorization  = "#45409efe"  # glass tint, #aarrggbb, alpha is the strength
+# backdrop_blur = 0            # 0 off, any other value blurs behind glass
+# painter       = "skia"       # skia | quill
 
 # Prowl.Quill frames.
 # [frame.quill]
@@ -51,6 +62,7 @@ notifications = false        # slide in notifications
 dim_inactive = false         # dim unfocused windows
 drop_shadow  = false         # window shadows
 highlight    = false         # ghost unselected switcher cards
+blur_kernel  = "kawase"      # client background blur: kawase | vista (Aero glass, no strength)
 
 # Screen post stages, a name or an array.
 post = "none"                # none | invert | magnify | zoom | color-blindness | show-paint
@@ -335,7 +347,7 @@ click_method   = "clickfinger"  # none | button_areas | clickfinger
 # [[rule]]
 # app_id      = "mpv"        # exact match
 # title_regex = ""           # regex
-# frame       = "none"       # beos | flat | metacity | quill | none
+# frame       = "none"       # beos | flat | metacity | msstyles | quill | none
 # effects     = false        # or per effect: wobbly = false, open = "none"
 # workspace   = 2
 # x = 0

@@ -29,6 +29,8 @@ public sealed class SceneBuffer : SceneNode
 
     public Box? InputBox { get; set; }
 
+    public ISceneInputFilter? InputFilter { get; set; }
+
     public int AcquireFenceFd { get; set; } = -1;
 
     public FBox SourceBox
@@ -274,6 +276,11 @@ public sealed class SceneBuffer : SceneNode
         }
 
         if (InputBox is { } box && (x < box.X || y < box.Y || x >= box.Right || y >= box.Bottom))
+        {
+            return false;
+        }
+
+        if (InputFilter is { } filter && !filter.AcceptsInputAt(this, x, y))
         {
             return false;
         }

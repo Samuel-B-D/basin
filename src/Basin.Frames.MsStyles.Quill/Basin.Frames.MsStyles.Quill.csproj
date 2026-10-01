@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Basin.Frames.MsStyles.Quill</PackageId>
+    <RootNamespace>Basin.Frames.MsStyles.Quill</RootNamespace>
+    <Description>Windows visual style (.msstyles) window frames for Basin, painted with Prowl.Quill on GLES or Vulkan.</Description>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Basin.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Basin.Core/Basin.Core.csproj" />
+    <ProjectReference Include="../Basin.Themes.MsStyles/Basin.Themes.MsStyles.csproj" />
+    <ProjectReference Include="../Basin.Frames.MsStyles/Basin.Frames.MsStyles.csproj" />
+    <ProjectReference Include="../Basin.UI.Quill/Basin.UI.Quill.csproj" />
+    <PackageReference Include="Prowl.Quill" />
+  </ItemGroup>
+
+</Project>

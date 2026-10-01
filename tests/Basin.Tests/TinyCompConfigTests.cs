@@ -440,6 +440,55 @@ public sealed class TinyCompConfigTests : IDisposable
     }
 
     [Fact]
+    public void Blur_kernel_reads_kawase_or_vista()
+    {
+        var vista = TinyComp.Config.Load(Write("[effects]\nblur_kernel = \"vista\"\n"), BasinLog.For("t"), out var fatal);
+        Assert.Null(fatal);
+        Assert.Equal("vista", vista.BlurKernel);
+
+        var unset = TinyComp.Config.Load(Write("[effects]\nwobbly = false\n"), BasinLog.For("t"), out _);
+        Assert.Equal("kawase", unset.BlurKernel);
+
+        var wrong = TinyComp.Config.Load(Write("[effects]\nblur_kernel = \"gaussian\"\n"), BasinLog.For("t"), out _);
+        Assert.Equal("kawase", wrong.BlurKernel);
+        Assert.Contains(_lines, line => line.Contains("blur_kernel", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Msstyles_keys_parse_and_a_missing_theme_is_fatal()
+    {
+        var config = TinyComp.Config.Load(
+            Write("[frame]\nstyle = \"msstyles\"\n[frame.msstyles]\ntheme = \"NoSuchStyleAnywhere\"\ncolor = \"Metallic\"\nsize = \"LargeFonts\"\n"
+                + "look = \"basic\"\nfont = \"DejaVu Sans\"\ncolorization = \"#80112233\"\nbackdrop_blur = 4\npainter = \"quill\"\n"
+                + "[[rule]]\napp_id = \"foot\"\nframe = \"msstyles\"\n"),
+            BasinLog.For("t"),
+            out var fatal);
+        Assert.Equal(TinyComp.FrameStyle.MsStyles, config.FrameStyle);
+        Assert.Equal("NoSuchStyleAnywhere", config.MsStylesTheme);
+        Assert.Equal("Metallic", config.MsStylesColor);
+        Assert.Equal("LargeFonts", config.MsStylesSize);
+        Assert.Equal("basic", config.MsStylesLook);
+        Assert.Equal("DejaVu Sans", config.MsStylesFont);
+        Assert.Equal(0x80112233u, config.MsStylesColorization);
+        Assert.Equal(4, config.MsStylesBackdropBlur);
+        Assert.Equal("quill", config.MsStylesPainter);
+        Assert.Equal(TinyComp.FrameStyle.MsStyles, Assert.Single(config.Rules).FrameStyle);
+        Assert.NotNull(fatal);
+        Assert.Contains("NoSuchStyleAnywhere", fatal);
+        Assert.Contains("installed themes", fatal);
+
+        _ = TinyComp.Config.Load(Write("[frame]\nstyle = \"msstyles\"\n"), BasinLog.For("t"), out var unnamed);
+        Assert.NotNull(unnamed);
+        Assert.Contains("names no theme", unnamed);
+
+        var flat = TinyComp.Config.Load(
+            Write("[frame]\nstyle = \"flat\"\n[frame.msstyles]\ntheme = \"NoSuchStyleAnywhere\"\ncolorization = \"blue\"\n"), BasinLog.For("t"), out var ignored);
+        Assert.Null(ignored);
+        Assert.Equal(Basin.Frames.MsStyles.MsStylesFrameStyle.DefaultColorization, flat.MsStylesColorization);
+        Assert.Contains(_lines, line => line.Contains("colorization", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void The_canvas_table_reads_every_key_and_clamps_the_edge_scale()
     {
         var log = BasinLog.For("t");

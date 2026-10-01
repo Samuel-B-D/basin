@@ -4,7 +4,7 @@ using Pixman;
 
 namespace Basin.Scene;
 
-public sealed class Frame : IUISurfaceObserver, IDisposable
+public sealed class Frame : IUISurfaceObserver, ISceneInputFilter, IFrameSink, IDisposable
 {
     private readonly ThreadAffinity _thread = ThreadAffinity.Capture();
     private readonly FrameHosts _hosts;
@@ -26,16 +26,22 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
 
     private Box _pendingGeometry;
     private FrameInsets _pendingInsets;
+    private FrameInsets _pendingOutsets;
     private FrameState _pendingState;
     private double _pendingScale;
 
     private Box _shownGeometry;
     private FrameInsets _shownInsets;
+    private FrameInsets _shownOutsets;
     private FrameState _shownState;
     private double _shownScale;
     private bool _shownValid;
 
     private FrameInteraction _interaction;
+    private bool _animating;
+    private bool _clockAttached;
+    private FramePlacement _placement;
+    private bool _fullAnimation;
     private bool _suppressSurfaceDamage;
     private uint _lastTitlePressMs;
     private bool _titleArmed;
@@ -64,7 +70,7 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
         _stripBoxes = new Box[4];
         for (var i = 0; i < 4; i++)
         {
-            _strips[i] = new SceneBuffer(_tree) { Enabled = false, PreciseDamage = true };
+            _strips[i] = new SceneBuffer(_tree) { Enabled = false, PreciseDamage = true, InputFilter = this };
         }
     }
 
@@ -73,6 +79,16 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
     public IBuffer? PresentedChrome => _shown.Buffer;
 
     public FrameInsets Insets { get; private set; }
+
+    public FrameInsets Outsets { get; private set; }
+
+    public Box DrawnBounds { get; private set; }
+
+    public IFrameClock? Clock { get; set; }
+
+    public Func<long> Time { get; set; } = static () => MonotonicClock.Nanos;
+
+    public bool Animating => _animating;
 
     public IReadOnlyList<SceneBuffer> StripNodes => _strips;
 
@@ -125,9 +141,26 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
         }
     }
 
-    public void Configure(in Box geometry, double scale, in FrameState state)
+    public FramePlacement Placement
+    {
+        get => _placement;
+        set
+        {
+            _thread.Assert();
+            if (_placement == value)
+            {
+                return;
+            }
+
+            _placement = value;
+            RedrawPlacement();
+        }
+    }
+
+    public void Configure(in Box geometry, double scale, in FrameState requested)
     {
         _thread.Assert();
+        var state = requested with { Placement = _placement };
         if (_faulted || _disposed || geometry.IsEmpty)
         {
             return;
@@ -141,9 +174,11 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
         }
 
         FrameInsets insets;
+        FrameInsets outsets;
         try
         {
             insets = _renderer.Measure(state, scale);
+            outsets = _renderer.Outsets(state, scale);
         }
         catch (Exception e)
         {
@@ -151,8 +186,16 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
             return;
         }
 
-        var outerWidth = geometry.Width + insets.Left + insets.Right;
-        var outerHeight = geometry.Height + insets.Top + insets.Bottom;
+        var previousState = _hasPending ? _pendingState : _shownState;
+        if ((_hasPending || _shownValid) && previousState.Active != state.Active)
+        {
+            var now = Time();
+            _interaction = _interaction with { ActiveChangedAt = now, Now = now };
+            _fullAnimation = true;
+        }
+
+        var outerWidth = geometry.Width + insets.Left + insets.Right + outsets.Left + outsets.Right;
+        var outerHeight = geometry.Height + insets.Top + insets.Bottom + outsets.Top + outsets.Bottom;
 
         try
         {
@@ -188,8 +231,10 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
                 return;
             }
 
-            var clientBox = new Box(insets.Left, insets.Top, geometry.Width, geometry.Height);
+            var clientBox = new Box(outsets.Left + insets.Left, outsets.Top + insets.Top, geometry.Width, geometry.Height);
+            _interaction = _interaction with { Now = Time() };
             _renderer.Draw(_surface, clientBox, state, _interaction);
+            UpdateAnimating(state);
 
             if (_hasPending)
             {
@@ -212,6 +257,7 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
 
         _pendingGeometry = geometry;
         _pendingInsets = insets;
+        _pendingOutsets = outsets;
         _pendingState = state;
         _pendingScale = scale;
     }
@@ -232,19 +278,27 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
         }
 
         var insets = _pendingInsets;
+        var outsets = _pendingOutsets;
         var geometry = _pendingGeometry;
         var outer = new Box(
             geometry.X - insets.Left,
             geometry.Y - insets.Top,
             geometry.Width + insets.Left + insets.Right,
             geometry.Height + insets.Top + insets.Bottom);
+        var drawn = new Box(
+            outer.X - outsets.Left,
+            outer.Y - outsets.Top,
+            outer.Width + outsets.Left + outsets.Right,
+            outer.Height + outsets.Top + outsets.Bottom);
 
-        _tree.SetPosition(outer.X, outer.Y);
+        _tree.SetPosition(drawn.X, drawn.Y);
 
-        _stripBoxes[0] = new Box(0, 0, outer.Width, insets.Top);
-        _stripBoxes[1] = new Box(0, insets.Top, insets.Left, geometry.Height);
-        _stripBoxes[2] = new Box(outer.Width - insets.Right, insets.Top, insets.Right, geometry.Height);
-        _stripBoxes[3] = new Box(0, outer.Height - insets.Bottom, outer.Width, insets.Bottom);
+        var top = outsets.Top + insets.Top;
+        var bottom = outsets.Bottom + insets.Bottom;
+        _stripBoxes[0] = new Box(0, 0, drawn.Width, top);
+        _stripBoxes[1] = new Box(0, top, outsets.Left + insets.Left, geometry.Height);
+        _stripBoxes[2] = new Box(drawn.Width - outsets.Right - insets.Right, top, outsets.Right + insets.Right, geometry.Height);
+        _stripBoxes[3] = new Box(0, drawn.Height - bottom, drawn.Width, bottom);
 
         for (var i = 0; i < 4; i++)
         {
@@ -276,14 +330,18 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
 
         _shownGeometry = geometry;
         _shownInsets = insets;
+        _shownOutsets = outsets;
         _shownState = _pendingState;
         _shownScale = _pendingScale;
         _shownValid = true;
         Insets = insets;
+        Outsets = outsets;
         OuterBounds = outer;
+        DrawnBounds = drawn;
 
         DismissMenu();
         Committed?.Invoke();
+        RedrawPlacement();
     }
 
     private void ApplyBackdrop()
@@ -300,6 +358,19 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
             {
                 Fault(e);
                 return;
+            }
+
+            var o = _pendingOutsets;
+            if (wanted && o != default)
+            {
+                var g = _pendingGeometry;
+                var i = _pendingInsets;
+                _backdrop.IntersectRect(
+                    _backdrop,
+                    o.Left,
+                    o.Top,
+                    (uint)Math.Max(0, g.Width + i.Left + i.Right),
+                    (uint)Math.Max(0, g.Height + i.Top + i.Bottom));
             }
         }
 
@@ -358,17 +429,26 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
             return FramePart.None;
         }
 
-        var sx = x - (_shownGeometry.X - _shownInsets.Left);
-        var sy = y - (_shownGeometry.Y - _shownInsets.Top);
+        var o = _shownOutsets;
+        var sx = x - (_shownGeometry.X - _shownInsets.Left - o.Left);
+        var sy = y - (_shownGeometry.Y - _shownInsets.Top - o.Top);
+        return SurfacePartAt(sx, sy);
+    }
+
+    private FramePart SurfacePartAt(double sx, double sy)
+    {
+        var o = _shownOutsets;
         var outerWidth = _shownGeometry.Width + _shownInsets.Left + _shownInsets.Right;
         var outerHeight = _shownGeometry.Height + _shownInsets.Top + _shownInsets.Bottom;
-        if (sx < 0 || sy < 0 || sx >= outerWidth || sy >= outerHeight)
+        if (sx < o.Left || sy < o.Top || sx >= o.Left + outerWidth || sy >= o.Top + outerHeight)
         {
             return FramePart.None;
         }
 
-        if (sx >= _shownInsets.Left && sx < _shownInsets.Left + _shownGeometry.Width &&
-            sy >= _shownInsets.Top && sy < _shownInsets.Top + _shownGeometry.Height)
+        var clientX = o.Left + _shownInsets.Left;
+        var clientY = o.Top + _shownInsets.Top;
+        if (sx >= clientX && sx < clientX + _shownGeometry.Width &&
+            sy >= clientY && sy < clientY + _shownGeometry.Height)
         {
             return FramePart.None;
         }
@@ -382,6 +462,24 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
             Fault(e);
             return FramePart.None;
         }
+    }
+
+    public bool AcceptsInputAt(SceneBuffer buffer, double x, double y)
+    {
+        _thread.Assert();
+        if (!_shownValid || _faulted || _disposed)
+        {
+            return false;
+        }
+
+        var index = Array.IndexOf(_strips, buffer);
+        if (index < 0)
+        {
+            return true;
+        }
+
+        var box = _stripBoxes[index];
+        return SurfacePartAt(box.X + x, box.Y + y) != FramePart.None;
     }
 
     public string? CursorAt(double x, double y)
@@ -413,7 +511,7 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
         if (part != _interaction.Hot)
         {
             var previous = _interaction.Hot;
-            _interaction = _interaction with { Hot = part };
+            SetHot(part);
             RedrawShown(previous, part);
         }
     }
@@ -421,10 +519,11 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
     public void PointerLeave()
     {
         _thread.Assert();
-        if (_interaction != default)
+        if (_interaction.Hot != FramePart.None || _interaction.Pressed != FramePart.None)
         {
             var previous = _interaction;
-            _interaction = default;
+            SetHot(FramePart.None);
+            SetPressed(FramePart.None);
             RedrawShown(previous.Hot, previous.Pressed);
         }
     }
@@ -453,7 +552,7 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
                     _titleArmed = false;
                     if (_interaction.Pressed != part)
                     {
-                        _interaction = _interaction with { Pressed = part };
+                        SetPressed(part);
                         RedrawShown(part, FramePart.None);
                     }
 
@@ -489,7 +588,7 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
             return;
         }
 
-        _interaction = _interaction with { Pressed = FramePart.None };
+        SetPressed(FramePart.None);
         RedrawShown(released, FramePart.None);
         if (part != released)
         {
@@ -548,7 +647,7 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
             case FramePart.Icon:
                 _titleArmed = false;
                 _touchLatch = id;
-                _interaction = _interaction with { Pressed = part };
+                SetPressed(part);
                 RedrawShown(part, FramePart.None);
                 return;
             case FramePart.Title:
@@ -591,7 +690,7 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
             return;
         }
 
-        _interaction = _interaction with { Pressed = FramePart.None };
+        SetPressed(FramePart.None);
         RedrawShown(released, FramePart.None);
         if (TouchPartAt(x, y) != released)
         {
@@ -640,7 +739,7 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
             return;
         }
 
-        _interaction = _interaction with { Pressed = FramePart.None };
+        SetPressed(FramePart.None);
         RedrawShown(released, FramePart.None);
     }
 
@@ -867,6 +966,152 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
         }
     }
 
+    private void SetHot(FramePart part)
+    {
+        if (_interaction.Hot == part)
+        {
+            return;
+        }
+
+        _interaction = _interaction with { PreviousHot = _interaction.Hot, Hot = part, HoverChangedAt = Time() };
+    }
+
+    private void SetPressed(FramePart part)
+    {
+        if (_interaction.Pressed == part)
+        {
+            return;
+        }
+
+        _interaction = _interaction with { PreviousPressed = _interaction.Pressed, Pressed = part, PressChangedAt = Time() };
+    }
+
+    public void BeginFrame(IOutput output, long predictedVblankNanos) => Tick(predictedVblankNanos);
+
+    public void EndFrame(IOutput output, long presentedNanos)
+    {
+    }
+
+    public void Tick(long now)
+    {
+        _thread.Assert();
+        if (!_animating || !_shownValid || _hasPending || _surface is null || _faulted || _disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            _interactionDamage.Clear();
+            if (!_fullAnimation)
+            {
+                AddPartBounds(_interaction.Hot);
+                AddPartBounds(_interaction.PreviousHot);
+                AddPartBounds(_interaction.Pressed);
+                AddPartBounds(_interaction.PreviousPressed);
+            }
+
+            _interaction = _interaction with { Now = now };
+            _suppressSurfaceDamage = true;
+            try
+            {
+                _renderer.Draw(_surface, ShownClientBox(), _shownState, _interaction);
+            }
+            finally
+            {
+                _suppressSurfaceDamage = false;
+            }
+
+            if (_fullAnimation)
+            {
+                _interactionDamage.Clear();
+            }
+
+            DamageStrips(_interactionDamage);
+            UpdateAnimating(_shownState);
+            if (_animating && _clockAttached && Clock is { } clock)
+            {
+                clock.RequestFrame();
+            }
+        }
+        catch (Exception e)
+        {
+            Fault(e);
+        }
+    }
+
+    private void RedrawPlacement()
+    {
+        if (!_shownValid || _hasPending || _surface is null || _faulted || _disposed || _shownState.Placement == _placement)
+        {
+            return;
+        }
+
+        _shownState = _shownState with { Placement = _placement };
+        if (!_renderer.FollowsPlacement)
+        {
+            return;
+        }
+
+        try
+        {
+            _interaction = _interaction with { Now = Time() };
+            _renderer.Draw(_surface, ShownClientBox(), _shownState, _interaction);
+        }
+        catch (Exception e)
+        {
+            Fault(e);
+        }
+    }
+
+    private Box ShownClientBox() => new(
+        _shownOutsets.Left + _shownInsets.Left,
+        _shownOutsets.Top + _shownInsets.Top,
+        _shownGeometry.Width,
+        _shownGeometry.Height);
+
+    private void UpdateAnimating(in FrameState state)
+    {
+        var animating = _renderer.Animating(state, _interaction);
+        if (!animating)
+        {
+            _fullAnimation = false;
+        }
+
+        if (animating == _animating)
+        {
+            return;
+        }
+
+        _animating = animating;
+        if (Clock is not { } clock)
+        {
+            return;
+        }
+
+        if (animating && !_clockAttached)
+        {
+            clock.Add(this);
+            _clockAttached = true;
+        }
+        else if (!animating && _clockAttached)
+        {
+            clock.Remove(this);
+            _clockAttached = false;
+        }
+    }
+
+    private void DetachClock()
+    {
+        _animating = false;
+        if (_clockAttached && Clock is { } clock)
+        {
+            clock.Remove(this);
+        }
+
+        _clockAttached = false;
+    }
+
     public static FrameEdges EdgesOf(FramePart part) => part switch
     {
         FramePart.Top => FrameEdges.Top,
@@ -913,15 +1158,11 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
                 return;
             }
 
-            var clientBox = new Box(
-                _shownInsets.Left,
-                _shownInsets.Top,
-                _shownGeometry.Width,
-                _shownGeometry.Height);
+            _interaction = _interaction with { Now = Time() };
             _suppressSurfaceDamage = true;
             try
             {
-                _renderer.Draw(_surface, clientBox, _shownState, _interaction);
+                _renderer.Draw(_surface, ShownClientBox(), _shownState, _interaction);
             }
             finally
             {
@@ -929,6 +1170,7 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
             }
 
             DamageStrips(_interactionDamage);
+            UpdateAnimating(_shownState);
         }
         catch (Exception e)
         {
@@ -1007,6 +1249,7 @@ public sealed class Frame : IUISurfaceObserver, IDisposable
 
     private void TearDown()
     {
+        DetachClock();
         DismissMenu();
         foreach (var strip in _strips)
         {

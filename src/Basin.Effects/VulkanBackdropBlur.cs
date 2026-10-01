@@ -51,6 +51,9 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
     private readonly Pipeline _down;
     private readonly Pipeline _up;
     private readonly Pipeline _onscreen;
+    private readonly Pipeline _dwmDown;
+    private readonly Pipeline _dwm;
+    private bool _anyVistaDwm;
     private readonly Dictionary<(uint Width, uint Height), Pyramid> _pyramids = [];
     private readonly Dictionary<ulong, (DescriptorSet Set, uint Width, uint Height)> _backdropSets = [];
     private readonly float[] _colorMatrix = new float[BlurColorMatrix.Length];
@@ -75,7 +78,7 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
 
     public BackgroundEffects Supported => BackgroundEffects.Blur | BackgroundEffects.Contrast;
 
-    public int ExpandSize => _widest.ExpandSize;
+    public int ExpandSize => Math.Max(_widest.ExpandSize, _anyVistaDwm ? VistaDwmKernel.ExpandSize : 0);
 
     public BlurCorners Corners { get; set; }
 
@@ -85,6 +88,7 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
     {
         ArgumentNullException.ThrowIfNull(key);
         _surfaces[key] = options;
+        _anyVistaDwm |= options.Kernel == BlurKernel.VistaDwm;
         if (options.Strength is { } strength)
         {
             Widen(BlurStrength.For(strength));
@@ -103,6 +107,7 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
         set
         {
             _options = value;
+            _anyVistaDwm |= value.Kernel == BlurKernel.VistaDwm;
             _strength = BlurStrength.For(value.Strength);
             BlurColorMatrix.Build(value.Saturation, value.Contrast, _colorMatrix);
             if (_noiseSide != BlurNoise.SizeFor(value.NoiseScale))
@@ -220,13 +225,19 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
         var down = CreateShaderModule("blur_down.frag.spv");
         var up = CreateShaderModule("blur_up.frag.spv");
         var onscreen = CreateShaderModule("blur_onscreen.frag.spv");
+        var dwmDown = CreateShaderModule("blur_dwm_down.frag.spv");
+        var dwm = CreateShaderModule("blur_dwm.frag.spv");
         _down = CreatePipeline(vertex, down);
         _up = CreatePipeline(vertex, up);
         _onscreen = CreatePipeline(vertex, onscreen);
+        _dwmDown = CreatePipeline(vertex, dwmDown);
+        _dwm = CreatePipeline(vertex, dwm);
         vk.DestroyShaderModule(device.Device, vertex, null);
         vk.DestroyShaderModule(device.Device, down, null);
         vk.DestroyShaderModule(device.Device, up, null);
         vk.DestroyShaderModule(device.Device, onscreen, null);
+        vk.DestroyShaderModule(device.Device, dwmDown, null);
+        vk.DestroyShaderModule(device.Device, dwm, null);
         BlurColorMatrix.Build(_options.Saturation, _options.Contrast, _colorMatrix);
         CreateNoiseImage();
         UploadNoise();
@@ -245,8 +256,9 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
         _current = context.Key is { } key && _surfaces.TryGetValue(key, out var stored) ? stored : new BlurSurfaceOptions();
         BuildSurfaceMatrix();
         _active = _current.Strength is { } strength ? BlurStrength.For(strength) : _strength;
+        var kernel = _current.Kernel ?? _options.Kernel;
         var levels = _active.Iterations;
-        var pad = _active.ExpandSize;
+        var pad = kernel == BlurKernel.VistaDwm ? VistaDwmKernel.ExpandSize : _active.ExpandSize;
         var pyramid = PyramidFor(context.TargetExtent);
 
         var padded = new Box(context.Bounds.X - pad, context.Bounds.Y - pad, context.Bounds.Width + (2 * pad), context.Bounds.Height + (2 * pad))
@@ -257,6 +269,16 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
             BlurPass(
                 commands, _onscreen, pyramid.Chain[0], _plainSet,
                 srcScale: 1f, RegionAtLevel(padded, 0), srcLevel: 0, plain: true);
+            MakeSampleable(commands, pyramid.Chain[0].Image);
+            result = new VulkanBackdropResult(pyramid.Chain[0].View, pyramid.Chain[0].Extent, context.Bounds) { Image = pyramid.Chain[0].Image };
+            return true;
+        }
+
+        if (kernel == BlurKernel.VistaDwm)
+        {
+            BlurPass(commands, _dwmDown, pyramid.Chain[1], _plainSet, srcScale: 2f, RegionAtLevel(padded, 1), 0, encoded: context.LinearLight);
+            MakeSampleable(commands, pyramid.Chain[1].Image);
+            BlurPass(commands, _dwm, pyramid.Chain[0], pyramid.Chain[1].Set, srcScale: 0.5f, RegionAtLevel(padded, 0), 1, encoded: context.LinearLight);
             MakeSampleable(commands, pyramid.Chain[0].Image);
             result = new VulkanBackdropResult(pyramid.Chain[0].View, pyramid.Chain[0].Extent, context.Bounds) { Image = pyramid.Chain[0].Image };
             return true;
@@ -293,7 +315,7 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
 
     private void BlurPass(
         CommandBuffer commands, Pipeline pipeline, Level dst, DescriptorSet srcSet, float srcScale, Rect2D region,
-        int srcLevel, bool plain = false)
+        int srcLevel, bool plain = false, bool encoded = false)
     {
         var vk = _device.Api;
         if (region.Offset.X + region.Extent.Width > dst.Extent.Width)
@@ -330,6 +352,7 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
             Reserved = 1 << srcLevel,
             OpacityValue = (float)Math.Clamp(Opacity * _current.Opacity, 0, 1),
             IntensityValue = _current.Contrast ? (float)parameters.Intensity : 1f,
+            Reserved2X = encoded ? 1f : 0f,
             HalfpixelX = halfpixel,
             HalfpixelY = halfpixel,
             BoxX = (float)(_surface.X + (_surface.Width / 2.0)),
@@ -690,6 +713,8 @@ public sealed unsafe class VulkanBackdropBlur : IVulkanBackdropEffect, IBackdrop
         vk.DestroyPipeline(_device.Device, _down, null);
         vk.DestroyPipeline(_device.Device, _up, null);
         vk.DestroyPipeline(_device.Device, _onscreen, null);
+        vk.DestroyPipeline(_device.Device, _dwmDown, null);
+        vk.DestroyPipeline(_device.Device, _dwm, null);
         vk.DestroyRenderPass(_device.Device, _pass, null);
         vk.DestroyPipelineLayout(_device.Device, _layout, null);
         vk.DestroyDescriptorPool(_device.Device, _descriptorPool, null);

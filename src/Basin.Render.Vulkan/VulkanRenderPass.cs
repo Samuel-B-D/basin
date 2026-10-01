@@ -575,6 +575,7 @@ internal sealed unsafe class VulkanRenderPass : IRenderPass
             TargetExtent = new Extent2D((uint)_target.Width, (uint)_target.Height),
             Bounds = bounds,
             Key = key,
+            LinearLight = true,
         };
         var recorded = vulkanEffect.Record(in context, out var result);
 

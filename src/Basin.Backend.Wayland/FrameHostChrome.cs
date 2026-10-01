@@ -50,7 +50,10 @@ public sealed class FrameHostChrome : HostFrameChrome
 
         var state = BuildState();
         var insets = _renderer.Measure(state, Frame.Scale);
-        if (!Frame.SetInsets(new HostFrameInsets(insets.Top, insets.Right, insets.Bottom, insets.Left)))
+        var outsets = _renderer.Outsets(state, Frame.Scale);
+        if (!Frame.SetInsets(
+                new HostFrameInsets(insets.Top + outsets.Top, insets.Right + outsets.Right, insets.Bottom + outsets.Bottom, insets.Left + outsets.Left),
+                new HostFrameInsets(outsets.Top, outsets.Right, outsets.Bottom, outsets.Left)))
         {
             return;
         }

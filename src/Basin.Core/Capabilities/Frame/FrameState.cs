@@ -27,4 +27,6 @@ public readonly record struct FrameState
     public bool Above { get; init; }
 
     public bool Sticky { get; init; }
+
+    public FramePlacement Placement { get; init; }
 }

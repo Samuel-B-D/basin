@@ -8,6 +8,8 @@ internal enum FrameStyle
 
     Metacity,
 
+    MsStyles,
+
     Quill,
 
     None,

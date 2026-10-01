@@ -51,6 +51,7 @@ internal sealed partial class TinyComp
             + " rules-apply-to-windows-mapped-after-this"
             + (restart.Count == 0 ? string.Empty : $" restart-required={string.Join(',', restart)}")
             + (metacityFailure is null ? string.Empty : " metacity=kept")
+            + (_msstylesKept ? " msstyles=kept" : string.Empty)
             + (textureErrors.Count == 0 ? string.Empty : " " + string.Join(' ', textureErrors))
             + $" input-rules={loaded.InputRules.Count}{inputRejections}"
             + ConfigSummary(loaded));
@@ -175,9 +176,16 @@ internal sealed partial class TinyComp
         }
 
         ApplyNightLight(next.NightLight);
+        var chromeBefore = (_frameStyle, _frameTheme, _metacity, _msstyles, _quillTheme);
         var metacityFailure = ApplyFrameFont(next) ?? ApplyMetacity(next);
+        _msstylesKept = ApplyMsStyles(next) is not null;
         ApplyQuill(next);
         ApplyFrameStyle(next.FrameStyle);
+        if (chromeBefore != (_frameStyle, _frameTheme, _metacity, _msstyles, _quillTheme))
+        {
+            RebuildHostChrome();
+        }
+
         ApplyCornerRadius(next.CornerRadius);
         ApplyPostStages(next);
         ApplyScreenShader(next);
@@ -246,6 +254,53 @@ internal sealed partial class TinyComp
         foreach (var xwindow in _xwindows)
         {
             if ((xwindow.Rule?.FrameStyle ?? _frameStyle) == FrameStyle.Metacity)
+            {
+                xwindow.RebuildFrame();
+            }
+        }
+
+        previous?.Dispose();
+        return null;
+    }
+
+    private string? ApplyMsStyles(Config loaded)
+    {
+        if (loaded.FrameStyle != FrameStyle.MsStyles && !_windows.Any(w => w.Rule?.FrameStyle == FrameStyle.MsStyles)
+            && !_xwindows.Any(w => w.Rule?.FrameStyle == FrameStyle.MsStyles))
+        {
+            return null;
+        }
+
+        if (_msstyles is { } current && current.Matches(loaded))
+        {
+            return null;
+        }
+
+        MsStylesFrames replacement;
+        try
+        {
+            replacement = MsStylesFrames.Load(loaded, MsStylesIcon);
+        }
+        catch (MsStylesFrameException e)
+        {
+            _log.Error($"reload keeps the running msstyles theme: {e.Message}");
+            return e.Message;
+        }
+
+        var previous = _msstyles;
+        _msstyles = replacement;
+        _report.Line(replacement.Describe());
+        foreach (var window in _windows)
+        {
+            if ((window.Rule?.FrameStyle ?? _frameStyle) == FrameStyle.MsStyles)
+            {
+                window.RebuildFrame();
+            }
+        }
+
+        foreach (var xwindow in _xwindows)
+        {
+            if ((xwindow.Rule?.FrameStyle ?? _frameStyle) == FrameStyle.MsStyles)
             {
                 xwindow.RebuildFrame();
             }
@@ -410,6 +465,7 @@ internal sealed partial class TinyComp
         _effects.SlideBackEnabled = config.SlideBack;
         _effects.StretchEnabled = config.Stretch;
         _effects.NotificationsEnabled = config.Notifications;
+        ApplyBlurKernel(config);
 
         if (!config.Highlight)
         {

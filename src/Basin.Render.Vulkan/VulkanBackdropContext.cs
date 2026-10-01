@@ -15,4 +15,6 @@ public readonly struct VulkanBackdropContext
     public required Box Bounds { get; init; }
 
     public object? Key { get; init; }
+
+    public bool LinearLight { get; init; }
 }

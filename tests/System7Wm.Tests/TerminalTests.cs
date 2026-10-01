@@ -134,6 +134,23 @@ public sealed class TerminalTests
         await session.QuitCleanlyAsync();
     }
 
+    [Theory]
+    [InlineData("us")]
+    [InlineData("jp")]
+    public async Task A_space_reaches_the_child_once(string layout)
+    {
+        using var session = await StartAsync(new Dictionary<string, string> { ["XKB_DEFAULT_LAYOUT"] = layout });
+        var keys = Path.Combine(session.Home, "keys");
+        await OpenAsync(session, $"terminal sh -c 'stty raw -echo; head -c 4 | od -An -tx1 > {keys}; sleep 30'");
+        await Task.Delay(500, TestContext.Current.CancellationToken);
+        await ChordAsync(session, 30);
+        await ChordAsync(session, 57);
+        await ChordAsync(session, 48);
+        await ChordAsync(session, 28);
+        Assert.Equal("61 20 62 0d", (await WaitForFileAsync(keys)).Trim());
+        await session.QuitCleanlyAsync();
+    }
+
     [Fact]
     public async Task Command_c_and_command_v_go_through_the_clipboard()
     {

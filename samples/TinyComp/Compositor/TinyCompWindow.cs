@@ -263,6 +263,27 @@ internal sealed partial class TinyComp
         public void ToggleMaximize() =>
             ApplyMaximize(!Toplevel.HasState(Basin.Shell.Xdg.Protocol.XdgToplevel.State.Maximized));
 
+        public bool Maximized => Toplevel.HasState(Basin.Shell.Xdg.Protocol.XdgToplevel.State.Maximized);
+
+        public (int Width, int Height)? RestoreForDrag()
+        {
+            if (!Maximized)
+            {
+                return null;
+            }
+
+            Toplevel.SetMaximized(false);
+            if (_maximizeRestore.TryGet(out var saved))
+            {
+                _maximizeRestore = RestoreGeometry.None;
+                Toplevel.SetSize(saved.Width, saved.Height);
+                return (saved.Width, saved.Height);
+            }
+
+            Toplevel.SetSize(0, 0);
+            return null;
+        }
+
         private void ApplyMaximize(bool maximized)
         {
             Toplevel.SetMaximized(maximized);
@@ -357,6 +378,7 @@ internal sealed partial class TinyComp
 
             _frame = new Frame(_comp.FrameHosts, renderer, Tree)
             {
+                Clock = _comp.FrameClock,
                 MenuLayer = _comp._layers.Overlay,
                 TouchSlop = TouchGripSlop,
             };

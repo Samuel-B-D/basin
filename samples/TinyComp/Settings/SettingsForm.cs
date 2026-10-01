@@ -320,7 +320,7 @@ internal sealed class SettingsForm
                 SettingsWidgets.NumberRow(paper, theme, key.Path, key.Label, slot, "0.###", key.Min, key.Max);
                 break;
             case SettingKind.Color:
-                SettingsWidgets.ColorRow(paper, theme, key.Path, key.Label, slot);
+                SettingsWidgets.ColorRow(paper, theme, key.Path, key.Label, slot, key.Alpha);
                 break;
             case SettingKind.Names:
                 NamesRow(paper, theme, key, slot);
@@ -387,8 +387,25 @@ internal sealed class SettingsForm
     {
         "renderers" => _context.Renderers,
         "metacity-themes" => _context.MetacityThemes,
+        "msstyles-themes" => _context.MsStylesThemeNames,
+        "msstyles-colors" => MsStylesEntry()?.Colors ?? [],
+        "msstyles-sizes" => MsStylesEntry()?.Sizes ?? [],
         _ => key.Choices ?? [],
     };
+
+    private Basin.Themes.MsStyles.MsStylesThemeEntry? MsStylesEntry()
+    {
+        var name = _draft.TextOf("frame.msstyles", "theme", string.Empty);
+        foreach (var entry in _context.MsStylesThemes)
+        {
+            if (string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return entry;
+            }
+        }
+
+        return null;
+    }
 
     private SettingSlot Slot(SettingKey key)
     {

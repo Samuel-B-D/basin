@@ -44,6 +44,7 @@ internal sealed partial class TinyComp
 
     private void WireOutputDriver()
     {
+        _driver.HostChrome = AttachHostChrome;
         _driver.Arrange = ArrangeOutputs;
         _driver.ConfiguredScale = output => _config.OutputSettingFor(output.Name)?.Scale;
         _driver.Added += OnViewAdded;
@@ -148,23 +149,6 @@ internal sealed partial class TinyComp
                     _probed = true;
                     _report.Line($"PROBE decorated={hosted.Decorated} hostFrame={(hosted.HostFrame is null ? "none" : "yes")} insets={(hosted.HostFrame is null ? "-" : hosted.HostFrame.Insets.ToString())} mode={hosted.CurrentMode.Width}x{hosted.CurrentMode.Height}");
                 }
-            };
-            hosted.HostFrameAvailable += frame =>
-            {
-                if (CreateFrameRenderer() is not { } renderer)
-                {
-                    return;
-                }
-
-                if (FrameHosts.For(renderer) is not { } host)
-                {
-                    _log.Error($"host frame: {FrameHosts.Describe(renderer)}");
-                    return;
-                }
-
-                var chrome = new FrameHostChrome(frame, host, renderer, $"basin — {hosted.Name}", onClose: () => _runLoop.Stop());
-                _hostChrome.Add(chrome);
-                hosted.Committed += chrome.OnOutputChanged;
             };
         }
 
@@ -292,6 +276,7 @@ internal sealed partial class TinyComp
 
     private void StepEffects(OutputView view, FrameTick tick)
     {
+        UpdatePlacements(view);
         var running = _effects.Step(tick);
         if (_feedback is { } feedback)
         {
@@ -622,5 +607,69 @@ internal sealed partial class TinyComp
                 view.Scheduler?.ScheduleRepaint();
             }
         }
+    }
+
+    private IDisposable? AttachHostChrome(WaylandOutput hosted, WaylandHostFrame frame)
+    {
+        var lease = new HostChromeLease(hosted, frame, CreateHostChrome);
+        _hostChrome.Add(lease);
+        return lease;
+    }
+
+    private IDisposable CreateHostChrome(WaylandOutput hosted, WaylandHostFrame frame)
+    {
+        if (CreateFrameRenderer() is not { } renderer)
+        {
+            return Basin.Backend.Wayland.Skia.DefaultHostChrome.Attach(hosted, frame);
+        }
+
+        if (FrameHosts.For(renderer) is not { } host)
+        {
+            _log.Error($"host frame: {FrameHosts.Describe(renderer)}");
+            return Basin.Backend.Wayland.Skia.DefaultHostChrome.Attach(hosted, frame);
+        }
+
+        var chrome = new FrameHostChrome(frame, host, renderer, $"basin — {hosted.Name}", onClose: () => _runLoop.Stop());
+        hosted.Committed += chrome.OnOutputChanged;
+        return new FrameHostChromeBinding(hosted, chrome);
+    }
+
+    private void RebuildHostChrome()
+    {
+        foreach (var lease in _hostChrome)
+        {
+            lease.Rebuild();
+        }
+    }
+
+    private void UpdatePlacements(OutputView view)
+    {
+        var output = view.Box;
+        foreach (var window in _windows)
+        {
+            Place(window.Frame, window.X, window.Y, window.GeometrySize, output);
+        }
+
+        foreach (var xwindow in _xwindows)
+        {
+            Place(xwindow.Frame, xwindow.X, xwindow.Y, xwindow.GeometrySize, output);
+        }
+    }
+
+    private static void Place(Basin.Scene.Frame? frame, int x, int y, (int Width, int Height) size, Box output)
+    {
+        if (frame is null || output.Width <= 0 || output.Height <= 0)
+        {
+            return;
+        }
+
+        var centerX = x + (size.Width / 2);
+        var centerY = y + (size.Height / 2);
+        if (centerX < output.X || centerX >= output.X + output.Width || centerY < output.Y || centerY >= output.Y + output.Height)
+        {
+            return;
+        }
+
+        frame.Placement = new Basin.Capabilities.FramePlacement(x - output.X, y - output.Y, output.Width, output.Height);
     }
 }

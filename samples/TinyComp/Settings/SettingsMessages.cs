@@ -93,6 +93,16 @@ internal static partial class SettingsMessages
             return ("That theme couldn't be loaded.", true);
         }
 
+        if (raw.Contains("names no theme in [frame.msstyles] theme", StringComparison.Ordinal))
+        {
+            return ("Pick a visual style under the style.", true);
+        }
+
+        if (raw.StartsWith("[frame.msstyles] theme", StringComparison.Ordinal))
+        {
+            return ("That visual style couldn't be loaded.", true);
+        }
+
         if (raw.Contains("names no profile in [color] icc", StringComparison.Ordinal))
         {
             return ("Choose an ICC profile file first.", true);

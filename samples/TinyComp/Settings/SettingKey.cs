@@ -30,6 +30,8 @@ internal sealed record SettingKey(string Section, string Table, string Key, stri
 
     public bool Optional { get; init; }
 
+    public bool Alpha { get; init; }
+
     public double Suggested { get; init; }
 
     public Func<SettingsDraft, bool>? Visible { get; init; }

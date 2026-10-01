@@ -40,6 +40,7 @@ public sealed class WaylandHostFrame : IDisposable
     private int _slotHeight;
 
     private HostFrameInsets _insets;
+    private HostFrameInsets _shadow;
     private bool _disposed;
     private bool _attached;
 
@@ -78,6 +79,11 @@ public sealed class WaylandHostFrame : IDisposable
 
     public HostFrameInsets Insets => _insets;
 
+    public HostFrameInsets Shadow => _shadow;
+
+    internal HostFrameInsets VisibleInsets => new(
+        _insets.Top - _shadow.Top, _insets.Right - _shadow.Right, _insets.Bottom - _shadow.Bottom, _insets.Left - _shadow.Left);
+
     internal bool HasContent => _attached;
 
     public int OuterWidth => _output.CurrentMode.Width == 0 ? 0 : _output.ContentLogicalWidth + _insets.Left + _insets.Right;
@@ -104,7 +110,9 @@ public sealed class WaylandHostFrame : IDisposable
 
     public event Action? PointerLeave;
 
-    public bool SetInsets(HostFrameInsets insets)
+    public bool SetInsets(HostFrameInsets insets) => SetInsets(insets, default);
+
+    public bool SetInsets(HostFrameInsets insets, HostFrameInsets shadow)
     {
         if (_disposed)
         {
@@ -116,12 +124,19 @@ public sealed class WaylandHostFrame : IDisposable
             return false;
         }
 
-        if (insets == _insets)
+        if (shadow.Top < 0 || shadow.Right < 0 || shadow.Bottom < 0 || shadow.Left < 0
+            || shadow.Top > insets.Top || shadow.Right > insets.Right || shadow.Bottom > insets.Bottom || shadow.Left > insets.Left)
+        {
+            return false;
+        }
+
+        if (insets == _insets && shadow == _shadow)
         {
             return true;
         }
 
         _insets = insets;
+        _shadow = shadow;
         if (insets.IsEmpty)
         {
             HideBands();
@@ -329,6 +344,7 @@ public sealed class WaylandHostFrame : IDisposable
 
             _subsurfaces[i].SetPosition(_bands[i].X, _bands[i].Y);
             _viewports[i].SetDestination(_bands[i].Width, _bands[i].Height);
+            SetBandInput(i);
             _surfaces[i].Commit();
         }
     }
@@ -369,6 +385,7 @@ public sealed class WaylandHostFrame : IDisposable
             WlFixed.FromDouble(box.Height * scale));
         _viewports[index].SetDestination(box.Width, box.Height);
         _subsurfaces[index].SetPosition(box.X, box.Y);
+        SetBandInput(index);
         surface.Attach(proxy, 0, 0);
         if (damage is null)
         {
@@ -381,6 +398,31 @@ public sealed class WaylandHostFrame : IDisposable
 
         surface.Commit();
         _bandShown[index] = true;
+    }
+
+    private void SetBandInput(int index)
+    {
+        if (_shadow.IsEmpty)
+        {
+            _surfaces[index].SetInputRegion(null);
+            return;
+        }
+
+        var band = _bands[index];
+        var contentW = OuterWidth - _insets.Left - _insets.Right;
+        var contentH = OuterHeight - _insets.Top - _insets.Bottom;
+        var left = Math.Max(band.X, _shadow.Left - _insets.Left);
+        var top = Math.Max(band.Y, _shadow.Top - _insets.Top);
+        var right = Math.Min(band.X + band.Width, contentW + _insets.Right - _shadow.Right);
+        var bottom = Math.Min(band.Y + band.Height, contentH + _insets.Bottom - _shadow.Bottom);
+        var region = _backend.ParentCompositor.CreateRegion();
+        if (right > left && bottom > top)
+        {
+            region.Add(left - band.X, top - band.Y, right - left, bottom - top);
+        }
+
+        _surfaces[index].SetInputRegion(region);
+        region.Dispose();
     }
 
     private void AddBandDamage(WlSurface surface, in Box band, PixmanRegion32 damage)

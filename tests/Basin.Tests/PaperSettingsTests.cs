@@ -145,6 +145,17 @@ public sealed class PaperSettingsTests
 
     private static (int X, int Y, int Size) PickerSquare(Rig rig) => (184, 250, (int)MathF.Round(14f * 11f));
 
+    [Fact]
+    public void A_color_field_takes_alpha_only_when_asked()
+    {
+        Assert.False(SettingsWidgets.TryParseColor("#45409efe", out _));
+        Assert.True(SettingsWidgets.TryParseColor("#45409efe", true, out var tint));
+        Assert.Equal(new Prowl.Vector.Color32(0x40, 0x9e, 0xfe, 0x45), tint);
+        Assert.True(SettingsWidgets.TryParseColor("#409efe", true, out var opaque));
+        Assert.Equal(0xff, opaque.A);
+        Assert.False(SettingsWidgets.TryParseColor("#45409efe0", true, out _));
+    }
+
     private static Prowl.Vector.Color32 Parse(string hex)
     {
         Assert.True(SettingsWidgets.TryParseColor(hex, out var color), hex);

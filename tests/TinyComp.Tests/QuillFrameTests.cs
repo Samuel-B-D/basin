@@ -82,9 +82,9 @@ public sealed class QuillFrameTests
         return (uint)((shot.Rgba[i] << 16) | (shot.Rgba[i + 1] << 8) | shot.Rgba[i + 2]);
     }
 
-    private sealed record Shot(byte[] Rgba, int Width, int Height);
+    internal sealed record Shot(byte[] Rgba, int Width, int Height);
 
-    private sealed class QuillSession : IDisposable
+    internal sealed class QuillSession : IDisposable
     {
         private readonly Process _compositor;
         private readonly string _runtimeDir;
@@ -99,7 +99,7 @@ public sealed class QuillFrameTests
             _runtimeDir = runtimeDir;
         }
 
-        public static QuillSession? Start(string renderer = "gl", [CallerFilePath] string sourcePath = "")
+        public static QuillSession? Start(string renderer = "gl", string config = "[frame]\nstyle = \"quill\"\n\n[frame.quill]\ncorner_radius = 8\n", [CallerFilePath] string sourcePath = "")
         {
             if (!OperatingSystem.IsLinux() || Locate("tinycomp") is not { } compositorPath ||
                 ClientPath(sourcePath) is not { } clientPath)
@@ -117,7 +117,7 @@ public sealed class QuillFrameTests
             Directory.CreateDirectory(runtimeDir);
             File.SetUnixFileMode(runtimeDir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             var configPath = Path.Combine(runtimeDir, "tinycomp.toml");
-            File.WriteAllText(configPath, "[frame]\nstyle = \"quill\"\n\n[frame.quill]\ncorner_radius = 8\n");
+            File.WriteAllText(configPath, config);
 
             var info = new ProcessStartInfo(compositorPath)
             {

@@ -32,6 +32,9 @@
     <Project Path="src/Basin.Freedesktop/Basin.Freedesktop.csproj" />
     <Project Path="src/Basin.Frames.Metacity/Basin.Frames.Metacity.csproj" />
     <Project Path="src/Basin.Frames.Quill/Basin.Frames.Quill.csproj" />
+    <Project Path="src/Basin.Frames.MsStyles/Basin.Frames.MsStyles.csproj" />
+    <Project Path="src/Basin.Frames.MsStyles.Quill/Basin.Frames.MsStyles.Quill.csproj" />
+    <Project Path="src/Basin.Themes.MsStyles/Basin.Themes.MsStyles.csproj" />
     <Project Path="src/Basin.Pty/Basin.Pty.csproj" />
     <Project Path="src/Basin.Backend.Wayland/Basin.Backend.Wayland.csproj" />
     <Project Path="src/Basin.Backend.Wayland.Skia/Basin.Backend.Wayland.Skia.csproj" />

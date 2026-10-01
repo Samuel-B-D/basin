@@ -181,9 +181,17 @@ internal sealed partial class TinyComp
         return null;
     }
 
-    private SettingsContext SettingsContextFor(Prowl.Scribe.FontFile font) => new()
+    private SettingsContext SettingsContextFor(Prowl.Scribe.FontFile font)
+    {
+        var msstyles = Basin.Themes.MsStyles.MsStylesThemes.Available();
+        return SettingsContextFor(font, msstyles);
+    }
+
+    private SettingsContext SettingsContextFor(Prowl.Scribe.FontFile font, IReadOnlyList<Basin.Themes.MsStyles.MsStylesThemeEntry> msstyles) => new()
     {
         ConfigPath = SettingsPath,
+        MsStylesThemes = msstyles,
+        MsStylesThemeNames = msstyles.Select(t => t.Name).ToList(),
         Renderers = Basin.Renderers.RendererCatalog.Names,
         MetacityThemes = Basin.Frames.Metacity.MetacityThemes.Available(),
         FromFlags = _config.FromFlags,

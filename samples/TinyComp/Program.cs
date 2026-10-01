@@ -103,7 +103,12 @@ internal static class Program
         cli.AddReport(_ => BasinCommand.Report("transactions", settings.Transactions));
         cli.AddReport(_ => BasinCommand.Report(
             "frame",
-            settings.FrameStyle == FrameStyle.Metacity ? $"metacity:{settings.MetacityTheme}" : settings.FrameStyle));
+            settings.FrameStyle switch
+            {
+                FrameStyle.Metacity => $"metacity:{settings.MetacityTheme}",
+                FrameStyle.MsStyles => $"msstyles:{settings.MsStylesTheme}",
+                _ => settings.FrameStyle.ToString(),
+            }));
         cli.AddReport(_ => BasinCommand.Report("corner-radius", settings.CornerRadius));
         cli.AddReport(_ => BasinCommand.Report("color-source", settings.ColorSource));
         cli.AddReport(_ => BasinCommand.Report("icc", settings.IccProfile));

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <BasinPlatforms>portable</BasinPlatforms>
+    <PackageId>Basin.Themes.MsStyles</PackageId>
+    <RootNamespace>Basin.Themes.MsStyles</RootNamespace>
+    <Description>Windows visual styles (.msstyles) for Basin: the XP and Vista formats read into a typed, uxtheme-shaped query surface.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Basin.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Basin.Freedesktop/Basin.Freedesktop.csproj" />
+  </ItemGroup>
+
+</Project>

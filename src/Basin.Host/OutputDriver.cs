@@ -15,6 +15,7 @@ public sealed class OutputDriver : IDisposable
     private readonly IRenderer _renderer;
     private readonly IAllocator? _deviceAllocator;
     private readonly List<OutputView> _views = [];
+    private IFrameClock? _frames;
     private readonly List<IAllocator> _ownedAllocators = [];
     private readonly OutputState _frameState = new();
     private readonly Dictionary<OutputView, Action<SceneNode?, Box>> _secondaryDamage = [];
@@ -44,7 +45,28 @@ public sealed class OutputDriver : IDisposable
 
     public SceneCapturePack? Capture { get; set; }
 
-    public IFrameClock? Frames { get; set; }
+    public IFrameClock? Frames
+    {
+        get => _frames;
+        set
+        {
+            if (ReferenceEquals(_frames, value))
+            {
+                return;
+            }
+
+            if (_frames is { } previous)
+            {
+                previous.FrameRequested -= OnFrameRequested;
+            }
+
+            _frames = value;
+            if (value is not null)
+            {
+                value.FrameRequested += OnFrameRequested;
+            }
+        }
+    }
 
     public RenderColor Background { get; set; } = new(0f, 0f, 0f, 1f);
 
@@ -742,6 +764,14 @@ public sealed class OutputDriver : IDisposable
     }
 
     private int _scopedRepaints;
+
+    private void OnFrameRequested()
+    {
+        foreach (var view in _views)
+        {
+            view.Scheduler?.ScheduleRepaint();
+        }
+    }
 
     private void Repaint(OutputView view)
     {

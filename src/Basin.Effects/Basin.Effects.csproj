@@ -32,6 +32,8 @@
     <EmbeddedResource Include="shaders/blur_down.frag.spv" LogicalName="blur_down.frag.spv" />
     <EmbeddedResource Include="shaders/blur_up.frag.spv" LogicalName="blur_up.frag.spv" />
     <EmbeddedResource Include="shaders/blur_onscreen.frag.spv" LogicalName="blur_onscreen.frag.spv" />
+    <EmbeddedResource Include="shaders/blur_dwm_down.frag.spv" LogicalName="blur_dwm_down.frag.spv" />
+    <EmbeddedResource Include="shaders/blur_dwm.frag.spv" LogicalName="blur_dwm.frag.spv" />
   </ItemGroup>
 
 </Project>

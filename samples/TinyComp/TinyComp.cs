@@ -75,11 +75,14 @@ internal sealed partial class TinyComp :
     private bool _quillBlurClamped;
     private bool _metacityBlurClamped;
     private bool _metacityOpaqueWarned;
+    private bool _msstylesQuillWarned;
+    private bool _msstylesKept;
     private Basin.Frames.Quill.QuillFrameTheme? _quillTheme;
     private FrameStyle _frameStyle;
     private FrameTheme? _frameTheme;
     private Basin.UI.Skia.FlatFrameTheme? _flatTheme;
     private MetacityFrames? _metacity;
+    private MsStylesFrames? _msstyles;
 
     internal IFrameRenderer? CreateFrameRenderer() => CreateFrameRenderer(_frameStyle);
 
@@ -88,6 +91,7 @@ internal sealed partial class TinyComp :
         FrameStyle.Beos => new BeosFrameRenderer(FrameThemeOrLoad()),
         FrameStyle.Flat => new Basin.UI.Skia.FlatFrameRenderer(FlatThemeOrLoad()),
         FrameStyle.Metacity => (_metacity ??= MetacityFrames.Load(_config, FrameThemeOrLoad())).CreateRenderer(),
+        FrameStyle.MsStyles => CreateMsStylesFrameRenderer(),
         FrameStyle.Quill => CreateQuillFrameRenderer(),
         _ => null,
     };
@@ -101,6 +105,37 @@ internal sealed partial class TinyComp :
         }
 
         return new Basin.Frames.Quill.QuillFrameRenderer(QuillThemeOrLoad());
+    }
+
+    private IFrameRenderer CreateMsStylesFrameRenderer()
+    {
+        var frames = _msstyles ??= MsStylesFrames.Load(_config, MsStylesIcon);
+        var quill = frames.Painter == "quill" && QuillHost() is not null;
+        if (frames.Painter == "quill" && !quill && !_msstylesQuillWarned)
+        {
+            _msstylesQuillWarned = true;
+            _log.Warn($"[frame.msstyles] painter = \"quill\" cannot run beside the {_config.Renderer} renderer: {_quillDeclined}; Skia paints the frames instead");
+        }
+
+        return frames.CreateRenderer(quill);
+    }
+
+    private SkiaSharp.SKImage? MsStylesIcon(string name, int scale) => FrameThemeOrLoad().IconFor(name, scale);
+
+    internal Basin.Capabilities.IFrameClock FrameClock => _frameClock;
+
+    private void ApplyBlurKernel(Config config)
+    {
+        if (_blurEffect is not { } blur)
+        {
+            return;
+        }
+
+        var kernel = config.BlurKernel == "vista" ? Basin.Effects.BlurKernel.VistaDwm : Basin.Effects.BlurKernel.DualKawase;
+        if (blur.Options.Kernel != kernel)
+        {
+            blur.Options = blur.Options with { Kernel = kernel };
+        }
     }
 
     private Basin.Frames.Quill.QuillFrameTheme QuillThemeOrLoad() => _quillTheme ??= QuillThemeOf(_config);
@@ -189,13 +224,21 @@ internal sealed partial class TinyComp :
                 _log.Warn($"[frame.metacity] backdrop_blur is set, but the {metacity.Painter.Theme.Name} theme sets no window_background_alpha, so its frames are opaque and hide the blur");
             }
         }
+        else if (renderer is Basin.Frames.MsStyles.MsStylesFrameRenderer or Basin.Frames.MsStyles.Quill.MsStylesQuillFrameRenderer
+                 && _msstyles is { Frosted: true, Glass: true })
+        {
+            frame.BackdropKey = frame;
+            blur.SetSurface(frame, new BlurSurfaceOptions { Kernel = Basin.Effects.BlurKernel.VistaDwm });
+            frame.BackdropEffect = blur;
+            return;
+        }
         else
         {
             return;
         }
 
         frame.BackdropKey = frame;
-        blur.SetSurface(frame, new BlurSurfaceOptions { Strength = strength });
+        blur.SetSurface(frame, new BlurSurfaceOptions { Strength = strength, Kernel = Basin.Effects.BlurKernel.DualKawase });
         frame.BackdropEffect = blur;
     }
 
@@ -257,7 +300,7 @@ internal sealed partial class TinyComp :
     private Basin.Desktop.LayerShellSceneDriver _layerDriver = null!;
     private readonly Basin.Desktop.PopupPlacer _popupPlacer;
     private readonly OutputLayout _layout = new();
-    private readonly List<Basin.Backend.Wayland.FrameHostChrome> _hostChrome = [];
+    private readonly List<HostChromeLease> _hostChrome = [];
     private bool _probed;
     private bool _outputsCreated;
     private readonly List<Basin.Render.Vulkan.VulkanDeviceBlitter> _blitters = [];
@@ -274,6 +317,7 @@ internal sealed partial class TinyComp :
     private DragMode _mode;
     private IGrabTarget? _grabWindow;
     private double _grabX, _grabY;
+    private double _grabStartX, _grabStartY;
     private Box _grabStart;
     private ResizeEdges _grabEdges;
     private double _cursorX, _cursorY;
@@ -613,6 +657,7 @@ internal sealed partial class TinyComp :
         if (BackdropBlurs.For(_renderer) is { } blur)
         {
             _blurEffect = blur;
+            ApplyBlurKernel(config);
             _services.Use<Basin.Capabilities.IBackgroundEffects>(blur);
         }
 
@@ -921,6 +966,12 @@ internal sealed partial class TinyComp :
         var keymapNames = Basin.Seat.SystemKeymap.Read();
         _seat.Keyboard.SetKeymap(keymapNames);
         _report.Line($"KEYMAP {keymapNames.Layout ?? "xkb default"}{(keymapNames.Model is { } model ? $" {model}" : string.Empty)}");
+        if (_config.FrameStyle == FrameStyle.MsStyles)
+        {
+            _msstyles = MsStylesFrames.Load(_config, MsStylesIcon);
+            _report.Line(_msstyles.Describe());
+        }
+
         AttachInputConfigurator();
 
         _compositor.SurfaceCreated += surface => surface.Committed += () =>
@@ -1100,6 +1151,7 @@ internal sealed partial class TinyComp :
         _services.Dispose();
         _host.Dispose();
         _metacity?.Dispose();
+        _msstyles?.Dispose();
         DisposeStepTextures();
         _flatTheme?.Dispose();
         _frameTheme?.Dispose();
@@ -1130,6 +1182,10 @@ internal sealed partial class TinyComp :
         void ResizeTo(int x, int y, int width, int height, ResizeEdges edges);
 
         void SetResizing(bool resizing);
+
+        bool Maximized { get; }
+
+        (int Width, int Height)? RestoreForDrag();
     }
 
 }

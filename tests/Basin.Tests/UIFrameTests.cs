@@ -824,6 +824,153 @@ public sealed class UIFrameTests
 
     private static string GoldenName(string name, string renderer) =>
         renderer == "pixman" ? name : $"{name}-{renderer}";
+
+    [Fact]
+    public void Outsets_grow_the_surface_and_let_input_through()
+    {
+        using var host = new CompositorTestHost();
+        using var uiHost = new SkiaUIHost();
+        var beneath = new SceneRect(host.Scene.Root, 300, 200, new RenderColor(0.2f, 0.2f, 0.2f, 1f));
+        var renderer = new OutsetFrameRenderer();
+        var frame = new Frame(uiHost, renderer, host.Scene.Root);
+        var geometry = new Box(40, 60, 64, 48);
+        frame.Configure(geometry, 1.0, new FrameState { Title = "t", Active = true });
+        frame.Commit();
+        host.RenderFrame();
+
+        Assert.Equal(new FrameInsets(6, 6, 6, 6), frame.Outsets);
+        Assert.Equal(new Box(36, 40, 72, 72), frame.OuterBounds);
+        Assert.Equal(new Box(30, 34, 84, 84), frame.DrawnBounds);
+        Assert.Equal(new Box(10, 26, 64, 48), renderer.LastClient);
+        Assert.Equal((84, 84), renderer.LastSurface);
+
+        Assert.Same(beneath, host.Scene.NodeAt(32, 80)!.Value.Node);
+        Assert.Same(beneath, host.Scene.NodeAt(70, 36)!.Value.Node);
+        Assert.Equal(FramePart.None, frame.PartAt(32, 80));
+        Assert.True(frame.OwnsNode(host.Scene.NodeAt(37, 80)!.Value.Node));
+        Assert.Equal(FramePart.Border, frame.PartAt(37, 80));
+        Assert.True(frame.OwnsNode(host.Scene.NodeAt(70, 45)!.Value.Node));
+        Assert.Equal(FramePart.Title, frame.PartAt(70, 45));
+
+        frame.Dispose();
+        beneath.Destroy();
+    }
+
+    [Fact]
+    public void A_none_part_inside_the_frame_lets_input_through()
+    {
+        using var host = new CompositorTestHost();
+        using var uiHost = new SkiaUIHost();
+        var beneath = new SceneRect(host.Scene.Root, 300, 200, new RenderColor(0.2f, 0.2f, 0.2f, 1f));
+        var frame = new Frame(uiHost, new OutsetFrameRenderer(), host.Scene.Root);
+        frame.Configure(new Box(40, 60, 64, 48), 1.0, new FrameState { Title = "t", Active = true });
+        frame.Commit();
+        host.RenderFrame();
+
+        Assert.Equal(FramePart.None, frame.PartAt(36, 40));
+        Assert.Same(beneath, host.Scene.NodeAt(36, 40)!.Value.Node);
+        Assert.True(frame.OwnsNode(host.Scene.NodeAt(37, 40)!.Value.Node));
+
+        frame.Dispose();
+        beneath.Destroy();
+    }
+
+    [Fact]
+    public void An_opaque_frame_still_takes_every_frame_pixel()
+    {
+        using var host = new CompositorTestHost();
+        using var theme = new TestFrameTheme();
+        using var uiHost = new SkiaUIHost();
+        var beneath = new SceneRect(host.Scene.Root, 300, 200, new RenderColor(0.2f, 0.2f, 0.2f, 1f));
+        var frame = new Frame(uiHost, new TestFrameRenderer(theme), host.Scene.Root);
+        frame.Configure(new Box(20, 40, 64, 48), 1.0, new FrameState { Title = "t", Active = true });
+        frame.Commit();
+        host.RenderFrame();
+
+        foreach (var (x, y) in new[] { (16.0, 6.0), (16.0, 60.0), (50.0, 90.0), (87.0, 60.0), (50.0, 20.0) })
+        {
+            Assert.True(frame.OwnsNode(host.Scene.NodeAt(x, y)!.Value.Node), $"({x},{y})");
+        }
+
+        frame.Dispose();
+        beneath.Destroy();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_placement_change_redraws_only_a_renderer_that_follows_it(bool follows)
+    {
+        using var host = new CompositorTestHost();
+        using var uiHost = new SkiaUIHost();
+        var renderer = new OutsetFrameRenderer { Follows = follows };
+        var frame = new Frame(uiHost, renderer, host.Scene.Root);
+        var first = new FramePlacement(100, 80, 1920, 1080);
+        frame.Placement = first;
+        frame.Configure(new Box(40, 60, 64, 48), 1.0, new FrameState { Title = "t", Active = true });
+        frame.Commit();
+        host.RenderFrame();
+        Assert.Equal(first, renderer.LastState.Placement);
+        var configured = renderer.Draws;
+
+        var moved = first with { X = 300 };
+        frame.Placement = moved;
+        frame.Placement = moved;
+
+        Assert.Equal(follows ? configured + 1 : configured, renderer.Draws);
+        Assert.Equal(follows ? moved : first, renderer.LastState.Placement);
+
+        frame.Configure(new Box(40, 60, 64, 52), 1.0, new FrameState { Title = "t", Active = true });
+        Assert.Equal(moved, renderer.LastState.Placement);
+        frame.Dispose();
+    }
+
+    [Fact]
+    public void Animating_repaints_on_the_frame_clock_and_stops()
+    {
+        using var host = new CompositorTestHost();
+        using var uiHost = new SkiaUIHost();
+        var renderer = new OutsetFrameRenderer();
+        var clock = new Basin.Capabilities.Defaults.FrameClock();
+        var now = 1_000_000_000L;
+        var frame = new Frame(uiHost, renderer, host.Scene.Root) { Clock = clock, Time = () => now };
+        frame.Configure(new Box(40, 60, 64, 48), 1.0, new FrameState { Title = "t", Active = true });
+        frame.Commit();
+        host.RenderFrame();
+        Assert.False(frame.Animating);
+
+        clock.BeginFrame(host.Output, now);
+        var idleDraws = renderer.Draws;
+
+        frame.PointerMotion(70, 45);
+        Assert.True(frame.Animating);
+        Assert.Equal(now, renderer.LastInteraction.HoverChangedAt);
+        Assert.Equal(FramePart.Title, renderer.LastInteraction.Hot);
+        Assert.Equal(FramePart.None, renderer.LastInteraction.PreviousHot);
+        var hovered = renderer.Draws;
+        Assert.Equal(idleDraws + 1, hovered);
+
+        var damaged = 0;
+        var requested = 0;
+        host.Scene.Damaged += (_, _) => damaged++;
+        clock.FrameRequested += () => requested++;
+        clock.BeginFrame(host.Output, now + 16_000_000);
+        Assert.Equal(hovered + 1, renderer.Draws);
+        Assert.Equal(now + 16_000_000, renderer.LastInteraction.Now);
+        Assert.True(damaged > 0);
+        Assert.Equal(1, requested);
+
+        clock.BeginFrame(host.Output, now + 120_000_000);
+        Assert.False(frame.Animating);
+        Assert.Equal(1, requested);
+        var settled = renderer.Draws;
+        clock.BeginFrame(host.Output, now + 140_000_000);
+        Assert.Equal(settled, renderer.Draws);
+
+        frame.Configure(new Box(40, 60, 64, 48), 1.0, new FrameState { Title = "t", Active = false });
+        Assert.Equal(now, renderer.LastInteraction.ActiveChangedAt);
+        frame.Dispose();
+    }
 }
 
 internal sealed class TestFrameTheme : IDisposable
@@ -1017,4 +1164,71 @@ internal sealed class OnePartFrameRenderer(FramePart part) : IFrameRenderer
         x < 0 || y < 0 || x >= _outerWidth || y >= _outerHeight ? FramePart.None
         : y < Border + TitleHeight ? part
         : FramePart.Border;
+}
+
+internal sealed class OutsetFrameRenderer : IFrameRenderer
+{
+    private const int Outset = 6;
+    private int _width;
+    private int _height;
+
+    public int Draws { get; private set; }
+
+    public Box LastClient { get; private set; }
+
+    public (int Width, int Height) LastSurface { get; private set; }
+
+    public FrameInteraction LastInteraction { get; private set; }
+
+    public FrameState LastState { get; private set; }
+
+    public bool Follows { get; set; }
+
+    public bool FollowsPlacement => Follows;
+
+    public FrameInsets Measure(in FrameState state, double scale) => new(20, 4, 4, 4);
+
+    public FrameInsets Outsets(in FrameState state, double scale) => new(Outset, Outset, Outset, Outset);
+
+    public bool Animating(in FrameState state, in FrameInteraction interaction) =>
+        interaction.HoverChangedAt != 0 && interaction.Now - interaction.HoverChangedAt < 100_000_000;
+
+    public void Draw(IUISurface surface, in Box clientBox, in FrameState state, in FrameInteraction interaction)
+    {
+        Draws++;
+        LastClient = clientBox;
+        LastInteraction = interaction;
+        LastState = state;
+        _width = surface.Size.Width;
+        _height = surface.Size.Height;
+        LastSurface = (_width, _height);
+        var canvas = ((ISkiaUISurface)surface).BeginDraw();
+        try
+        {
+            canvas.Clear(new SKColor(0, 0, 0, 0x40));
+            using var paint = new SKPaint { Color = new SKColor(0x28, 0x46, 0x78) };
+            canvas.DrawRect(Outset, Outset, _width - 2 * Outset, _height - 2 * Outset, paint);
+        }
+        finally
+        {
+            ((ISkiaUISurface)surface).EndDraw();
+        }
+    }
+
+    public FramePart PartAt(double x, double y, in FrameState state, double scale)
+    {
+        if (x < Outset || y < Outset || x >= _width - Outset || y >= _height - Outset)
+        {
+            throw new InvalidOperationException("the outsets never reach the renderer");
+        }
+
+        if ((int)x == Outset && (int)y == Outset)
+        {
+            return FramePart.None;
+        }
+
+        return y < Outset + 20 ? FramePart.Title : FramePart.Border;
+    }
+
+    public Box PartBounds(FramePart part) => part == FramePart.Title ? new Box(Outset, Outset, _width - 2 * Outset, 20) : default;
 }

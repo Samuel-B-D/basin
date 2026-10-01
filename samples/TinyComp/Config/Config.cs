@@ -77,6 +77,22 @@ internal sealed class Config
 
     public double QuillFrostOpacity { get; set; } = 0.44;
 
+    public string? MsStylesTheme { get; set; }
+
+    public string MsStylesColor { get; set; } = string.Empty;
+
+    public string MsStylesSize { get; set; } = string.Empty;
+
+    public string MsStylesLook { get; set; } = "auto";
+
+    public string MsStylesFont { get; set; } = string.Empty;
+
+    public uint MsStylesColorization { get; set; } = Basin.Frames.MsStyles.MsStylesFrameStyle.DefaultColorization;
+
+    public double MsStylesBackdropBlur { get; set; }
+
+    public string MsStylesPainter { get; set; } = "skia";
+
     public int CornerRadius { get; set; }
 
     public double FontSize { get; set; } = 14;
@@ -104,6 +120,8 @@ internal sealed class Config
     public bool DimInactive { get; set; }
 
     public bool DropShadow { get; set; }
+
+    public string BlurKernel { get; set; } = "kawase";
 
     public bool SlideBack { get; set; }
 
@@ -280,7 +298,7 @@ internal sealed class Config
         }
 
         config.Apply(new TomlReader(table, log));
-        fatal = config.ValidateMetacity();
+        fatal = config.ValidateMetacity() ?? config.ValidateMsStyles();
         return config;
     }
 
@@ -301,7 +319,7 @@ internal sealed class Config
         }
 
         config.Apply(new TomlReader(table, log));
-        fatal = config.ValidateMetacity();
+        fatal = config.ValidateMetacity() ?? config.ValidateMsStyles();
         return config;
     }
 
@@ -328,6 +346,35 @@ internal sealed class Config
         {
             return $"[frame.metacity] theme = \"{name}\": {e.Message}; installed themes: {available}";
         }
+    }
+
+    public string? ValidateMsStyles()
+    {
+        if (FrameStyle != FrameStyle.MsStyles)
+        {
+            return null;
+        }
+
+        if (MsStylesTheme is not { Length: > 0 } name)
+        {
+            return $"[frame] style = \"msstyles\" names no theme in [frame.msstyles] theme; installed themes: {InstalledMsStyles()}";
+        }
+
+        try
+        {
+            using var frames = MsStylesFrames.Load(this, null);
+            return null;
+        }
+        catch (MsStylesFrameException e)
+        {
+            return $"[frame.msstyles] theme = \"{name}\": {e.Message}; installed themes: {InstalledMsStyles()}";
+        }
+    }
+
+    private static string InstalledMsStyles()
+    {
+        var installed = Basin.Themes.MsStyles.MsStylesThemes.Available();
+        return installed.Count == 0 ? "none installed" : string.Join(", ", installed.Select(t => t.Name));
     }
 
     public static string Template()
@@ -405,10 +452,11 @@ internal sealed class Config
 
         if (reader.Section("frame") is { } frame)
         {
-            FrameStyle = frame.Choice("style", "flat", "beos", "flat", "metacity", "quill", "none") switch
+            FrameStyle = frame.Choice("style", "flat", "beos", "flat", "metacity", "msstyles", "quill", "none") switch
             {
                 "beos" => FrameStyle.Beos,
                 "metacity" => FrameStyle.Metacity,
+                "msstyles" => FrameStyle.MsStyles,
                 "quill" => FrameStyle.Quill,
                 "none" => FrameStyle.None,
                 _ => FrameStyle.Flat,
@@ -430,6 +478,29 @@ internal sealed class Config
                 MetacityButtonLayout = metacity.Text("button_layout") ?? MetacityButtonLayout;
                 MetacityPalette = metacity.Choice("palette", "light", "light", "dark");
                 MetacityBackdropBlur = metacity.Number("backdrop_blur", MetacityBackdropBlur);
+            }
+
+            if (frame.Section("msstyles") is { } msstyles)
+            {
+                MsStylesTheme = msstyles.Text("theme") ?? MsStylesTheme;
+                MsStylesColor = msstyles.Text("color") ?? MsStylesColor;
+                MsStylesSize = msstyles.Text("size") ?? MsStylesSize;
+                MsStylesLook = msstyles.Choice("look", "auto", "auto", "classic-xp", "basic", "glass");
+                MsStylesFont = msstyles.Text("font") ?? MsStylesFont;
+                if (msstyles.Text("colorization") is { } colorization)
+                {
+                    if (TomlColor.Rgba(colorization) is not null)
+                    {
+                        MsStylesColorization = TomlColor.Argb(colorization, MsStylesColorization);
+                    }
+                    else
+                    {
+                        reader.Log.Warn($"[frame.msstyles] colorization \"{colorization}\" is not #aarrggbb, keeping the default");
+                    }
+                }
+
+                MsStylesBackdropBlur = msstyles.Number("backdrop_blur", MsStylesBackdropBlur);
+                MsStylesPainter = msstyles.Choice("painter", "skia", "skia", "quill");
             }
 
             if (frame.Section("quill") is { } quill)
@@ -482,6 +553,7 @@ internal sealed class Config
             Highlight = effects.Flag("highlight", Highlight);
             DimInactive = effects.Flag("dim_inactive", DimInactive);
             DropShadow = effects.Flag("drop_shadow", DropShadow);
+            BlurKernel = effects.Choice("blur_kernel", "kawase", "kawase", "vista");
             SlideBack = effects.Flag("slide_back", SlideBack);
             Stretch = effects.Flag("stretch", Stretch);
             Notifications = effects.Flag("notifications", Notifications);
@@ -806,6 +878,7 @@ internal sealed class Config
                 "beos" => global::TinyComp.FrameStyle.Beos,
                 "flat" => global::TinyComp.FrameStyle.Flat,
                 "metacity" => global::TinyComp.FrameStyle.Metacity,
+                "msstyles" => global::TinyComp.FrameStyle.MsStyles,
                 "quill" => global::TinyComp.FrameStyle.Quill,
                 "none" => global::TinyComp.FrameStyle.None,
                 _ => null,

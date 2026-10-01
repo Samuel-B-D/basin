@@ -4,6 +4,10 @@ public sealed class FrameClock : IFrameClock
 {
     private IFrameSink[] _sinks = [];
 
+    public event Action? FrameRequested;
+
+    public void RequestFrame() => FrameRequested?.Invoke();
+
     public void Add(IFrameSink sink)
     {
         ArgumentNullException.ThrowIfNull(sink);

@@ -26,7 +26,7 @@ internal sealed partial class TinyComp
         private bool _active;
         private bool _maximized;
 
-        internal bool Maximized => _maximized;
+        public bool Maximized => _maximized;
         private RestoreGeometry _restore;
 
         public XWindow(TinyComp comp, Basin.XWayland.XWaylandWindow xwin, SceneSurface scene, bool framable)
@@ -278,6 +278,7 @@ internal sealed partial class TinyComp
 
             _frame = new Frame(_comp.FrameHosts, renderer, Tree)
             {
+                Clock = _comp.FrameClock,
                 MenuLayer = _comp._layers.Overlay,
                 TouchSlop = TouchGripSlop,
             };
@@ -349,6 +350,24 @@ internal sealed partial class TinyComp
                     _comp.BeginResize(this, (ResizeEdges)action.Edges);
                     break;
             }
+        }
+
+        public (int Width, int Height)? RestoreForDrag()
+        {
+            if (!_maximized)
+            {
+                return null;
+            }
+
+            _maximized = false;
+            if (_restore.TryGet(out var saved))
+            {
+                _restore = RestoreGeometry.None;
+                ResizeTo(X, Y, saved.Width, saved.Height, ResizeEdges.None);
+                return (saved.Width, saved.Height);
+            }
+
+            return null;
         }
 
         public void ToggleMaximize()

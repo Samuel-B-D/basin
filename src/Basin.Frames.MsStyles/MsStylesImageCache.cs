@@ -1,0 +1,151 @@
+using Basin.Themes.MsStyles;
+using SkiaSharp;
+
+namespace Basin.Frames.MsStyles;
+
+public sealed class MsStylesImageCache
+{
+    public const int NoKey = -1;
+
+    public const int DefaultKey = 0xff00ff;
+
+    private readonly Dictionary<(int Image, int Key), MsStylesBitmap?> _byImage = [];
+    private readonly List<MsStylesBitmap> _bitmaps = [];
+
+    public int Count => _bitmaps.Count;
+
+    public int DecodeFailures { get; private set; }
+
+    public MsStylesBitmap this[int handle] => _bitmaps[handle];
+
+    public MsStylesBitmap? Get(in MsStylesImage image, int keyColor = NoKey)
+    {
+        if (_byImage.TryGetValue((image.Id, keyColor), out var cached))
+        {
+            return cached;
+        }
+
+        var decoded = keyColor == NoKey ? Decode(image) : Keyed(image, keyColor);
+        _byImage[(image.Id, keyColor)] = decoded;
+        return decoded;
+    }
+
+    public static void Premultiply(byte[] bgra)
+    {
+        for (var i = 0; i < bgra.Length; i += 4)
+        {
+            var a = bgra[i + 3];
+            if (a == 255)
+            {
+                continue;
+            }
+
+            bgra[i] = (byte)((bgra[i] * a + 127) / 255);
+            bgra[i + 1] = (byte)((bgra[i + 1] * a + 127) / 255);
+            bgra[i + 2] = (byte)((bgra[i + 2] * a + 127) / 255);
+        }
+    }
+
+    private MsStylesBitmap? Keyed(in MsStylesImage image, int keyColor)
+    {
+        if (Get(image) is not { } source)
+        {
+            return null;
+        }
+
+        if (source.HasAlpha || (keyColor == DefaultKey && !source.HasDefaultKey))
+        {
+            return source;
+        }
+
+        var pixels = (byte[])source.Pixels.Clone();
+        var b = (byte)(keyColor >> 16);
+        var g = (byte)(keyColor >> 8);
+        var r = (byte)keyColor;
+        var any = false;
+        for (var i = 0; i < pixels.Length; i += 4)
+        {
+            if (pixels[i] == b && pixels[i + 1] == g && pixels[i + 2] == r)
+            {
+                pixels[i] = 0;
+                pixels[i + 1] = 0;
+                pixels[i + 2] = 0;
+                pixels[i + 3] = 0;
+                any = true;
+            }
+        }
+
+        if (!any)
+        {
+            return source;
+        }
+
+        return Add(source.Width, source.Height, pixels, hasAlpha: true, hasDefaultKey: source.HasDefaultKey);
+    }
+
+    private MsStylesBitmap? Decode(in MsStylesImage image)
+    {
+        var bytes = image.Bytes.Span;
+        if (image.Format == MsStylesImageFormat.Dib || (bytes.Length > 2 && bytes[0] == 'B' && bytes[1] == 'M'))
+        {
+            if (MsStylesDib.TryDecode(bytes, out var width, out var height, out var pixels, out var hasAlpha, out var hasDefaultKey))
+            {
+                return Add(width, height, pixels, hasAlpha, hasDefaultKey);
+            }
+
+            DecodeFailures++;
+            return null;
+        }
+
+        using var data = SKData.CreateCopy(bytes);
+        using var codec = SKCodec.Create(data);
+        if (codec is null)
+        {
+            DecodeFailures++;
+            return null;
+        }
+
+        var info = new SKImageInfo(codec.Info.Width, codec.Info.Height, SKColorType.Bgra8888, SKAlphaType.Unpremul);
+        var decoded = new byte[info.BytesSize];
+        unsafe
+        {
+            fixed (byte* target = decoded)
+            {
+                var result = codec.GetPixels(info, (nint)target);
+                if (result is not (SKCodecResult.Success or SKCodecResult.IncompleteInput))
+                {
+                    DecodeFailures++;
+                    return null;
+                }
+            }
+        }
+
+        var alpha = false;
+        var key = false;
+        for (var i = 0; i < decoded.Length; i += 4)
+        {
+            if (decoded[i + 3] != 255)
+            {
+                alpha = true;
+            }
+            else if (decoded[i] == 0xff && decoded[i + 1] == 0 && decoded[i + 2] == 0xff)
+            {
+                key = true;
+            }
+        }
+
+        if (!image.Premultiplied)
+        {
+            Premultiply(decoded);
+        }
+
+        return Add(info.Width, info.Height, decoded, alpha, key);
+    }
+
+    private MsStylesBitmap Add(int width, int height, byte[] pixels, bool hasAlpha, bool hasDefaultKey)
+    {
+        var bitmap = new MsStylesBitmap(_bitmaps.Count, width, height, pixels, hasAlpha, hasDefaultKey);
+        _bitmaps.Add(bitmap);
+        return bitmap;
+    }
+}

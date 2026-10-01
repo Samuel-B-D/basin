@@ -502,6 +502,8 @@ internal sealed partial class TinyComp
     {
         _mode = DragMode.Move;
         _grabWindow = window;
+        _grabStartX = x;
+        _grabStartY = y;
         var (canvasX, canvasY) = ToCanvasPointAt(x, y, window);
         _grabX = canvasX - window.X;
         _grabY = canvasY - window.Y;

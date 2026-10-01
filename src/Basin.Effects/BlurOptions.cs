@@ -15,4 +15,6 @@ public readonly record struct BlurOptions
     public double Contrast { get; init; } = 1.0;
 
     public double NoiseScale { get; init; } = 1.0;
+
+    public BlurKernel Kernel { get; init; } = BlurKernel.DualKawase;
 }

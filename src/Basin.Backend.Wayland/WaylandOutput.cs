@@ -404,7 +404,7 @@ public sealed class WaylandOutput : OutputBase, IPresentingOutput
 
     private void ApplyConfigure()
     {
-        var insets = _hostFrame?.Insets ?? default;
+        var insets = _hostFrame?.VisibleInsets ?? default;
         if (!_constrained && _configureWidth > 0 && _configureHeight > 0)
         {
             _floatingWidth = _configureWidth;
@@ -455,7 +455,7 @@ public sealed class WaylandOutput : OutputBase, IPresentingOutput
             return;
         }
 
-        var insets = frame.Insets;
+        var insets = frame.VisibleInsets;
         _geometryPending = false;
         _xdgSurface.SetWindowGeometry(
             -insets.Left,

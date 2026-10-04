@@ -111,18 +111,6 @@ internal sealed partial class LunaShell
         return false;
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
     private void SettleChrome(LunaView view)
     {
         SettleMenu(view);
@@ -148,17 +136,5 @@ internal sealed partial class LunaShell
         PrintKeyboardState();
         _report.Line($"  lock {(view.LockUi is { } lockUi && lockUi.Chrome.Enabled ? (lockUi.Model.PadShown ? "pad" : "shown") : "hidden")}");
     }
-
-
-
-
-
-
-
-
-
-
-
-
 
 }

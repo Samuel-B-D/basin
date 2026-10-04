@@ -91,7 +91,6 @@ internal sealed partial class DungeonWm
             return;
         }
 
-
         if (ReferenceEquals(_takeover, window))
         {
             LeaveTakeover();

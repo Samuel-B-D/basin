@@ -734,8 +734,16 @@ public sealed class ToplevelWindow : Window, ICaptureTarget
         }
     }
 
+    private bool? _decorationsApplied;
+
     internal void ApplyDecorations(bool serverSide)
     {
+        if (_decorationsApplied == serverSide)
+        {
+            return;
+        }
+
+        _decorationsApplied = serverSide;
         WindowDecorations = serverSide ? WindowDecorations.Full : WindowDecorations.None;
         TransparencyLevelHint = serverSide
             ? []

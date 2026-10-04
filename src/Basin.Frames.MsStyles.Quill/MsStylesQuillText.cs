@@ -15,7 +15,6 @@ public sealed class MsStylesQuillText : IMsStylesTextMetrics, IDisposable
 
     private static readonly BasinLogger Log = BasinLog.For("msstyles");
 
-
     private readonly Dictionary<SKTypeface, FontFile?> _files = [];
     private readonly Dictionary<(string Text, FontFile Font, float Pixels, int Width), (string Text, float Width)> _fitted = [];
     private readonly HashSet<Canvas> _prepared = [];

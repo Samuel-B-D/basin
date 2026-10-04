@@ -853,7 +853,6 @@ internal sealed partial class LunaShell
         _ => "keys",
     };
 
-
     private void ReportKeyboard()
     {
         if (_kb is null)

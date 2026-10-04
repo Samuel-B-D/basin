@@ -190,7 +190,6 @@ public sealed partial class NestedShell
 
     private void StackChanged() => _capture?.Stack.RaiseChanged();
 
-
     private void DisposeControl()
     {
         if (_toplevels is { } source && _xdgHandler is { } handler && ReferenceEquals(source.RequestHandler, handler))

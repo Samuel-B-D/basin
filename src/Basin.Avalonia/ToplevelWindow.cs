@@ -34,6 +34,7 @@ public sealed class ToplevelWindow : Window, ICaptureTarget
         };
         _content.Children.Add(_view);
         Content = _content;
+        AppId = info.AppId;
         _clientTitle = info.Title.Length > 0 ? info.Title : info.AppId.Length > 0 ? info.AppId : "Wayland";
         Title = _clientTitle;
         Width = info.Width;
@@ -672,6 +673,9 @@ public sealed class ToplevelWindow : Window, ICaptureTarget
 
         ReleaseStaleModifiers(e.KeyModifiers);
     }
+
+    // The client's app_id when the window opened, which names its desktop entry.
+    public string AppId { get; }
 
     private string _clientTitle = "Wayland";
     private string? _titleOverride;

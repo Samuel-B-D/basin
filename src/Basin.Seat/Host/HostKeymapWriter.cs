@@ -226,6 +226,12 @@ public static class HostKeymapWriter
             text.Append($"        <RALT> = {altGr + 8};\n");
         }
 
+        // Xwayland dereferences the keyboard's LED info whenever a modifier key
+        // changes state, and a keymap that names no indicators leaves it null:
+        // pressing Super crashed every X11 client.
+        text.Append("        indicator 1 = \"Caps Lock\";\n");
+        text.Append("        indicator 2 = \"Num Lock\";\n");
+        text.Append("        indicator 3 = \"Scroll Lock\";\n");
         text.Append("    };\n");
         text.Append(HostKeymapLayout.Preamble);
         text.Append("    xkb_symbols {\n");

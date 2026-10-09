@@ -159,6 +159,17 @@ internal static class HostKeymapLayout
                     action = SetMods(modifiers = LevelThree);
                 };
                 interpret Any + Any { action = SetMods(modifiers = modMapMods); };
+                indicator "Caps Lock" {
+                    whichModState = Locked;
+                    modifiers = Lock;
+                };
+                indicator "Num Lock" {
+                    whichModState = Locked;
+                    modifiers = NumLock;
+                };
+                indicator "Scroll Lock" {
+                    allowExplicit;
+                };
             };
         """;
 }

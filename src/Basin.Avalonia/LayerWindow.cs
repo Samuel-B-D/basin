@@ -128,6 +128,7 @@ public sealed class LayerWindow : Window
         Opened += (_, _) =>
         {
             HostStacking.Apply(this, _band, _takesKeyboard);
+            HostStacking.RemoveFrame(this);
             ObserveScreenScale();
             _manager.HostScaleChanged(_id, RenderScaling, RenderScaling != 1.0);
         };

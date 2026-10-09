@@ -610,12 +610,26 @@ public sealed class ToplevelWindow : Window, ICaptureTarget
             return;
         }
 
+        if (_altGr.Swallows(code, pressed: true))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (_altGr.UnmasksControl(code, pressed: true, _pressedKeys.Contains(InputCodes.KeyLeftCtrl)))
+        {
+            _pressedKeys.Remove(InputCodes.KeyLeftCtrl);
+            Send(InputKind.Key, code: InputCodes.KeyLeftCtrl, pressed: false);
+        }
+
         if (_pressedKeys.Add(code))
         {
             Send(InputKind.Key, code: code, pressed: true);
             e.Handled = true;
         }
     }
+
+    private readonly WindowsAltGr _altGr = new();
 
     public Func<uint, bool, bool>? KeyFilter { get; set; }
 
@@ -638,6 +652,7 @@ public sealed class ToplevelWindow : Window, ICaptureTarget
 
     private void ReleasePressedKeys()
     {
+        _altGr.Reset();
         foreach (var code in _pressedKeys)
         {
             Send(InputKind.Key, code: code, pressed: false);
@@ -660,6 +675,12 @@ public sealed class ToplevelWindow : Window, ICaptureTarget
         }
 
         if (KeyFilter is { } filter && filter(code, false))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (_altGr.Swallows(code, pressed: false))
         {
             e.Handled = true;
             return;

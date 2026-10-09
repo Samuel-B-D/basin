@@ -36,6 +36,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Basin.Core/Basin.Core.csproj" />
     <ProjectReference Include="../../src/Basin.Pty/Basin.Pty.csproj" />
+    <ProjectReference Include="../../src/Basin.Notifications/Basin.Notifications.csproj" />
     <ProjectReference Include="../../samples/Dam/Dam.csproj" />
     <ProjectReference Include="../../samples/EightWm/EightWm.csproj" />
     <ProjectReference Include="../../samples/TinyComp/TinyComp.csproj" />
@@ -103,6 +104,7 @@
     <ProjectReference Include="../../src/Basin.Physics.Bepu/Basin.Physics.Bepu.csproj" />
     <ProjectReference Include="../../src/Basin.Scene/Basin.Scene.csproj" />
     <ProjectReference Include="../../src/Basin.Audio.PipeWire/Basin.Audio.PipeWire.csproj" />
+    <ProjectReference Include="../../src/Basin.SystemStatus/Basin.SystemStatus.csproj" />
     <ProjectReference Include="../../src/Basin.Screencast.PipeWire/Basin.Screencast.PipeWire.csproj" />
     <ProjectReference Include="../../src/Basin.Seat/Basin.Seat.csproj" />
     <ProjectReference Include="../../src/Basin.Shell.River/Basin.Shell.River.csproj" />
@@ -121,6 +123,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="BasinMcp.Tests" />
+    <InternalsVisibleTo Include="Basin.SoftKeyboard.Tests" />
   </ItemGroup>
 
   <ItemGroup>

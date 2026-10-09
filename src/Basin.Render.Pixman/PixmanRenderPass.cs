@@ -86,6 +86,12 @@ internal sealed class PixmanRenderPass : IRenderPass
                     sourceY = src.Y - bounds.Y;
                 }
 
+                if (ReferenceEquals(source, _scratchImage))
+                {
+                    var used = src.RoundedOut();
+                    ClearStaleScratch(used.Width, used.Height);
+                }
+
                 CompositeTransformed(source, sourceX, sourceY, src, options);
                 return;
             }
@@ -166,6 +172,8 @@ internal sealed class PixmanRenderPass : IRenderPass
     private PixmanImage? _scratchImage;
     private int _scratchWidth;
     private int _scratchHeight;
+    private int _scratchDirtyWidth;
+    private int _scratchDirtyHeight;
 
     private unsafe void TransformIntoScratch(PixmanImage source, ColorLut3D lut, Box src, bool padEdge)
     {
@@ -200,8 +208,33 @@ internal sealed class PixmanRenderPass : IRenderPass
         EdgeScratch(src.Width, src.Height, padEdge);
     }
 
+    private unsafe void ClearStaleScratch(int width, int height)
+    {
+        var pixels = (uint*)_scratchPin.AddrOfPinnedObject();
+        var stride = _scratchWidth;
+        var edgeWidth = Math.Min(width + 1, stride);
+        var edgeHeight = Math.Min(height + 1, _scratchHeight);
+        if (_scratchDirtyWidth > edgeWidth)
+        {
+            for (var y = 0; y < Math.Min(edgeHeight, _scratchDirtyHeight); y++)
+            {
+                new Span<uint>(pixels + (y * stride) + edgeWidth, _scratchDirtyWidth - edgeWidth).Clear();
+            }
+        }
+
+        for (var y = edgeHeight; y < _scratchDirtyHeight; y++)
+        {
+            new Span<uint>(pixels + (y * stride), _scratchDirtyWidth).Clear();
+        }
+
+        _scratchDirtyWidth = edgeWidth;
+        _scratchDirtyHeight = edgeHeight;
+    }
+
     private unsafe void EdgeScratch(int width, int height, bool pad)
     {
+        _scratchDirtyWidth = Math.Max(_scratchDirtyWidth, Math.Min(width + 1, _scratchWidth));
+        _scratchDirtyHeight = Math.Max(_scratchDirtyHeight, Math.Min(height + 1, _scratchHeight));
         var pixels = (uint*)_scratchPin.AddrOfPinnedObject();
         var stride = _scratchWidth;
         if (width < stride)
@@ -332,8 +365,10 @@ internal sealed class PixmanRenderPass : IRenderPass
             return;
         }
 
+        var linear = Math.Sqrt(Math.Abs((options.Transform.M11 * options.Transform.M22) - (options.Transform.M12 * options.Transform.M21)));
+        var magnified = linear / Math.Max(kx, ky) >= 2;
         source.SetTransform(in sample);
-        source.SetFilter(PixmanFilter.Bilinear);
+        source.SetFilter(magnified ? PixmanFilter.Nearest : PixmanFilter.Bilinear);
         source.SetRepeat(PixmanRepeat.None);
         ApplyClip(options.Clip);
         var mask = options.Alpha < 1f ? AlphaMask(options.Alpha) : null;
@@ -379,6 +414,8 @@ internal sealed class PixmanRenderPass : IRenderPass
         _scratchImage = null;
         _scratchWidth = 0;
         _scratchHeight = 0;
+        _scratchDirtyWidth = 0;
+        _scratchDirtyHeight = 0;
         if (_scratchPin.IsAllocated)
         {
             _scratchPin.Free();

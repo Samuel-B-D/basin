@@ -1,0 +1,53 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:enyo="https://github.com/avaenyo"
+             xmlns:luna="using:LunaWm"
+             x:Class="LunaWm.DashboardView"
+             x:DataType="luna:DashboardModel">
+  <Panel Background="Transparent" PointerPressed="OnBackground">
+    <Border x:Name="Column" Classes="dashboard" Width="320" HorizontalAlignment="Right" VerticalAlignment="Top" PointerPressed="OnColumn">
+      <StackPanel>
+        <TextBlock Classes="dashempty" Text="No notifications" IsVisible="{Binding Empty}" />
+        <ItemsControl ItemsSource="{Binding Groups}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate DataType="luna:DashboardGroupModel">
+              <StackPanel>
+                <enyo:SwipeableItem Classes="dashrow" Height="52" Padding="0" Tag="{Binding}" Swiped="OnGroupSwiped">
+                  <DockPanel Background="Transparent" Tag="{Binding}" PointerReleased="OnGroupTapped">
+                    <Border DockPanel.Dock="Left" Width="50" Background="Transparent" Tag="{Binding}" PointerReleased="OnBadge">
+                      <Panel Width="32" Height="32">
+                        <Image Source="{Binding Icon}" IsVisible="{Binding HasIcon}" />
+                        <Border CornerRadius="8" Background="#4B4B4B" IsVisible="{Binding !HasIcon}">
+                          <TextBlock Text="{Binding Letter}" Foreground="White" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <Border Classes="count" IsVisible="{Binding HasBadge}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-8,-6">
+                          <TextBlock Text="{Binding Badge}" />
+                        </Border>
+                      </Panel>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
+                      <TextBlock Classes="dashsummary" Text="{Binding Summary}" />
+                      <TextBlock Classes="dashbody" Text="{Binding Body}" />
+                    </StackPanel>
+                  </DockPanel>
+                </enyo:SwipeableItem>
+                <ItemsControl ItemsSource="{Binding Items}" IsVisible="{Binding Expanded}" Margin="50,0,0,0">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="luna:DashboardItemModel">
+                      <enyo:SwipeableItem Classes="dashrow" Height="52" Padding="0" Tag="{Binding}" Swiped="OnItemSwiped">
+                        <StackPanel Background="Transparent" VerticalAlignment="Center" Tag="{Binding}" PointerReleased="OnItemTapped">
+                          <TextBlock Classes="dashsummary" Text="{Binding Summary}" />
+                          <TextBlock Classes="dashbody" Text="{Binding Body}" IsVisible="{Binding HasBody}" />
+                        </StackPanel>
+                      </enyo:SwipeableItem>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </Border>
+  </Panel>
+</UserControl>

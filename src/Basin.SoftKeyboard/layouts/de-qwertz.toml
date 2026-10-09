@@ -1,0 +1,99 @@
+id = "de-qwertz"
+name = "DE QWERTZ"
+language = "de"
+width_units = 11
+num_lock = false
+symbol_label = "+ ~ [  ]"
+
+rows = [
+    [
+        { w = -0.5, plain = "q", alt = "[" },
+        { w = 1, plain = "1", alt = "!", long = ["1", "!", "¹", "¼", "½", "¡"] },
+        { w = 1, plain = "2", alt = "\"", long = ["2", "\"", "²", "”", "„", "“", "«", "»"] },
+        { w = 1, plain = "3", alt = "@", long = ["3", "@", "³", "¾"] },
+        { w = 1, plain = "4", alt = "$", long = ["4", "$", "€", "£", "¥", "¢", "¤"] },
+        { w = 1, plain = "5", alt = "%", long = ["5", "%", "‰"] },
+        { w = 1, plain = "6", alt = "&", long = ["6", "&"] },
+        { w = 1, plain = "7", alt = "/", long = ["7", "/", "\\"] },
+        { w = 1, plain = "8", alt = "(", long = ["8", "(", "[", "{"] },
+        { w = 1, plain = "9", alt = ")", long = ["9", ")", "]", "}"] },
+        { w = 1, plain = "0", alt = "=", long = ["0", "="] },
+        { w = -0.5, plain = "{backspace}" },
+    ],
+    [
+        { w = 1, plain = "q", alt = "`" },
+        { w = 1, plain = "w", alt = "~" },
+        { w = 1, plain = "e", alt = "€", long = ["e", "è", "é", "ê", "ë", "ę", "ē"] },
+        { w = 1, plain = "r", alt = "^", long = ["r", "®"] },
+        { w = 1, plain = "t", alt = "\\", long = ["t", "™", "þ"] },
+        { w = 1, plain = "z", alt = "|", long = ["z", "ž", "ź", "ż"] },
+        { w = 1, plain = "u", alt = "{", long = ["u", "ù", "ú", "û", "ü", "ű"] },
+        { w = 1, plain = "i", alt = "}", long = ["i", "ì", "í", "î", "ï", "İ", "ı"] },
+        { w = 1, plain = "o", alt = "[", long = ["o", "ò", "ó", "ô", "õ", "ö", "ø", "ő", "œ", "º", "ω"] },
+        { w = 1, plain = "p", alt = "]", long = ["p", "§", "π"] },
+        { w = 1, plain = "{backspace}" },
+    ],
+    [
+        { w = -0.5, plain = "a", alt = "<" },
+        { w = 1, plain = "a", alt = "<", long = ["a", "à", "á", "â", "ã", "ä", "å", "æ", "ª"] },
+        { w = 1, plain = "s", alt = ">", long = ["s", "š", "ş", "ß", "σ"] },
+        { w = 1, plain = "d", alt = "_", long = ["d", "ð", "†", "‡"] },
+        { w = 1, plain = "f", alt = "+" },
+        { w = 1, plain = "g", alt = "×", long = ["g", "ğ"] },
+        { w = 1, plain = "h", alt = "÷" },
+        { w = 1, plain = "j", alt = "°" },
+        { w = 1, plain = "k", alt = "*" },
+        { w = 1, plain = "l", alt = "#", long = ["l", "ł"] },
+        { w = 1.5, plain = "{return}" },
+    ],
+    [
+        { w = 1, plain = "{shift}" },
+        { w = 1, plain = "y", alt = ":-)", long = ["y", "ý", "ÿ"] },
+        { w = 1, plain = "x", alt = ";-)" },
+        { w = 1, plain = "c", alt = ":-(", long = ["c", "ç", "ć", "©", "¢"] },
+        { w = 1, plain = "v", alt = ":'(" },
+        { w = 1, plain = "b", alt = ":-P" },
+        { w = 1, plain = "n", alt = ":-O", long = ["n", "ñ", "ń"] },
+        { w = 1, plain = "m", alt = "<3", long = ["m", "µ"] },
+        { w = 1, plain = ",", alt = ";", long = [",", ";"] },
+        { w = 1, plain = ".", alt = ":", long = [".", ":", "•", "…"] },
+        { w = 1, plain = "{shift}" },
+    ],
+]
+
+dotcom = [".com", ".de", ".net", ".org", ".edu"]
+
+[bottom]
+default = [
+    { w = 1, plain = "{tab}" },
+    { w = 2, plain = "{symbol}" },
+    { w = 0 },
+    { w = 0 },
+    { w = 5, plain = " " },
+    { w = 0 },
+    { w = 1, plain = "ß", alt = "?", long = ["ß", "?", "¿"] },
+    { w = 1, plain = "-", alt = "'", long = ["-", "'", "±", "¬", "`", "‚", "‘", "’"] },
+    { w = 1, plain = "{hide}", long = ["{size-xs}", "{size-s}", "{size-m}", "{size-l}"] },
+]
+email = [
+    { w = 1, plain = "{tab}" },
+    { w = 2, plain = "{symbol}" },
+    { w = 0 },
+    { w = 1, plain = "@" },
+    { w = 3, plain = " " },
+    { w = 1, plain = ".com", long = [".com", ".de", ".net", ".org", ".edu"] },
+    { w = 1, plain = "ß", alt = "?", long = ["ß", "?", "¿"] },
+    { w = 1, plain = "-", alt = "'", long = ["-", "'", "±", "¬", "`", "‚", "‘", "’"] },
+    { w = 1, plain = "{hide}", long = ["{size-xs}", "{size-s}", "{size-m}", "{size-l}"] },
+]
+url = [
+    { w = 1, plain = "{tab}" },
+    { w = 2, plain = "{symbol}" },
+    { w = 0 },
+    { w = 1, plain = "/" },
+    { w = 3, plain = " " },
+    { w = 1, plain = ".com", long = [".com", ".de", ".net", ".org", ".edu"] },
+    { w = 1, plain = "ß", alt = "?", long = ["ß", "?", "¿"] },
+    { w = 1, plain = "-", alt = "'", long = ["-", "'", "±", "¬", "`", "‚", "‘", "’"] },
+    { w = 1, plain = "{hide}", long = ["{size-xs}", "{size-s}", "{size-m}", "{size-l}"] },
+]

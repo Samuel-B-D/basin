@@ -30,6 +30,23 @@ public sealed class TouchRouter
 
     public ITouchActivitySink? Activity { get; set; }
 
+    public int LiveContacts
+    {
+        get
+        {
+            var count = 0;
+            for (var i = 0; i < Capacity; i++)
+            {
+                if (_slots[i].Live)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
+
     public void Down(uint timeMs, int id, double x, double y)
     {
         _thread.Assert();

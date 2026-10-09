@@ -1,0 +1,11 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:enyo="https://github.com/avaenyo"
+             x:Class="LunaWm.LunaApp"
+             RequestedThemeVariant="Light">
+  <Application.Styles>
+    <enyo:AvaEnyoTheme Density="Default" />
+    <enyo:AvaEnyoControlsTheme />
+    <StyleInclude Source="avares://luna-wm/Chrome/LunaStyles.axaml" />
+  </Application.Styles>
+</Application>

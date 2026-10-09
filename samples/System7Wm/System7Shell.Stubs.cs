@@ -155,6 +155,22 @@ internal sealed partial class System7Shell
             _report.Line($"PANEL {match} {(close ? "closed" : "open")}");
         });
 
+        _report.Register(methods, "system7wm/volume", "volume [{level:int}]", (ref IpcParams p, IpcReply _) =>
+        {
+            if (p.Has("level"))
+            {
+                var level = (int)p.GetInt("level");
+                if (!p.Failed)
+                {
+                    SetVolumeLevel(level);
+                }
+
+                return;
+            }
+
+            ReportVolume();
+        });
+
         _report.Register(methods, "system7wm/about", "about [{close}]", (ref IpcParams p, IpcReply _) =>
         {
             var close = p.Has("close");

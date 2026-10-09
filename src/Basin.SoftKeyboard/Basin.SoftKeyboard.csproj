@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Basin.SoftKeyboard</PackageId>
+    <RootNamespace>Basin.SoftKeyboard</RootNamespace>
+    <Description>The mechanism of an on-screen keyboard: a weighted key grid with layouts as data, a hit test, the shift and symbol state machine, key timing, multi-touch rollover and long press, text routing and a shape-writing decoder. It draws nothing.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Basin.SoftKeyboard.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="layouts/*.toml" LogicalName="layouts/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Tomlyn" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Basin.Core/Basin.Core.csproj" />
+    <ProjectReference Include="../Basin.Seat/Basin.Seat.csproj" />
+    <ProjectReference Include="../Basin.Config/Basin.Config.csproj" />
+  </ItemGroup>
+
+</Project>

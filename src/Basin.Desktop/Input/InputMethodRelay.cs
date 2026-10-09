@@ -20,18 +20,72 @@ public sealed class InputMethodRelay : ITextInputMethod, IDisposable
     private string? _pendingCommit;
     private (uint Before, uint After)? _pendingDelete;
     private Surface? _activeSurface;
+    private readonly ITextInputMethod? _fallback;
 
     public InputMethodRelay(WlServerDisplay display, Seat.Seat? seat)
+        : this(display, seat, fallback: null)
+    {
+    }
+
+    public InputMethodRelay(WlServerDisplay display, Seat.Seat? seat, ITextInputMethod? fallback)
     {
         ArgumentNullException.ThrowIfNull(display);
         _display = display;
         _seat = seat;
+        _fallback = fallback;
         _global = display.CreateGlobal(ZwpInputMethodManagerV2.Interface, Version, OnBind);
         if (seat is { } withSeat)
         {
             withSeat.Keyboard.KeymapChanged += OnKeymapChanged;
         }
+
+        if (fallback is not null)
+        {
+            fallback.Preedit += OnFallbackPreedit;
+            fallback.CommitString += OnFallbackCommitString;
+            fallback.DeleteSurroundingText += OnFallbackDeleteSurroundingText;
+            fallback.Done += OnFallbackDone;
+            fallback.AvailabilityChanged += OnFallbackAvailabilityChanged;
+        }
     }
+
+    public ITextInputMethod? Fallback => _fallback;
+
+    public bool HasInputMethodClient => _method is { IsDestroyed: false };
+
+    private void OnFallbackPreedit(PreeditString preedit)
+    {
+        if (!HasInputMethodClient)
+        {
+            Preedit?.Invoke(preedit);
+        }
+    }
+
+    private void OnFallbackCommitString(string text)
+    {
+        if (!HasInputMethodClient)
+        {
+            CommitString?.Invoke(text);
+        }
+    }
+
+    private void OnFallbackDeleteSurroundingText(uint before, uint after)
+    {
+        if (!HasInputMethodClient)
+        {
+            DeleteSurroundingText?.Invoke(before, after);
+        }
+    }
+
+    private void OnFallbackDone()
+    {
+        if (!HasInputMethodClient)
+        {
+            Done?.Invoke();
+        }
+    }
+
+    private void OnFallbackAvailabilityChanged() => AvailabilityChanged?.Invoke();
 
     private void OnKeymapChanged()
     {
@@ -48,7 +102,7 @@ public sealed class InputMethodRelay : ITextInputMethod, IDisposable
         ForwardSeatModifiers();
     }
 
-    public bool IsAvailable => _method is { IsDestroyed: false };
+    public bool IsAvailable => HasInputMethodClient || (_fallback?.IsAvailable ?? false);
 
     public bool HasKeyboardGrab => _grab is { IsDestroyed: false };
 
@@ -73,11 +127,21 @@ public sealed class InputMethodRelay : ITextInputMethod, IDisposable
             seat.Keyboard.KeymapChanged -= OnKeymapChanged;
         }
 
+        if (_fallback is { } fallback)
+        {
+            fallback.Preedit -= OnFallbackPreedit;
+            fallback.CommitString -= OnFallbackCommitString;
+            fallback.DeleteSurroundingText -= OnFallbackDeleteSurroundingText;
+            fallback.Done -= OnFallbackDone;
+            fallback.AvailabilityChanged -= OnFallbackAvailabilityChanged;
+        }
+
         _global.Dispose();
     }
 
     public void Activate(Surface surface)
     {
+        _fallback?.Activate(surface);
         if (ReferenceEquals(_activeSurface, surface))
         {
             return;
@@ -92,6 +156,7 @@ public sealed class InputMethodRelay : ITextInputMethod, IDisposable
 
     public void Deactivate(Surface surface)
     {
+        _fallback?.Deactivate(surface);
         if (!ReferenceEquals(_activeSurface, surface))
         {
             return;
@@ -107,6 +172,7 @@ public sealed class InputMethodRelay : ITextInputMethod, IDisposable
 
     public void SurroundingText(string text, uint cursor, uint anchor)
     {
+        _fallback?.SurroundingText(text, cursor, anchor);
         if (_method is { IsDestroyed: false } method)
         {
             method.SendSurroundingText(text, cursor, anchor);
@@ -115,6 +181,7 @@ public sealed class InputMethodRelay : ITextInputMethod, IDisposable
 
     public void ContentType(uint hint, uint purpose)
     {
+        _fallback?.ContentType(hint, purpose);
         if (_method is { IsDestroyed: false } method)
         {
             method.SendContentType((ZwpTextInputV3.ContentHint)hint, (ZwpTextInputV3.ContentPurpose)purpose);
@@ -123,10 +190,12 @@ public sealed class InputMethodRelay : ITextInputMethod, IDisposable
 
     public void CursorRectangle(in Box rect)
     {
+        _fallback?.CursorRectangle(rect);
     }
 
     public void Commit(uint serial)
     {
+        _fallback?.Commit(serial);
         if (_method is { IsDestroyed: false } method)
         {
             method.SendDone();
@@ -168,13 +237,18 @@ public sealed class InputMethodRelay : ITextInputMethod, IDisposable
         manager.GetInputMethod += (_, e) =>
         {
             var resource = new ZwpInputMethodV2Resource(client, manager.Version, e.InputMethod);
-            if (IsAvailable)
+            if (HasInputMethodClient)
             {
                 resource.SendUnavailable();
                 return;
             }
 
             _method = resource;
+            if (_activeSurface is not null)
+            {
+                resource.SendActivate();
+            }
+
             resource.Destroyed += (_, _) =>
             {
                 if (_method == resource)

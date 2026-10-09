@@ -1,0 +1,131 @@
+# luna-wm configuration. SIGHUP rereads this file.
+
+[shell]
+# Renderer: a renderer name such as "vulkan", "gl" or "pixman", or empty for the --renderer default. A change needs a restart.
+renderer = ""
+# Image file drawn behind the card view, or empty for the plain backdrop.
+wallpaper = ""
+# Host X11 clients through Xwayland: true or false. --xwayland beats it, and a change needs a restart.
+xwayland = true
+
+[cards]
+# Scale of the focused card in card view, as a fraction of the output.
+active_ratio = 0.659
+# Scale of every other card in card view.
+inactive_ratio = 0.61
+# Divisor for the tilt of a card in an open stack. A larger value tilts less.
+rotation_factor = 30
+# Gap between stacks in card view, in logical pixels.
+stack_gap = 10
+# Brightness of an inactive card in card view, from 0 (black) to 1 (no dimming).
+dim = 0.8
+# Milliseconds a closed card waits for its window to go before the process is killed, or 0 to never kill.
+close_timeout_ms = 10000
+# Multiplier for every card animation: 1 is the TouchPad's speed, 0 turns animation off.
+time_scale = 1.0
+
+[gestures]
+# Width of the bottom and side edge bands that start a swipe, in logical pixels.
+edge_band = 24
+# Milliseconds a swipe up from the bottom edge is held before the quick launch dock follows it.
+quick_launch_hold_ms = 250
+# A horizontal swipe on the bottom edge switches to the next or previous card while maximized: true or false.
+next_previous = true
+# Key sent to the focused app for Back when no shell UI is open, as an xkb keysym name.
+back_key = "XF86Back"
+
+[status_bar]
+# Clock format: "12" or "24" hour.
+clock = "12"
+# Show seconds on the clock: true or false.
+show_seconds = false
+
+# Launcher tabs, in order. Each tab takes the desktop entries named in apps and
+# every entry whose main category is in categories. The first tab takes the rest.
+[[launcher.tab]]
+name = "Apps"
+categories = []
+apps = []
+
+[[launcher.tab]]
+name = "Downloads"
+categories = []
+apps = []
+
+[[launcher.tab]]
+name = "Favorites"
+categories = []
+apps = []
+
+[[launcher.tab]]
+name = "Settings"
+categories = ["Settings", "System"]
+apps = []
+
+[quick_launch]
+# Desktop entry ids on the quick launch dock, up to six. Missing entries are skipped.
+apps = ["firefox.desktop", "org.gnome.Nautilus.desktop", "foot.desktop", "org.gnome.Calculator.desktop"]
+
+[notifications]
+# Milliseconds a banner stays in the status bar before it collapses to an icon.
+banner_ms = 5000
+# Milliseconds a notification lives when the sender asks for the server default, or 0 for never.
+default_expire_ms = 0
+# Take org.freedesktop.Notifications from a running daemon: true or false. A change needs a restart.
+replace_daemon = false
+# Play a sound for a banner and an alert: true or false.
+sound = true
+
+[just_type]
+# Web search address. %s is replaced with the typed text.
+search_url = "https://duckduckgo.com/?q=%s"
+# Offer to run the typed text as a command: true or false.
+run = true
+# Offer to search the web for the typed text: true or false.
+web = true
+
+[lock]
+# Unlock entry: "pin" for a number pad, "password" for a text field.
+style = "password"
+# PAM service that checks the unlock entry. A change needs a restart.
+pam_service = "login"
+# Seconds without input before the screen locks, or 0 to never lock on idle.
+idle_lock_seconds = 0
+
+[keyboard]
+# The on-screen keyboard. It rises when a touch focuses a text field, and
+# a swipe up from the right end of the bottom edge raises it by hand.
+enabled = true            # false: never shown, no gesture
+layouts = []              # us-qwerty, us-dvorak, se-qwerty, se-dvorak, fr-azerty, de-qwertz, xkb; empty picks from LANG
+size = "m"                # xs, s, m, l; the size chosen on the Hide key is kept in the state file and wins
+sounds = true             # key clicks
+spaces2period = true      # a quick second Space types ". "
+trace = true              # swipe typing where a word list exists
+diamonds = true           # row-edge hit correction
+fcitx5 = true             # false: never take org.fcitx.Fcitx5.VirtualKeyboard
+manual_edge = 0.15        # fraction of the bottom edge, from the right, that raises it
+long_press_ms = 350
+repeat_delay_ms = 350
+repeat_interval_ms = 120
+
+[keybindings]
+# Chord = action. Actions: card_view, launcher, quick_launch, maximize, back, next,
+# previous, home, dashboard, lock, close, keyboard. "Super" alone is a press and release of Super.
+"Super" = "card_view"
+"Super+space" = "launcher"
+"Super+d" = "quick_launch"
+"Super+Up" = "maximize"
+"Super+BackSpace" = "back"
+"Super+Right" = "next"
+"Super+Left" = "previous"
+"Super+Home" = "home"
+"Super+n" = "dashboard"
+"Super+l" = "lock"
+"Super+q" = "close"
+"Super+k" = "keyboard"
+
+# Window rules. Each rule matches app_id and title, and sets:
+# stack = "new" | "join" | "auto", output = an output name, fullscreen = true | false.
+# [[rule]]
+# app_id = "mpv"
+# fullscreen = true

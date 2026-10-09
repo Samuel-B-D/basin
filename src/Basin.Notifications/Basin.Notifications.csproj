@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Basin.Notifications</PackageId>
+    <RootNamespace>Basin.Notifications</RootNamespace>
+    <Description>org.freedesktop.Notifications on the compositor's event loop: the Desktop Notifications 1.2 service, a toolkit-free notification model, expiry on a loop timer and in-process posting, with no UI and no policy.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Basin.Tests" />
+    <ProjectReference Include="../Basin.Core/Basin.Core.csproj" />
+    <PackageReference Include="Tmds.DBus.Protocol" />
+  </ItemGroup>
+
+</Project>

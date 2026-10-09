@@ -1,0 +1,220 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style Selector="TextBlock.bar">
+    <Setter Property="Foreground" Value="#F3F3F3" />
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.bartitle">
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="Border.barhit">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Border.barhit:pointerover">
+    <Setter Property="Background" Value="#22FFFFFF" />
+  </Style>
+  <Style Selector="Border.menurow:pointerover">
+    <Setter Property="Background" Value="#22FFFFFF" />
+  </Style>
+  <Style Selector="Border.pill">
+    <Setter Property="Width" Value="64" />
+    <Setter Property="Height" Value="28" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Background" Value="#55000000" />
+    <Setter Property="BorderBrush" Value="#30FFFFFF" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="Border.pill.on">
+    <Setter Property="Background" Value="#2071BB" />
+  </Style>
+  <Style Selector="Border.tab">
+    <Setter Property="Padding" Value="18,8" />
+    <Setter Property="CornerRadius" Value="16" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Border.tab TextBlock">
+    <Setter Property="Foreground" Value="#C8C8C8" />
+    <Setter Property="FontSize" Value="18" />
+  </Style>
+  <Style Selector="Border.tab.selected">
+    <Setter Property="Background" Value="#40FFFFFF" />
+  </Style>
+  <Style Selector="Border.tab.selected TextBlock">
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="Border.done">
+    <Setter Property="Padding" Value="16,6" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Background" Value="#2071BB" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.done TextBlock">
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="FontSize" Value="16" />
+  </Style>
+  <Style Selector="Border.searchpill">
+    <Setter Property="Width" Value="420" />
+    <Setter Property="Height" Value="36" />
+    <Setter Property="CornerRadius" Value="18" />
+    <Setter Property="Background" Value="#F2FFFFFF" />
+    <Setter Property="BoxShadow" Value="0 1 3 0 #80000000" />
+  </Style>
+  <Style Selector="Border.searchpill TextBlock">
+    <Setter Property="Foreground" Value="#888888" />
+    <Setter Property="FontSize" Value="17" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Margin" Value="18,0,0,0" />
+  </Style>
+  <Style Selector="TextBlock.iconlabel">
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="TextAlignment" Value="Center" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="MaxLines" Value="2" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="Width" Value="110" />
+  </Style>
+  <Style Selector="Border.badge">
+    <Setter Property="Width" Value="26" />
+    <Setter Property="Height" Value="26" />
+    <Setter Property="CornerRadius" Value="13" />
+    <Setter Property="Background" Value="#202020" />
+    <Setter Property="BorderBrush" Value="White" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Border.badge TextBlock">
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.dock">
+    <Setter Property="Background">
+      <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#88505050" />
+        <GradientStop Offset="0.04" Color="#AA2A2A2A" />
+        <GradientStop Offset="1" Color="#DD000000" />
+      </LinearGradientBrush>
+    </Setter>
+    <Setter Property="BorderBrush" Value="#55FFFFFF" />
+    <Setter Property="BorderThickness" Value="0,1,0,0" />
+  </Style>
+  <Style Selector="Border.dashboard">
+    <Setter Property="Background" Value="#F2343434" />
+    <Setter Property="CornerRadius" Value="0,0,0,8" />
+    <Setter Property="BoxShadow" Value="0 3 10 0 #80000000" />
+    <Setter Property="ClipToBounds" Value="True" />
+  </Style>
+  <Style Selector="TextBlock.dashempty">
+    <Setter Property="Foreground" Value="#A0A0A0" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Margin" Value="16,16" />
+  </Style>
+  <Style Selector="TextBlock.dashsummary">
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="TextBlock.dashbody">
+    <Setter Property="Foreground" Value="#C0C0C0" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="Border.count">
+    <Setter Property="MinWidth" Value="18" />
+    <Setter Property="Height" Value="18" />
+    <Setter Property="CornerRadius" Value="9" />
+    <Setter Property="Background" Value="#2071BB" />
+    <Setter Property="Padding" Value="4,0" />
+  </Style>
+  <Style Selector="Border.count TextBlock">
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.alert">
+    <Setter Property="Background" Value="#F2343434" />
+    <Setter Property="CornerRadius" Value="0,0,10,10" />
+    <Setter Property="Padding" Value="20,16,20,16" />
+    <Setter Property="BoxShadow" Value="0 4 14 0 #A0000000" />
+  </Style>
+  <Style Selector="Border.banner">
+    <Setter Property="Background" Value="#E0000000" />
+    <Setter Property="ClipToBounds" Value="True" />
+    <Setter Property="Padding" Value="6,0" />
+  </Style>
+  <Style Selector="TextBlock.lockclock">
+    <Setter Property="FontSize" Value="112" />
+    <Setter Property="FontWeight" Value="Light" />
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.lockdate">
+    <Setter Property="FontSize" Value="24" />
+    <Setter Property="Foreground" Value="#C8D0DA" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.lockhint">
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="Foreground" Value="#8090A0" />
+  </Style>
+  <Style Selector="TextBlock.lockmessage">
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="Foreground" Value="#E0E0E0" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.ring">
+    <Setter Property="Width" Value="76" />
+    <Setter Property="Height" Value="76" />
+    <Setter Property="CornerRadius" Value="38" />
+    <Setter Property="Background" Value="#30FFFFFF" />
+    <Setter Property="BorderBrush" Value="#90FFFFFF" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Border.lockpad">
+    <Setter Property="Background" Value="#E0222A33" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="20" />
+  </Style>
+  <Style Selector="Border.lockentry">
+    <Setter Property="Height" Value="44" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Background" Value="#40000000" />
+  </Style>
+  <Style Selector="Button.lockkey">
+    <Setter Property="Height" Value="56" />
+    <Setter Property="Margin" Value="4" />
+    <Setter Property="FontSize" Value="24" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.lockpad TextBox">
+    <Setter Property="Background" Value="#F2FFFFFF" />
+    <Setter Property="Foreground" Value="#202020" />
+    <Setter Property="FontSize" Value="20" />
+    <Setter Property="MinHeight" Value="44" />
+  </Style>
+  <Style Selector="TextBox.justtype">
+    <Setter Property="Background" Value="#F2FFFFFF" />
+    <Setter Property="Foreground" Value="#202020" />
+    <Setter Property="FontSize" Value="20" />
+    <Setter Property="MinHeight" Value="44" />
+    <Setter Property="CornerRadius" Value="22" />
+    <Setter Property="Padding" Value="18,8" />
+  </Style>
+  <Style Selector="Border.jtrow">
+    <Setter Property="Padding" Value="12,10" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="Border.jtrow.selected">
+    <Setter Property="Background" Value="#552071BB" />
+  </Style>
+  <Style Selector="Border.jtrow:pointerover">
+    <Setter Property="Background" Value="#22FFFFFF" />
+  </Style>
+</Styles>

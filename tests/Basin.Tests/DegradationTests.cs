@@ -29,6 +29,36 @@ public sealed class DegradationTests
     }
 
     [Fact]
+    public void Notification_server_without_a_session_bus_gives_a_reason_and_does_not_throw()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), $"basin-no-bus-{Environment.ProcessId}");
+        var options = new Basin.Notifications.NotificationServerOptions { Address = $"unix:path={missing}" };
+        using (var loop = new EpollEventLoop())
+        {
+            Assert.Null(Basin.Notifications.NotificationServer.TryCreate(loop, options, out var first));
+            Assert.Contains("not reachable", first);
+        }
+
+        using var host = new CompositorTestHost();
+        var saved = Environment.GetEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS");
+        Environment.SetEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS", null);
+        try
+        {
+            var server = Basin.Notifications.NotificationServer.TryCreate(host.Loop, out var reason);
+            Assert.Null(server);
+            Assert.Contains("DBUS_SESSION_BUS_ADDRESS", reason);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS", saved);
+        }
+
+        var unreachable = Basin.Notifications.NotificationServer.TryCreate(host.Loop, options, out var why);
+        Assert.Null(unreachable);
+        Assert.Contains("not reachable", why);
+    }
+
+    [Fact]
     public void A_colour_manager_that_cannot_convert_refuses_to_freeze()
     {
         using var host = new CompositorTestHost();
@@ -331,6 +361,205 @@ public sealed class DegradationTests
         Assert.Equal(1, entered);
         Assert.Equal(0, preedits);
         AssertClientAlive(host);
+    }
+
+    [Fact]
+    public void An_input_method_relay_without_a_fallback_or_a_client_is_unavailable_and_commits_nothing()
+    {
+        using var host = new CompositorTestHost();
+        using var relay = new InputMethodRelay(host.Display, host.Seat);
+        using var manager = new TextInputManager(host.Display, host.Seat, relay);
+        var window = MappedToplevel.Map(host, host.Client);
+        var textInput = Bind<Basin.Desktop.Protocol.ZwpTextInputManagerV3>(host, "zwp_text_input_manager_v3", 1)
+            .GetTextInput(host.Client.Seat!);
+        var entered = 0;
+        var commits = 0;
+        textInput.Enter += (_, _) => entered++;
+        textInput.CommitString += (_, _) => commits++;
+
+        manager.NotifyFocus(window.ServerSurface);
+        host.PumpUntil(() => entered == 1);
+        textInput.Enable();
+        textInput.Commit();
+        host.PumpToServer();
+        host.PumpToClient();
+
+        Assert.False(relay.IsAvailable);
+        Assert.Null(relay.Fallback);
+        Assert.Equal(0, commits);
+        AssertClientAlive(host);
+    }
+
+    [Fact]
+    public void An_input_method_fallback_is_mirrored_and_commits_while_no_client_is_bound()
+    {
+        using var host = new CompositorTestHost();
+        var fallback = new RecordingTextInputMethod();
+        using var relay = new InputMethodRelay(host.Display, host.Seat, fallback);
+        using var manager = new TextInputManager(host.Display, host.Seat, relay);
+        var window = MappedToplevel.Map(host, host.Client);
+        var textInput = Bind<Basin.Desktop.Protocol.ZwpTextInputManagerV3>(host, "zwp_text_input_manager_v3", 1)
+            .GetTextInput(host.Client.Seat!);
+        var entered = 0;
+        var commits = new List<string?>();
+        var deletes = new List<(uint, uint)>();
+        var dones = 0;
+        textInput.Enter += (_, _) => entered++;
+        textInput.CommitString += (_, e) => commits.Add(e.Text);
+        textInput.DeleteSurroundingText += (_, e) => deletes.Add((e.BeforeLength, e.AfterLength));
+        textInput.Done += (_, _) => dones++;
+
+        Assert.True(relay.IsAvailable);
+        manager.NotifyFocus(window.ServerSurface);
+        host.PumpUntil(() => entered == 1);
+        textInput.Enable();
+        textInput.SetSurroundingText("hello", 5, 5);
+        textInput.SetContentType(
+            Basin.Desktop.Protocol.ZwpTextInputV3.ContentHint.AutoCapitalization,
+            Basin.Desktop.Protocol.ZwpTextInputV3.ContentPurpose.Email);
+        textInput.Commit();
+        host.PumpToServer();
+
+        Assert.Same(window.ServerSurface, fallback.Active);
+        Assert.Equal("hello", fallback.Surrounding);
+        Assert.Equal((uint)Basin.Desktop.Protocol.ZwpTextInputV3.ContentPurpose.Email, fallback.Purpose);
+        Assert.True(fallback.Commits >= 1);
+
+        fallback.Send("a");
+        fallback.SendDelete(1, 0);
+        host.PumpUntil(() => dones >= 2);
+        Assert.Equal("a", Assert.Single(commits));
+        Assert.Equal((1u, 0u), Assert.Single(deletes));
+
+        manager.NotifyFocus(null);
+        host.PumpToServer();
+        Assert.Null(fallback.Active);
+        AssertClientAlive(host);
+    }
+
+    [Fact]
+    public void An_input_method_fallback_is_silenced_while_a_client_is_bound()
+    {
+        using var host = new CompositorTestHost();
+        var fallback = new RecordingTextInputMethod();
+        using var relay = new InputMethodRelay(host.Display, host.Seat, fallback);
+        using var manager = new TextInputManager(host.Display, host.Seat, relay);
+        var window = MappedToplevel.Map(host, host.Client);
+        var textInput = Bind<Basin.Desktop.Protocol.ZwpTextInputManagerV3>(host, "zwp_text_input_manager_v3", 1)
+            .GetTextInput(host.Client.Seat!);
+        var imManager = Bind<Basin.Desktop.Protocol.ZwpInputMethodManagerV2>(host, "zwp_input_method_manager_v2", 1);
+        var entered = 0;
+        var commits = new List<string?>();
+        textInput.Enter += (_, _) => entered++;
+        textInput.CommitString += (_, e) => commits.Add(e.Text);
+
+        manager.NotifyFocus(window.ServerSurface);
+        host.PumpUntil(() => entered == 1);
+        textInput.Enable();
+        textInput.SetSurroundingText("x", 1, 1);
+        textInput.Commit();
+        host.PumpToServer();
+        Assert.Same(window.ServerSurface, fallback.Active);
+
+        var availability = 0;
+        relay.AvailabilityChanged += () => availability++;
+        var inputMethod = imManager.GetInputMethod(host.Client.Seat!);
+        var activated = 0;
+        inputMethod.Activate += (_, _) => activated++;
+        host.PumpUntil(() => activated == 1);
+        Assert.True(relay.HasInputMethodClient);
+        Assert.Equal(1, availability);
+
+        fallback.Send("dropped");
+        inputMethod.CommitString("kept");
+        inputMethod.Commit(1);
+        host.PumpUntil(() => commits.Count == 1);
+        host.PumpToClient();
+        Assert.Equal("kept", Assert.Single(commits));
+        Assert.Equal("x", fallback.Surrounding);
+
+        inputMethod.Dispose();
+        host.PumpToServer();
+        Assert.False(relay.HasInputMethodClient);
+        Assert.Equal(2, availability);
+        Assert.True(relay.IsAvailable);
+        fallback.Send("back");
+        host.PumpUntil(() => commits.Count == 2);
+        Assert.Equal("back", commits[1]);
+        AssertClientAlive(host);
+    }
+
+    private sealed class RecordingTextInputMethod : ITextInputMethod
+    {
+        public Surface? Active { get; private set; }
+
+        public string? Surrounding { get; private set; }
+
+        public uint Purpose { get; private set; }
+
+        public int Commits { get; private set; }
+
+        public bool IsAvailable => true;
+
+        public bool HasKeyboardGrab => false;
+
+        public event Action<PreeditString>? Preedit
+        {
+            add { }
+            remove { }
+        }
+
+        public event Action<string>? CommitString;
+
+        public event Action<uint, uint>? DeleteSurroundingText;
+
+        public event Action? Done;
+
+        public event Action? AvailabilityChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public void Send(string text)
+        {
+            CommitString?.Invoke(text);
+            Done?.Invoke();
+        }
+
+        public void SendDelete(uint before, uint after)
+        {
+            DeleteSurroundingText?.Invoke(before, after);
+            Done?.Invoke();
+        }
+
+        public void Activate(Surface surface) => Active = surface;
+
+        public void Deactivate(Surface surface)
+        {
+            if (ReferenceEquals(Active, surface))
+            {
+                Active = null;
+            }
+        }
+
+        public void SurroundingText(string text, uint cursor, uint anchor) => Surrounding = text;
+
+        public void ContentType(uint hint, uint purpose) => Purpose = purpose;
+
+        public void CursorRectangle(in Box rect)
+        {
+        }
+
+        public void Commit(uint serial) => Commits++;
+
+        public void ForwardKey(uint timeMs, uint keycode, bool pressed)
+        {
+        }
+
+        public void ForwardModifiers(uint depressed, uint latched, uint locked, uint group)
+        {
+        }
     }
 
     [Fact]

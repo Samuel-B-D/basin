@@ -11,10 +11,12 @@ public sealed class InputMethodModule : IProtocolModule
 
     public InputMethodRelay? Relay { get; private set; }
 
+    public ITextInputMethod? Fallback { get; set; }
+
     public IDisposable Install(BasinServices services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        Relay = new InputMethodRelay(services.Display, services.Find<Seat.Seat>());
+        Relay = new InputMethodRelay(services.Display, services.Find<Seat.Seat>(), Fallback);
         services.Use(Relay);
         services.UseDefault<ITextInputMethod>(Relay);
         return Relay;

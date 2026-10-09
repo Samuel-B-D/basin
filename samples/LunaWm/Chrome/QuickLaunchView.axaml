@@ -1,0 +1,34 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:luna="using:LunaWm"
+             x:Class="LunaWm.QuickLaunchView"
+             x:DataType="luna:QuickLaunchModel"
+             Height="80">
+  <Panel>
+    <Border Classes="dock" />
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+      <ItemsControl ItemsSource="{Binding Icons}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <StackPanel Orientation="Horizontal" />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate DataType="luna:LauncherIconModel">
+            <Panel Width="100" Height="80" Background="Transparent" Tag="{Binding}" PointerReleased="OnIcon">
+              <Image Source="{Binding Icon}" Width="64" Height="64" IsVisible="{Binding HasIcon}" />
+              <Border Width="64" Height="64" CornerRadius="14" Background="{Binding Tile}" IsVisible="{Binding !HasIcon}">
+                <TextBlock Text="{Binding Letter}" FontSize="32" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Border>
+            </Panel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <Panel Width="100" Height="80" Background="Transparent" PointerReleased="OnLauncher">
+        <Border Width="52" Height="52" CornerRadius="26" Background="#33FFFFFF" BorderBrush="#66FFFFFF" BorderThickness="1">
+          <Path Data="M 0,12 L 12,0 L 24,12" Stroke="White" StrokeThickness="3" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+      </Panel>
+    </StackPanel>
+  </Panel>
+</UserControl>

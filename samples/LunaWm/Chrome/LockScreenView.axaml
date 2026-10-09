@@ -1,0 +1,54 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:luna="using:LunaWm"
+             x:Class="LunaWm.LockScreenView"
+             x:DataType="luna:LockScreenModel"
+             Focusable="True">
+  <Panel>
+    <Panel.Background>
+      <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#1C2633" />
+        <GradientStop Offset="1" Color="#0A0D12" />
+      </LinearGradientBrush>
+    </Panel.Background>
+    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,70,0,0">
+      <TextBlock x:Name="ClockText" Classes="lockclock" Text="{Binding Clock}" />
+      <TextBlock Classes="lockdate" Text="{Binding Date}" />
+    </StackPanel>
+    <Border x:Name="Ring" Classes="ring" IsVisible="{Binding RingShown}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,60"
+            PointerPressed="OnRingPressed" PointerMoved="OnRingMoved" PointerReleased="OnRingReleased">
+      <Border.RenderTransform>
+        <TranslateTransform />
+      </Border.RenderTransform>
+      <Path Data="M 6,12 L 6,7 A 6,6 0 0 1 18,7 L 18,12 M 3,12 L 21,12 L 21,25 L 3,25 Z" Stroke="White" StrokeThickness="2.5"
+            Width="24" Height="26" HorizontalAlignment="Center" VerticalAlignment="Center" />
+    </Border>
+    <TextBlock Classes="lockhint" Text="Drag up to unlock" IsVisible="{Binding RingShown}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,30" />
+    <Border x:Name="Pad" Classes="lockpad" IsVisible="{Binding PadShown}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,40">
+      <Border.RenderTransform>
+        <TranslateTransform />
+      </Border.RenderTransform>
+      <StackPanel Spacing="12" Width="320">
+        <TextBlock Text="{Binding Message}" Classes="lockmessage" />
+        <Border Classes="lockentry" IsVisible="{Binding Pin}">
+          <TextBlock Text="{Binding Dots}" FontSize="26" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <TextBox x:Name="PasswordBox" IsVisible="{Binding Password}" PasswordChar="&#x25cf;" Text="{Binding Entry}" PlaceholderText="Password"
+                 KeyDown="OnPasswordKey" />
+        <ItemsControl IsVisible="{Binding Pin}" ItemsSource="{x:Static luna:LockScreenView.Keys}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <UniformGrid Columns="3" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <Button Classes="lockkey" Content="{Binding}" Tag="{Binding}" Click="OnKey" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button Classes="lockdone" Content="Done" HorizontalAlignment="Stretch" Click="OnDone" IsEnabled="{Binding !Busy}" />
+      </StackPanel>
+    </Border>
+  </Panel>
+</UserControl>

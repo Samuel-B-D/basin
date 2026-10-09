@@ -83,6 +83,67 @@ public sealed class TransformRenderTests
         return source;
     }
 
+    private static MemoryBuffer Strip(params uint[] colors)
+    {
+        var source = new MemoryBuffer(colors.Length, 1, DrmFormat.Argb8888);
+        Assert.True(source.BeginDataAccess(BufferDataAccess.Write, out var view));
+        unsafe
+        {
+            var row = (uint*)view.Data;
+            for (var i = 0; i < colors.Length; i++)
+            {
+                row[i] = colors[i];
+            }
+        }
+
+        source.EndDataAccess();
+        return source;
+    }
+
+    [Theory]
+    [MemberData(nameof(Renderers))]
+    public void A_rotated_crop_samples_only_its_texels_and_keeps_its_edge(string renderer)
+    {
+        CompositorTestHost.SkipUnlessRunnable(renderer);
+        using var host = new CompositorTestHost(renderer: renderer);
+        var source = Strip(0xffff0000, 0xff00ff00, 0xff0000ff, 0xffffffff);
+        using var sourceGuard = new DeferDestroy(source);
+        var texture = host.Renderer.ImportTexture(source);
+        Assert.NotNull(texture);
+
+        var target = new MemoryBuffer(96, 96, DrmFormat.Xrgb8888);
+        using var targetGuard = new DeferDestroy(target);
+        var pass = host.Renderer.BeginBufferPass(target, new RenderPassOptions());
+        pass.AddRect(new RenderColor(0.1f, 0.1f, 0.1f, 1f), new Box(0, 0, 96, 96));
+        pass.AddTexture(texture!, new TextureRenderOptions
+        {
+            DstBox = new Box(0, 0, 8, 8),
+            SrcBox = new FBox(0, 0, 3, 1),
+            Transform = RenderTransform.RotationAbout(0.3, 4, 4),
+        });
+        pass.AddRect(new RenderColor(0.1f, 0.1f, 0.1f, 1f), new Box(0, 0, 96, 96));
+        pass.AddTexture(texture!, new TextureRenderOptions
+        {
+            DstBox = new Box(28, 28, 40, 40),
+            SrcBox = new FBox(1, 0, 1, 1),
+            Transform = RenderTransform.RotationAbout(0.5, 48, 48),
+        });
+        Assert.True(pass.Submit());
+
+        var pixels = BufferCapture.ReadRgba(target);
+        texture!.Dispose();
+        int R(int x, int y) => pixels[((y * 96) + x) * 4];
+        int G(int x, int y) => pixels[(((y * 96) + x) * 4) + 1];
+        int B(int x, int y) => pixels[(((y * 96) + x) * 4) + 2];
+        Assert.True(G(48, 48) >= 240, $"{renderer}: center {R(48, 48)},{G(48, 48)},{B(48, 48)} top {R(48, 30)},{G(48, 30)},{B(48, 30)}");
+        Assert.InRange(R(48, 48), 0, 30);
+        Assert.True(G(48, 30) >= 128, $"{renderer}: inside the edge {R(48, 30)},{G(48, 30)},{B(48, 30)}");
+        foreach (var (x, y) in new[] { (26, 26), (70, 70), (70, 26), (26, 70), (22, 48), (74, 48) })
+        {
+            Assert.True(R(x, y) <= 40 && G(x, y) <= 40 && B(x, y) <= 40, $"{renderer}: outside the quad at {x},{y}: {R(x, y)},{G(x, y)},{B(x, y)}");
+        }
+    }
+
     [Theory]
     [MemberData(nameof(Renderers))]
     public void Translation_transform_matches_offset_draw(string renderer)

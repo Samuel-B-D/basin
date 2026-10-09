@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Basin.SystemStatus</PackageId>
+    <RootNamespace>Basin.SystemStatus</RootNamespace>
+    <Description>System status readers for Basin shells: the UPower display device, NetworkManager and BlueZ over one shared system-bus connection on the compositor loop.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Basin.Tests" />
+    <ProjectReference Include="../Basin.Core/Basin.Core.csproj" />
+    <PackageReference Include="Tmds.DBus.Protocol" />
+  </ItemGroup>
+
+</Project>

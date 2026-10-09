@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Basin;
+using Basin.Audio.PipeWire;
 using Basin.Config;
 using Basin.Diagnostics;
 using System7.Avalonia.Controls;
@@ -17,6 +18,11 @@ namespace System7Wm;
 internal sealed partial class System7Shell
 {
     private int _patternIndex = -1;
+    private AudioSession? _audio;
+    private SinkVolume? _sinkVolume;
+    private System7SoundSlider? _volumeSlider;
+    private bool _audioTried;
+    private bool _syncingSlider;
 
     private void OpenPanel(string name)
     {
@@ -197,25 +203,19 @@ internal sealed partial class System7Shell
 
     private void OpenSound()
     {
-        var level = _config.Volume >= 0 ? _config.Volume : ReadVolume();
-        var slider = new System7SoundSlider { Minimum = 0, Maximum = 7, Value = level, TickFrequency = 1, IsSnapToTickEnabled = true };
+        var sink = SystemVolume();
+        var level = _config.Volume >= 0 ? _config.Volume : sink is { IsAvailable: true } ? LevelOf(sink) : 4;
+        var slider = new System7SoundSlider { Minimum = 0, Maximum = 7, Value = level, TickFrequency = 1, IsSnapToTickEnabled = true, Name = "volume" };
         var status = new TextBlock();
-        var available = OnPath("wpctl");
+        var available = Muted || sink is { IsAvailable: true };
         slider.IsEnabled = available;
-        status.Text = available ? "" : "wpctl is not installed; the volume cannot be set.";
+        status.Text = available ? "" : "PipeWire has no default sink; the volume cannot be set.";
+        _volumeSlider = slider;
         slider.PropertyChanged += (_, e) =>
         {
-            if (e.Property == Avalonia.Controls.Primitives.RangeBase.ValueProperty)
+            if (e.Property == Avalonia.Controls.Primitives.RangeBase.ValueProperty && !_syncingSlider)
             {
-                var value = (int)Math.Round(slider.Value);
-                _config.Volume = value;
-                SaveSetting("sound", "volume", TomlValue.From((long)value));
-                if (!Muted)
-                {
-                    Spawn($"wpctl set-volume @DEFAULT_AUDIO_SINK@ {value / 7.0:0.00}");
-                }
-
-                BasinReport.Line($"VOLUME {value}");
+                SetVolumeLevel((int)Math.Round(slider.Value));
             }
         };
         var beep = new Button { Content = "Beep", Width = 60, Height = 20, Name = "beep" };
@@ -252,24 +252,74 @@ internal sealed partial class System7Shell
         OpenShellWindow("panel:Sound", "Sound", content, 300, 170);
     }
 
-    private static int ReadVolume()
+    internal void SetVolumeLevel(int value)
     {
-        try
+        value = Math.Clamp(value, 0, 7);
+        _config.Volume = value;
+        SaveSetting("sound", "volume", TomlValue.From((long)value));
+        if (!Muted)
         {
-            var info = new System.Diagnostics.ProcessStartInfo("wpctl", ["get-volume", "@DEFAULT_AUDIO_SINK@"]) { RedirectStandardOutput = true, UseShellExecute = false };
-            using var process = System.Diagnostics.Process.Start(info);
-            var line = process?.StandardOutput.ReadLine() ?? "";
-            process?.WaitForExit(1000);
-            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            return parts.Length >= 2 && double.TryParse(parts[1], System.Globalization.CultureInfo.InvariantCulture, out var volume)
-                ? (int)Math.Clamp(Math.Round(volume * 7), 0, 7)
-                : 4;
+            _ = SystemVolume()?.SetVolume(value / 7f);
         }
-        catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException)
+
+        BasinReport.Line($"VOLUME {value}");
+        if (_volumeSlider is { } slider && (int)Math.Round(slider.Value) != value)
         {
-            return 4;
+            _syncingSlider = true;
+            slider.Value = value;
+            _syncingSlider = false;
         }
     }
+
+    private void ReportVolume()
+    {
+        var volume = SystemVolume();
+        _ = _audio?.Roundtrip();
+        if (volume is not { IsAvailable: true } sink)
+        {
+            BasinReport.Line($"SINK none level={(_config.Volume >= 0 ? _config.Volume : 4)}");
+            return;
+        }
+
+        BasinReport.Line($"SINK {sink.SinkName} level={LevelOf(sink)} volume={sink.Volume:0.000} muted={(sink.Muted ? "true" : "false")} route={(sink.UsesRoute ? "true" : "false")}");
+    }
+
+    private SinkVolume? SystemVolume()
+    {
+        if (Muted)
+        {
+            return null;
+        }
+
+        if (!_audioTried)
+        {
+            _audioTried = true;
+            _audio = AudioSession.TryCreate(_host.Loop, out var reason, clientName: "system7-wm");
+            if (_audio is null)
+            {
+                _log.Warn($"the volume cannot be set: {reason}");
+                return null;
+            }
+
+            _sinkVolume = new SinkVolume(_audio);
+            if (!_audio.WaitFor(() => _sinkVolume.IsAvailable, 1000))
+            {
+                _log.Warn($"PipeWire at {_audio.Remote} has no default sink with a volume");
+            }
+        }
+
+        return _sinkVolume;
+    }
+
+    private void DisposeVolume()
+    {
+        _sinkVolume?.Dispose();
+        _sinkVolume = null;
+        _audio?.Dispose();
+        _audio = null;
+    }
+
+    private static int LevelOf(SinkVolume sink) => (int)Math.Clamp(Math.Round(sink.Volume * 7), 0, 7);
 
     private static bool OnPath(string program)
     {

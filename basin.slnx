@@ -22,6 +22,7 @@
     <Project Path="samples/DungeonWm/DungeonWm.csproj" />
     <Project Path="samples/Westonia/Westonia.csproj" />
     <Project Path="samples/System7Wm/System7Wm.csproj" />
+    <Project Path="samples/LunaWm/LunaWm.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Basin.AppMenu/Basin.AppMenu.csproj" />
@@ -36,6 +37,9 @@
     <Project Path="src/Basin.Frames.MsStyles.Quill/Basin.Frames.MsStyles.Quill.csproj" />
     <Project Path="src/Basin.Themes.MsStyles/Basin.Themes.MsStyles.csproj" />
     <Project Path="src/Basin.Pty/Basin.Pty.csproj" />
+    <Project Path="src/Basin.SoftKeyboard/Basin.SoftKeyboard.csproj" />
+    <Project Path="src/Basin.SoftKeyboard.Fcitx5/Basin.SoftKeyboard.Fcitx5.csproj" />
+    <Project Path="src/Basin.Notifications/Basin.Notifications.csproj" />
     <Project Path="src/Basin.Backend.Wayland/Basin.Backend.Wayland.csproj" />
     <Project Path="src/Basin.Backend.Wayland.Skia/Basin.Backend.Wayland.Skia.csproj" />
     <Project Path="src/Basin.Backend.Drm/Basin.Backend.Drm.csproj" />
@@ -82,6 +86,7 @@
     <Project Path="src/Basin.Physics.Bepu/Basin.Physics.Bepu.csproj" />
     <Project Path="src/Basin.Scene/Basin.Scene.csproj" />
     <Project Path="src/Basin.Audio.PipeWire/Basin.Audio.PipeWire.csproj" />
+    <Project Path="src/Basin.SystemStatus/Basin.SystemStatus.csproj" />
     <Project Path="src/Basin.Screencast.PipeWire/Basin.Screencast.PipeWire.csproj" />
     <Project Path="src/Basin.Testing/Basin.Testing.csproj" />
     <Project Path="src/Basin.Transport.Waypipe/Basin.Transport.Waypipe.csproj" />
@@ -114,12 +119,14 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Basin.Tests/Basin.Tests.csproj" />
+    <Project Path="tests/Basin.SoftKeyboard.Tests/Basin.SoftKeyboard.Tests.csproj" />
     <Project Path="tests/BasinChurn/BasinChurn.csproj" />
     <Project Path="tests/BasinMcp.Tests/BasinMcp.Tests.csproj" />
     <Project Path="tests/MauiComp.Tests/MauiComp.Tests.csproj" />
     <Project Path="tests/Westonia.Tests/Westonia.Tests.csproj" />
     <Project Path="tests/EightWm.Tests/EightWm.Tests.csproj" />
     <Project Path="tests/System7Wm.Tests/System7Wm.Tests.csproj" />
+    <Project Path="tests/LunaWm.Tests/LunaWm.Tests.csproj" />
     <Project Path="tests/DungeonWm.Tests/DungeonWm.Tests.csproj" />
     <Project Path="tests/TinyComp.Tests/TinyComp.Tests.csproj" />
   </Folder>

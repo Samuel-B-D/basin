@@ -413,6 +413,7 @@ internal sealed partial class System7Shell : IDisposable
         _pattern.Dispose();
         _registrar?.Dispose();
         _menuBus?.Dispose();
+        DisposeVolume();
         foreach (var window in _hostWindows)
         {
             window.Dispose();

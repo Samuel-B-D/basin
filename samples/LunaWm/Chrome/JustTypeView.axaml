@@ -1,0 +1,31 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:enyo="https://github.com/avaenyo"
+             xmlns:luna="using:LunaWm"
+             x:Class="LunaWm.JustTypeView"
+             x:DataType="luna:JustTypeModel">
+  <Panel Background="#E6101114">
+    <DockPanel Width="640" HorizontalAlignment="Center">
+      <TextBox x:Name="Field" DockPanel.Dock="Top" Classes="justtype" Margin="0,16,0,12" Text="{Binding Query}" PlaceholderText="Just type..."
+               KeyDown="OnFieldKey" />
+      <ScrollViewer>
+        <ItemsControl ItemsSource="{Binding Rows}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate DataType="luna:JustTypeRow">
+              <Panel>
+                <enyo:Divider Caption="{Binding Label}" IsVisible="{Binding IsHeader}" />
+                <Border Classes="jtrow" Classes.selected="{Binding Selected}" IsVisible="{Binding IsResult}" Tag="{Binding}" PointerReleased="OnRow">
+                  <DockPanel>
+                    <Image DockPanel.Dock="Left" Source="{Binding Icon}" Width="32" Height="32" Margin="0,0,12,0" IsVisible="{Binding HasIcon}" />
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding Detail}" Foreground="#9AA0A8" FontSize="14" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding Label}" Foreground="White" FontSize="18" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                  </DockPanel>
+                </Border>
+              </Panel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </DockPanel>
+  </Panel>
+</UserControl>

@@ -64,7 +64,7 @@ tracking = ""
 # Alert sound: a System 7 sound by name (Droplet, Indigo, Quack, Sosumi, Wild Eep),
 # a sound file path, or empty for Simple Beep. Played through pw-play, paplay or aplay.
 alert = ""
-# Output volume from 0 to 7, applied through wpctl, or -1 to leave the volume alone.
+# Output volume from 0 to 7, applied to the default PipeWire sink, or -1 to leave the volume alone.
 volume = -1
 
 [terminal]

@@ -1,0 +1,29 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:luna="using:LunaWm"
+             x:Class="LunaWm.AlertView"
+             x:DataType="luna:AlertModel">
+  <Border Classes="alert" Width="{Binding SheetWidth}" HorizontalAlignment="Center" VerticalAlignment="Top">
+    <StackPanel Spacing="12">
+      <DockPanel>
+        <Image DockPanel.Dock="Left" Source="{Binding Icon}" Width="48" Height="48" Margin="0,0,14,0" IsVisible="{Binding HasIcon}" />
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="{Binding Summary}" FontSize="20" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding Body}" FontSize="16" Foreground="#D0D0D0" TextWrapping="Wrap" />
+        </StackPanel>
+      </DockPanel>
+      <ItemsControl ItemsSource="{Binding Actions}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <UniformGrid Rows="1" />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate DataType="luna:AlertActionModel">
+            <Button Classes="alertbutton" Content="{Binding Label}" Tag="{Binding Key}" Click="OnAction" HorizontalAlignment="Stretch" Margin="4,0" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </Border>
+</UserControl>

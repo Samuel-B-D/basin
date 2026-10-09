@@ -336,7 +336,16 @@ public sealed class ToplevelWindows : IDisposable
 
     private void ApplyCursorSurface(int id, Surface surface, int hotspotX, int hotspotY)
     {
-        if (AvaloniaCursor.FromSurface(surface, hotspotX, hotspotY) is not { } cursor)
+        var cursor = AvaloniaCursor.FromSurface(surface, hotspotX, hotspotY);
+
+        // A cursor surface is never composited here, so nothing else would answer
+        // its frame callbacks; the host cursor taking the image is its frame.
+        // Xwayland waits on that callback before it draws the next cursor, and
+        // without it every X11 window kept its first cursor until the pointer
+        // left and re-entered.
+        surface.SendFrameDone((uint)Environment.TickCount);
+
+        if (cursor is null)
         {
             return;
         }

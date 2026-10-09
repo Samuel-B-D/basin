@@ -1378,6 +1378,7 @@ public sealed class ToplevelWindows : IDisposable
         var placedPosition = new global::Avalonia.PixelPoint(entry.HostX, entry.HostY);
         var placedWidth = entry.WindowWidth;
         var placedHeight = entry.WindowHeight;
+        var stacking = LayerStackingOrder();
         RunOnUi(() =>
         {
             LayerWindow window;
@@ -1411,8 +1412,43 @@ public sealed class ToplevelWindows : IDisposable
             {
                 window.Activate();
             }
+
+            RestackLayerWindows(stacking);
         });
         ArrangeLayers();
+    }
+
+    // Layer surfaces stack by layer, then newest on top within a layer. Host
+    // windows in one band stack by whichever was shown last instead, so a
+    // surface that maps after a newer one (a menu's full-screen click catcher,
+    // say) would otherwise end up covering it.
+    private int[] LayerStackingOrder()
+    {
+        var ranked = new (int Rank, int Id)[_layers.Count];
+        for (var i = 0; i < _layers.Count; i++)
+        {
+            ranked[i] = (((int)_layers[i].Layer.Layer * LayerStride) + i, _layers[i].Entry.Id);
+        }
+
+        Array.Sort(ranked, static (a, b) => a.Rank.CompareTo(b.Rank));
+        var order = new int[ranked.Length];
+        for (var i = 0; i < ranked.Length; i++)
+        {
+            order[i] = ranked[i].Id;
+        }
+
+        return order;
+    }
+
+    private void RestackLayerWindows(int[] bottomToTop)
+    {
+        foreach (var id in bottomToTop)
+        {
+            if (_layerWindows.TryGetValue(id, out var window) && window.IsVisible)
+            {
+                window.Raise();
+            }
+        }
     }
 
     private void OnLayerCommitted(LayerSurface layer, Entry entry)

@@ -43,6 +43,14 @@ internal static class Win32WindowLevel
         _ = SetWindowPos(hwnd, HwndBottom, 0, 0, 0, 0, SwpNoSize | SwpNoMove | SwpNoActivate);
     }
 
+    internal static void Raise(IPlatformHandle handle)
+    {
+        if (handle.Handle != 0)
+        {
+            _ = SetWindowPos(handle.Handle, HwndTopmost, 0, 0, 0, 0, SwpNoSize | SwpNoMove | SwpNoActivate);
+        }
+    }
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPos(nint hwnd, nint insertAfter, int x, int y, int cx, int cy, uint flags);

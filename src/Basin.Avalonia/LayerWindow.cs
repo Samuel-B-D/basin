@@ -9,6 +9,7 @@ public sealed class LayerWindow : Window
     private readonly int _id;
     private readonly BasinToplevelView _view;
     private readonly HashSet<uint> _pressedKeys = [];
+    private readonly WindowsAltGr _altGr = new();
     private bool _takesKeyboard;
     private HostStackingBand _band;
     private bool _closing;
@@ -69,6 +70,18 @@ public sealed class LayerWindow : Window
                 }
 
                 var code = AvaloniaKeyMap.EvdevFor(e.PhysicalKey);
+                if (code != 0 && _altGr.Swallows(code, pressed: true))
+                {
+                    e.Handled = true;
+                    return;
+                }
+
+                if (code != 0 && _altGr.UnmasksControl(code, pressed: true, _pressedKeys.Contains(InputCodes.KeyLeftCtrl)))
+                {
+                    _pressedKeys.Remove(InputCodes.KeyLeftCtrl);
+                    Send(InputKind.Key, code: InputCodes.KeyLeftCtrl, pressed: false);
+                }
+
                 if (code != 0 && _pressedKeys.Add(code))
                 {
                     Send(InputKind.Key, code: code, pressed: true);
@@ -81,6 +94,12 @@ public sealed class LayerWindow : Window
             (object? _, global::Avalonia.Input.KeyEventArgs e) =>
             {
                 var code = AvaloniaKeyMap.EvdevFor(e.PhysicalKey);
+                if (code != 0 && _altGr.Swallows(code, pressed: false))
+                {
+                    e.Handled = true;
+                    return;
+                }
+
                 if (code != 0 && _pressedKeys.Remove(code))
                 {
                     Send(InputKind.Key, code: code, pressed: false);
@@ -227,6 +246,7 @@ public sealed class LayerWindow : Window
 
     private void ReleasePressedKeys()
     {
+        _altGr.Reset();
         foreach (var code in _pressedKeys)
         {
             Send(InputKind.Key, code: code, pressed: false);

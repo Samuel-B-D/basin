@@ -92,6 +92,32 @@ public sealed class UISurfaceNodeTests
     }
 
     [Fact]
+    public void Configuring_a_device_placed_node_keeps_the_device_box_as_its_extent()
+    {
+        var scene = new Scene.Scene();
+        using var host = new FalsifierUIHost();
+        var node = new UISurfaceNode(scene.Root, host);
+
+        var chrome = node.PlaceDevice(0, 0, 1.75, new Box(838, 297, 596, 978));
+        Assert.Equal(2, chrome);
+        Assert.True(node.Configure(298, 489, chrome));
+        Paint((FalsifierUISurface)node.Surface!);
+        Assert.True(node.Publish());
+        var width = node.Node.DestinationWidth;
+        var height = node.Node.DestinationHeight;
+        Assert.True(width * 1.75 >= 596);
+        Assert.True(height * 1.75 >= 978);
+
+        node.PlaceDevice(0, 0, 1.75, new Box(1017, 297, 596, 978));
+        Assert.True(node.Configure(298, 489, chrome));
+        Assert.True(node.Node.DestinationWidth * 1.75 >= 596);
+        Assert.True(node.Node.DestinationHeight * 1.75 >= 978);
+
+        node.Dispose();
+        scene.Root.Destroy();
+    }
+
+    [Fact]
     public void A_declined_surface_faults_the_node_once()
     {
         var scene = new Scene.Scene();

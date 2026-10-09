@@ -176,8 +176,17 @@ public sealed class UISurfaceNode : IUISurfaceObserver, IDisposable
         _width = width;
         _height = height;
         _scale = scale;
-        _node.DestinationWidth = width;
-        _node.DestinationHeight = height;
+        if (DevicePixels is { } pixels)
+        {
+            _node.DestinationWidth = (int)Math.Ceiling((pixels.Width + Math.Max(0, DeviceNudge.X)) / OutputScale);
+            _node.DestinationHeight = (int)Math.Ceiling((pixels.Height + Math.Max(0, DeviceNudge.Y)) / OutputScale);
+        }
+        else
+        {
+            _node.DestinationWidth = width;
+            _node.DestinationHeight = height;
+        }
+
         return true;
     }
 

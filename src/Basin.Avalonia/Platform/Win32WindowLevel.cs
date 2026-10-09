@@ -51,6 +51,33 @@ internal static class Win32WindowLevel
         }
     }
 
+    // Windows 11 rounds and outlines every top-level window, borderless ones
+    // included; a layer surface (panel, menu, full-screen overlay) draws its own
+    // edges, so ask DWM for square corners and no border.
+    internal static void RemoveFrame(IPlatformHandle handle)
+    {
+        if (handle.Handle == 0)
+        {
+            return;
+        }
+
+        var corners = DwmCornerDoNotRound;
+        _ = DwmSetWindowAttribute(handle.Handle, DwmWindowCornerPreference, ref corners, sizeof(int));
+        var border = DwmColorNone;
+        _ = DwmSetWindowAttribute(handle.Handle, DwmBorderColor, ref border, sizeof(uint));
+    }
+
+    private const int DwmWindowCornerPreference = 33;
+    private const int DwmBorderColor = 34;
+    private const int DwmCornerDoNotRound = 1;
+    private const uint DwmColorNone = 0xFFFFFFFE;
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(nint hwnd, int attribute, ref int value, int size);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(nint hwnd, int attribute, ref uint value, int size);
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPos(nint hwnd, nint insertAfter, int x, int y, int cx, int cy, uint flags);

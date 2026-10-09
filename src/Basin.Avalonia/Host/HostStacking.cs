@@ -35,6 +35,27 @@ public static class HostStacking
         }
     }
 
+    // Drops the frame the host desktop draws around every window (Windows 11's
+    // rounded corners and border), for windows that draw their own edges.
+    internal static void RemoveFrame(global::Avalonia.Controls.Window window)
+    {
+        if (!OperatingSystem.IsWindows() || window.TryGetPlatformHandle() is not { } handle)
+        {
+            return;
+        }
+
+        try
+        {
+            Win32WindowLevel.RemoveFrame(handle);
+        }
+        catch (DllNotFoundException)
+        {
+        }
+        catch (EntryPointNotFoundException)
+        {
+        }
+    }
+
     internal static void Apply(global::Avalonia.Controls.Window window, HostStackingBand band, bool takesKeyboard)
     {
         if (window.TryGetPlatformHandle() is not { } handle)

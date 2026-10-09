@@ -15,6 +15,26 @@ public static class HostStacking
     public static bool IsTopmost(HostStackingBand band) =>
         band is HostStackingBand.Above or HostStackingBand.Overlay;
 
+    // Puts the window on top of the others in its band, without activating it.
+    internal static void Raise(global::Avalonia.Controls.Window window, HostStackingBand band)
+    {
+        if (!OperatingSystem.IsWindows() || !IsTopmost(band) || window.TryGetPlatformHandle() is not { } handle)
+        {
+            return;
+        }
+
+        try
+        {
+            Win32WindowLevel.Raise(handle);
+        }
+        catch (DllNotFoundException)
+        {
+        }
+        catch (EntryPointNotFoundException)
+        {
+        }
+    }
+
     internal static void Apply(global::Avalonia.Controls.Window window, HostStackingBand band, bool takesKeyboard)
     {
         if (window.TryGetPlatformHandle() is not { } handle)

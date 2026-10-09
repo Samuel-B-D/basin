@@ -177,6 +177,8 @@ public sealed class LayerWindow : Window
         HostStacking.Apply(this, band, _takesKeyboard);
     }
 
+    internal void Raise() => HostStacking.Raise(this, _band);
+
     internal void PlaceAt(PixelPoint position, double width, double height)
     {
         Width = width;

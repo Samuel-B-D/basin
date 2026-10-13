@@ -622,6 +622,19 @@ public sealed class ToplevelWindow : Window, ICaptureTarget
             Send(InputKind.Key, code: InputCodes.KeyLeftCtrl, pressed: false);
         }
 
+        switch (_altGr.Chord(code, _pressedKeys))
+        {
+            case AltGrChord.Swallow:
+                e.Handled = true;
+                return;
+            case AltGrChord.Start:
+                InjectKey(InputCodes.KeyLeftCtrl, pressed: false);
+                InjectKey(InputCodes.KeyLeftAlt, pressed: false);
+                InjectKey(InputCodes.KeyRightAlt, pressed: true);
+                e.Handled = true;
+                return;
+        }
+
         if (_pressedKeys.Add(code))
         {
             Send(InputKind.Key, code: code, pressed: true);
@@ -683,6 +696,18 @@ public sealed class ToplevelWindow : Window, ICaptureTarget
         if (_altGr.Swallows(code, pressed: false))
         {
             e.Handled = true;
+            return;
+        }
+
+        if (_altGr.EndsChord(code, out var releaseRightAlt))
+        {
+            if (releaseRightAlt)
+            {
+                InjectKey(InputCodes.KeyRightAlt, pressed: false);
+            }
+
+            e.Handled = true;
+            ReleaseStaleModifiers(e.KeyModifiers);
             return;
         }
 

@@ -82,6 +82,19 @@ public sealed class LayerWindow : Window
                     Send(InputKind.Key, code: InputCodes.KeyLeftCtrl, pressed: false);
                 }
 
+                switch (code != 0 ? _altGr.Chord(code, _pressedKeys) : AltGrChord.None)
+                {
+                    case AltGrChord.Swallow:
+                        e.Handled = true;
+                        return;
+                    case AltGrChord.Start:
+                        SetKey(InputCodes.KeyLeftCtrl, pressed: false);
+                        SetKey(InputCodes.KeyLeftAlt, pressed: false);
+                        SetKey(InputCodes.KeyRightAlt, pressed: true);
+                        e.Handled = true;
+                        return;
+                }
+
                 if (code != 0 && _pressedKeys.Add(code))
                 {
                     Send(InputKind.Key, code: code, pressed: true);
@@ -97,6 +110,18 @@ public sealed class LayerWindow : Window
                 if (code != 0 && _altGr.Swallows(code, pressed: false))
                 {
                     e.Handled = true;
+                    return;
+                }
+
+                if (code != 0 && _altGr.EndsChord(code, out var releaseRightAlt))
+                {
+                    if (releaseRightAlt)
+                    {
+                        SetKey(InputCodes.KeyRightAlt, pressed: false);
+                    }
+
+                    e.Handled = true;
+                    ReleaseStaleModifiers(e.KeyModifiers);
                     return;
                 }
 
@@ -244,6 +269,15 @@ public sealed class LayerWindow : Window
         {
             _pressedKeys.Remove(code);
             Send(InputKind.Key, code: code, pressed: false);
+        }
+    }
+
+    // Presses or releases a key on the client, if that changes what it holds.
+    private void SetKey(uint code, bool pressed)
+    {
+        if (pressed ? _pressedKeys.Add(code) : _pressedKeys.Remove(code))
+        {
+            Send(InputKind.Key, code: code, pressed: pressed);
         }
     }
 
